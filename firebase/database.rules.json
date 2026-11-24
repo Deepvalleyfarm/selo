@@ -1,0 +1,21 @@
+{
+  "rules": {
+    "presence": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin != null)",
+        ".write": "auth != null && auth.uid === $uid && auth.token.role === 'RIDER'"
+      }
+    },
+    "riderLocations": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.admin != null || root.child('orderViewers').child($uid).child(auth.uid).exists())",
+        ".write": "auth != null && auth.uid === $uid && auth.token.role === 'RIDER'",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'at'])"
+      }
+    },
+    "orderViewers": { ".read": false, ".write": false },
+    "riderAvailableCount": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid", ".write": false }
+    }
+  }
+}

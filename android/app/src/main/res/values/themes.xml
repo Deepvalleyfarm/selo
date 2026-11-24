@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Selo" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#CC0023</item>
+        <item name="android:windowBackground">@color/selo_red</item>
+    </style>
+    <color name="selo_red">#CC0023</color>
+    <color name="white">#FFFFFF</color>
+</resources>

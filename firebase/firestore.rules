@@ -1,0 +1,109 @@
+rules_version = '2';
+// SeloNaChipa — named database ai-studio-611c950c-febe-47c1-afff-35dcb0788339.
+// Money, roles, KYC, PINs and config are written ONLY by Cloud Functions (Admin SDK bypasses rules).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me(uid) { return signedIn() && request.auth.uid == uid; }
+    function role() { return request.auth.token.role; }
+    function admin() { return signedIn() && request.auth.token.admin != null; }
+    function adminIn(roles) { return admin() && (request.auth.token.admin == 'super_admin' || request.auth.token.admin in roles); }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    // Public, read before login: welcome adverts, live config, question bank, categories
+    match /platformConfig/{id} { allow read: if true; }
+    match /contentBlocks/{id} {
+      allow read: if resource.data.active == true || admin();
+      allow write: if adminIn(['moderator']) && request.resource.data.updatedBy == request.auth.uid;
+    }
+    match /categories/{id} { allow read: if true; allow write: if adminIn(['moderator']); }
+    match /securityQuestionBank/{id} { allow read: if true; allow write: if adminIn(['support', 'compliance']); }
+
+    match /users/{uid} {
+      allow read: if me(uid) || admin();
+      allow update: if me(uid) && onlyChanges(['fullName', 'firstName', 'area', 'landmark', 'language', 'photoUrl', 'notificationPrefs', 'emergencyContact']);
+      match /private/{doc} { allow read, write: if false; }
+    }
+    match /msisdnIndex/{id} { allow read, write: if false; }
+
+    match /stores/{uid} { allow read: if signedIn(); allow write: if me(uid) && role() == 'SELLER'; }
+    match /agentLinks/{id} { allow read: if signedIn() && (resource.data.agentUid == request.auth.uid || resource.data.sellerUid == request.auth.uid) || admin(); }
+
+    match /listings/{id} {
+      allow read: if resource.data.status == 'live' || (signedIn() && (resource.data.sellerUid == request.auth.uid || resource.data.agentUid == request.auth.uid)) || admin();
+      allow update: if signedIn() && (resource.data.sellerUid == request.auth.uid || resource.data.agentUid == request.auth.uid)
+        && resource.data.status != 'removed'
+        && onlyChanges(['status', 'stock', 'title', 'description', 'priceNgwee', 'tags'])
+        && request.resource.data.status in ['live', 'paused', 'draft']
+        && (request.resource.data.status != 'live' || resource.data.status != 'draft');
+      allow create, delete: if false;
+    }
+    match /listingEvents/{id} { allow create: if signedIn() && request.resource.data.uid == request.auth.uid; }
+
+    match /orders/{id} {
+      allow read: if signedIn() && (
+        resource.data.buyerUid == request.auth.uid || resource.data.sellerUid == request.auth.uid ||
+        resource.data.agentUid == request.auth.uid || resource.data.riderUid == request.auth.uid ||
+        (role() == 'RIDER' && resource.data.state == 'BROADCASTING' && request.auth.uid in resource.data.notifiedRiders)) || admin();
+      allow write: if false;
+    }
+    match /deliveryCodes/{id} { allow read: if signedIn() && resource.data.buyerUid == request.auth.uid; }
+    match /escrowLedger/{orderId}/entries/{e} { allow read: if adminIn(['finance', 'analyst']); }
+    match /payouts/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support', 'analyst']); }
+    match /withdrawals/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support']); }
+    match /insurancePolicies/{id} { allow read: if adminIn(['finance', 'operations']); }
+    match /registrationFees/{id} { allow read: if adminIn(['finance', 'compliance']); }
+
+    match /riderWallets/{uid} { allow read: if me(uid) || adminIn(['finance', 'operations', 'support', 'analyst']); }
+    match /sellerStats/{uid} { allow read: if me(uid) || admin(); }
+    match /ledgers/{uid}/entries/{e} { allow read: if me(uid) || adminIn(['finance', 'support']); }
+    match /socialFundTransactions/{id} { allow read: if (signedIn() && resource.data.riderUid == request.auth.uid) || adminIn(['finance']); }
+
+    match /zones/{id} { allow read: if signedIn(); allow write: if adminIn(['operations']); }
+    match /riderZones/{uid} {
+      allow read: if me(uid) || admin();
+      allow write: if me(uid) && role() == 'RIDER' && request.resource.data.keys().hasOnly(['activeZoneIds', 'workingHours', 'updatedAt']);
+    }
+    match /riderPresence/{uid} { allow read: if me(uid) || adminIn(['operations']); }
+
+    match /socialFundClaims/{id} {
+      allow create: if signedIn() && role() == 'RIDER' && request.resource.data.riderUid == request.auth.uid && request.resource.data.status == 'PENDING';
+      allow read: if (signedIn() && resource.data.riderUid == request.auth.uid) || adminIn(['finance']);
+    }
+    match /disputes/{id} {
+      allow create: if signedIn() && request.resource.data.raisedBy == request.auth.uid && request.resource.data.status == 'OPEN';
+      allow read: if (signedIn() && request.auth.uid in resource.data.parties) || adminIn(['support', 'finance']);
+    }
+    match /incidents/{id} {
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['operations', 'support']);
+    }
+    match /chats/{chatId} {
+      allow read: if (signedIn() && request.auth.uid in resource.data.participants) || adminIn(['support']);
+      match /messages/{m} {
+        allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || adminIn(['support']);
+        allow create: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+          && request.resource.data.senderUid == request.auth.uid;
+      }
+    }
+    match /notifications/{uid}/items/{n} {
+      allow read: if me(uid);
+      allow update: if me(uid) && onlyChanges(['readAt']);
+    }
+    match /reviews/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.buyerUid == request.auth.uid
+        && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.state == 'DELIVERED';
+    }
+
+    // Back office only
+    match /kycQueue/{uid} { allow read: if adminIn(['compliance']); }
+    match /moderationQueue/{id} { allow read: if adminIn(['moderator']); }
+    match /auditLogs/{id} { allow read: if adminIn(['analyst', 'compliance', 'finance']); }
+    match /securityEvents/{id} { allow read: if adminIn(['compliance', 'support']); }
+    match /admins/{uid} { allow read: if me(uid) || adminIn([]); }
+    match /lipilaEvents/{id} { allow read: if adminIn(['finance']); }
+    match /reports/{id} { allow read: if admin(); }
+  }
+}

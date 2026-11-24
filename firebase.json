@@ -1,0 +1,29 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-611c950c-febe-47c1-afff-35dcb0788339",
+      "rules": "firebase/firestore.rules",
+      "indexes": "firebase/firestore.indexes.json"
+    }
+  ],
+  "storage": { "rules": "firebase/storage.rules" },
+  "database": { "rules": "firebase/database.rules.json" },
+  "functions": [
+    { "source": "functions", "codebase": "default", "runtime": "nodejs22", "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"] }
+  ],
+  "hosting": {
+    "target": "backoffice",
+    "public": "backoffice/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [{ "source": "**", "headers": [
+      { "key": "X-Frame-Options", "value": "DENY" },
+      { "key": "X-Content-Type-Options", "value": "nosniff" },
+      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+    ] }]
+  },
+  "emulators": {
+    "auth": { "port": 9099 }, "functions": { "port": 5001 }, "firestore": { "port": 8080 },
+    "database": { "port": 9000 }, "storage": { "port": 9199 }, "hosting": { "port": 5000 }, "ui": { "enabled": true }
+  }
+}

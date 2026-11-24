@@ -1,0 +1,23 @@
+{
+  "name": "selo-functions",
+  "private": true,
+  "description": "SeloNaChipa Cloud Functions: auth (PIN + security questions), escrow engine, Lipila payments, AI listings, admin APIs",
+  "main": "lib/index.js",
+  "engines": { "node": "22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "serve": "npm run build && firebase emulators:start --only functions,firestore,auth,storage,database",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "bcryptjs": "^3.0.3",
+    "firebase-admin": "^14.5.1",
+    "firebase-functions": "^7.4.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^5.1.1"
+  }
+}

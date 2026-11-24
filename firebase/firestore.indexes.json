@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    { "collectionGroup": "listings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "publishedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "listings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "category", "order": "ASCENDING" }, { "fieldPath": "publishedAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "buyerUid", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sellerUid", "order": "ASCENDING" }, { "fieldPath": "state", "order": "ASCENDING" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "notifiedRiders", "arrayConfig": "CONTAINS" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "broadcastAt", "order": "ASCENDING" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "deliveredAt", "order": "ASCENDING" } ] },
+    { "collectionGroup": "orders", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "state", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" } ] },
+    { "collectionGroup": "contentBlocks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "type", "order": "ASCENDING" }, { "fieldPath": "active", "order": "ASCENDING" }, { "fieldPath": "slot", "order": "ASCENDING" } ] },
+    { "collectionGroup": "payouts", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "status", "order": "ASCENDING" }, { "fieldPath": "nextAttemptAt", "order": "ASCENDING" } ] },
+    { "collectionGroup": "riderPresence", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "isOnline", "order": "ASCENDING" }, { "fieldPath": "zoneIds", "arrayConfig": "CONTAINS" } ] },
+    { "collectionGroup": "auditLogs", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "action", "order": "ASCENDING" }, { "fieldPath": "at", "order": "DESCENDING" } ] }
+  ],
+  "fieldOverrides": []
+}
