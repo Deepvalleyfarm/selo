@@ -48,7 +48,39 @@ service cloud.firestore {
         (role() == 'RIDER' && resource.data.state == 'BROADCASTING' && request.auth.uid in resource.data.notifiedRiders)) || admin();
       allow write: if false;
     }
-    match /deliveryCodes/{id} { allow read: if signedIn() && resource.data.buyerUid == request.auth.uid; }
+    // 🔒 Parcels v2 §9: delivery-code state (HMAC only) is never readable or writable by any client, admins included.
+    match /orders/{id}/deliveryCode/{doc} { allow read, write: if false; }
+    match /orders/{id}/timeline/{e} {
+      allow read: if signedIn() && (get(/databases/$(database)/documents/orders/$(id)).data.buyerUid == request.auth.uid
+        || get(/databases/$(database)/documents/orders/$(id)).data.sellerUid == request.auth.uid
+        || get(/databases/$(database)/documents/orders/$(id)).data.riderUid == request.auth.uid) || admin();
+    }
+
+    // Parcels v2: status, fees and escrow are written only by Cloud Functions.
+    function parcelParty(p) { return signedIn() && (p.senderUid == request.auth.uid || p.riderUid == request.auth.uid
+      || (p.receiver.uid != null && p.receiver.uid == request.auth.uid)); }
+    match /parcels/{id} {
+      allow read: if parcelParty(resource.data) || admin()
+        || (signedIn() && role() == 'RIDER' && resource.data.status == 'AWAITING_RIDER' && request.auth.uid in resource.data.notifiedRiders);
+      allow write: if false;
+      match /timeline/{e} { allow read: if parcelParty(get(/databases/$(database)/documents/parcels/$(id)).data) || admin(); allow write: if false; }
+      // the 4-digit Pickup PIN: the sender only (never the rider, who must be told it at the door)
+      match /private/{doc} { allow read: if signedIn() && resource.data.senderUid == request.auth.uid; allow write: if false; }
+      match /deliveryCode/{doc} { allow read, write: if false; }
+    }
+    match /escrow_ledger/{e} { allow read: if adminIn(['finance', 'analyst', 'compliance']); allow write: if false; }
+    match /escrow_releases/{e} { allow read, write: if false; }
+    match /deliveryCodeAttempts/{e} { allow read: if adminIn(['operations', 'support', 'compliance']); allow write: if false; }
+    match /codeLocks/{e} { allow read: if adminIn(['operations', 'compliance']); allow write: if false; }
+    match /riderFlags/{uid} { allow read: if adminIn(['operations', 'compliance']); allow write: if false; }
+    match /admin_audit_log/{e} { allow read: if adminIn(['compliance', 'analyst', 'finance', 'operations']); allow write: if false; }
+    match /opsAlerts/{e} { allow read: if adminIn(['operations', 'support']); allow write: if false; }
+    match /riderLocations/{uid} { allow read: if me(uid) || adminIn(['operations']); allow write: if false; }
+    match /riderAreas/{uid} { allow read: if me(uid) || admin(); allow write: if false; }
+    match /cities/{id} { allow read: if true; allow write: if false; match /neighbourhoods/{n} { allow read: if true; allow write: if false; } }
+    // shared platform address store: anyone signed in can search and reuse; only the server creates/dedupes
+    match /addresses/{id} { allow read: if signedIn(); allow write: if false; }
+    match /geocodeCache/{id} { allow read, write: if false; }
     match /escrowLedger/{orderId}/entries/{e} { allow read: if adminIn(['finance', 'analyst']); }
     match /payouts/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support', 'analyst']); }
     match /withdrawals/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support']); }
@@ -84,7 +116,15 @@ service cloud.firestore {
       match /messages/{m} {
         allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || adminIn(['support']);
         allow create: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants
-          && request.resource.data.senderUid == request.auth.uid;
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() <= 1000
+          // order chats close an hour after delivery
+          && (get(/databases/$(database)/documents/chats/$(chatId)).data.get('closesAt', null) == null
+              || request.time < get(/databases/$(database)/documents/chats/$(chatId)).data.closesAt)
+          // 🔒 §18: riders may not send anything that looks like a delivery code, or the words code / PIN
+          && (get(/databases/$(database)/documents/chats/$(chatId)).data.get('riderUid', '') != request.auth.uid
+              || (!request.resource.data.text.matches('.*([0-9][ .-]?){5}.*')
+                  && !request.resource.data.text.lower().matches('(.*[^a-z])?(code|codes|pin)([^a-z].*)?')));
       }
     }
     match /notifications/{uid}/items/{n} {

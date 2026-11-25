@@ -60,4 +60,15 @@ const algo = { version: 1, cohorts: { "0": cohort0 }, centroids: [], variants: [
 batch.set(db.doc("algorithmState/v000001"), { ...algo, changes: [], createdBy: "seed", createdAt: FieldValue.serverTimestamp() });
 batch.set(db.doc("algorithmState/current"), { ...algo, updatedAt: FieldValue.serverTimestamp() });
 await batch.commit();
-console.log("Seeded question bank, platform config, guardrails, algorithm v1, zones, adverts and categories.");
+
+// Parcels v2: the 20 supported cities and their neighbourhoods (functions/src/data/cities.json)
+import { readFileSync } from "node:fs";
+const { cities } = JSON.parse(readFileSync(new URL("../src/data/cities.json", import.meta.url), "utf8"));
+const slug = (s) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+for (const c of cities) {
+  let b = db.batch();
+  b.set(db.doc(`cities/${c.id}`), { name: c.name, province: c.province, centre: { lat: c.lat, lng: c.lng }, radiusKm: c.radiusKm, active: true, neighbourhoodCount: c.neighbourhoods.length });
+  c.neighbourhoods.forEach((name, i) => b.set(db.doc(`cities/${c.id}/neighbourhoods/${slug(name)}`), { name, order: i, active: true }));
+  await b.commit();
+}
+console.log(`Seeded question bank, platform config, guardrails, algorithm v1, zones, adverts, categories and ${cities.length} parcel cities.`);

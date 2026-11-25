@@ -8,3 +8,6 @@ export * from "./algoJobs";
 export * from "./promotions";
 export * from "./rider";
 export * from "./routes";
+export * from "./deliveryConfirmation";
+export * from "./parcels";
+export * from "./geo";

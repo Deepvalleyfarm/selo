@@ -4,7 +4,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { DB_ID, LIPILA_API_KEY, db, loadConfig } from "./config";
 import { broadcastConfigChange } from "./admin";
 import { agentCommission } from "./domain";
-import { completeDelivery, disburse, refund, retryPayout } from "./escrow";
+import { disburse, refund, retryPayout } from "./escrow";
 import { notify } from "./util";
 
 /** No rider within broadcastTimeoutMin → full refund, no fees retained. */
@@ -15,17 +15,23 @@ export const scheduled_broadcastTimeout = onSchedule({ schedule: "every 1 minute
   for (const o of stale.docs) await refund(o.id, "No rider was available");
 });
 
-/** Buyer never confirmed: warn at half time, auto-confirm after autoConfirmHours. */
+/**
+ * Parcels v2 §9.5: nobody is paid without a verified delivery code. Orders stuck in transit are flagged to operations
+ * instead of auto-confirmed (the old 48 h auto-release is gone).
+ */
 export const scheduled_autoConfirm = onSchedule({ schedule: "every 15 minutes" }, async () => {
   const cfg = await loadConfig();
-  const transit = await db.collection("orders").where("state", "==", "IN_TRANSIT").limit(200).get();
-  for (const o of transit.docs) {
-    const since = (o.get("timeline.IN_TRANSIT") as Timestamp | undefined)?.toMillis() ?? Date.now();
-    const age = (Date.now() - since) / 3_600_000;
-    if (age >= cfg.autoConfirmHours) await completeDelivery(o.id, "auto_confirm");
-    else if (age >= cfg.autoConfirmHours / 2 && !o.get("autoConfirmWarned")) {
-      await notify(o.get("buyerUid"), "Please confirm your delivery", `We'll confirm order ${o.id} automatically in ${Math.round(cfg.autoConfirmHours - age)} hours.`, "AUTO_CONFIRM_WARNING");
-      await o.ref.update({ autoConfirmWarned: true });
+  for (const coll of ["orders", "parcels"]) {
+    const f = coll === "orders" ? "state" : "status";
+    for (const st of ["IN_TRANSIT", "AWAITING_DELIVERY_CODE"]) {
+      const docs = await db.collection(coll).where(f, "==", st).limit(200).get();
+      for (const o of docs.docs) {
+        const since = (o.get(`timeline.${st}`) as Timestamp | undefined)?.toMillis() ?? o.get("updatedAt")?.toMillis?.() ?? Date.now();
+        if ((Date.now() - since) / 3_600_000 >= Math.min(cfg.autoConfirmHours, 6) && !o.get("stuckFlagged")) {
+          await o.ref.update({ stuckFlagged: true });
+          await db.collection("opsAlerts").add({ type: "DELIVERY_STUCK", kind: coll === "orders" ? "order" : "parcel", orderId: o.id, status: st, at: Timestamp.now() });
+        }
+      }
     }
   }
 });

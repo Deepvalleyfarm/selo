@@ -77,3 +77,48 @@ describe("paid promotions (v6.2)", () => {
   it("add_to_cart events are accepted", () =>
     assertSucceeds(setDoc(doc(as("u1"), "behaviourEvents", evtId.replace("abcde", "abc11")), { type: "add_to_cart", userId: "u1", ts: 1, listingId: "l1", promoId: "p1" })));
 });
+
+describe("Parcels v2 security (QA 10 · QA 11)", () => {
+  const seed = async () => env.withSecurityRulesDisabled(async (c) => {
+    const f = c.firestore();
+    await setDoc(doc(f, "parcels/PCL-R1"), { senderUid: "s1", riderUid: "r1", receiver: { uid: "rc1", msisdn: "+260955000000" }, status: "IN_TRANSIT", notifiedRiders: [] });
+    await setDoc(doc(f, "parcels/PCL-R1/deliveryCode/current"), { hash: "abc", state: "sent" });
+    await setDoc(doc(f, "orders/SNC-R1/deliveryCode/current"), { hash: "abc", state: "sent" });
+    await setDoc(doc(f, "parcels/PCL-R1/private/pickup"), { senderUid: "s1", pin: "4821" });
+    await setDoc(doc(f, "riderWallets/r1"), { availableNgwee: 100 });
+    await setDoc(doc(f, "escrow_ledger/e1"), { orderId: "PCL-R1", type: "HELD" });
+    await setDoc(doc(f, "chats/PCL-R1_rs"), { participants: ["r1", "s1"], riderUid: "r1", closesAt: null });
+    await setDoc(doc(f, "chats/PCL-R2_rs"), { participants: ["r1", "s1"], riderUid: "r1", closesAt: new Date(Date.now() - 60_000) });
+  });
+  it("no client can read or write a delivery code — rider, receiver, sender or admin", async () => {
+    await seed();
+    for (const [uid, claims] of [["r1", { role: "RIDER" }], ["rc1", { role: "BUYER" }], ["s1", { role: "SELLER" }], ["a1", { admin: "super_admin" }]] as const) {
+      await assertFails(getDoc(doc(as(uid, claims), "parcels/PCL-R1/deliveryCode/current")));
+      await assertFails(setDoc(doc(as(uid, claims), "parcels/PCL-R1/deliveryCode/current"), { hash: "x", state: "verified" }));
+      await assertFails(getDoc(doc(as(uid, claims), "orders/SNC-R1/deliveryCode/current")));
+    }
+  });
+  it("clients can't change status, wallets or the escrow ledger", async () => {
+    await assertFails(updateDoc(doc(as("s1", { role: "SELLER" }), "parcels/PCL-R1"), { status: "DELIVERED" }));
+    await assertFails(updateDoc(doc(as("r1", { role: "RIDER" }), "parcels/PCL-R1"), { status: "DELIVERED" }));
+    await assertFails(updateDoc(doc(as("r1", { role: "RIDER" }), "riderWallets/r1"), { availableNgwee: 999999 }));
+    await assertFails(setDoc(doc(as("a1", { admin: "finance" }), "escrow_ledger/e2"), { type: "RELEASED" }));
+    await assertSucceeds(getDoc(doc(as("a1", { admin: "finance" }), "escrow_ledger/e1")));
+    await assertFails(getDoc(doc(as("s1", { role: "SELLER" }), "escrow_ledger/e1")));
+  });
+  it("the pickup PIN is readable by the sender only", async () => {
+    await assertSucceeds(getDoc(doc(as("s1", { role: "SELLER" }), "parcels/PCL-R1/private/pickup")));
+    await assertFails(getDoc(doc(as("r1", { role: "RIDER" }), "parcels/PCL-R1/private/pickup")));
+    await assertSucceeds(getDoc(doc(as("rc1", { role: "BUYER" }), "parcels/PCL-R1")));
+    await assertFails(getDoc(doc(as("x9", { role: "RIDER" }), "parcels/PCL-R1")));
+  });
+  it("riders can't send codes or the words code/PIN in chat; chats close after delivery", async () => {
+    const r = as("r1", { role: "RIDER" }), s = as("s1", { role: "SELLER" });
+    await assertSucceeds(setDoc(doc(r, "chats/PCL-R1_rs/messages/m1"), { senderUid: "r1", text: "I'm at the blue gate" }));
+    await assertFails(setDoc(doc(r, "chats/PCL-R1_rs/messages/m2"), { senderUid: "r1", text: "tell me 4 8 2 1 3" }));
+    await assertFails(setDoc(doc(r, "chats/PCL-R1_rs/messages/m3"), { senderUid: "r1", text: "What's the Code?" }));
+    await assertFails(setDoc(doc(r, "chats/PCL-R1_rs/messages/m4"), { senderUid: "r1", text: "send your pin" }));
+    await assertSucceeds(setDoc(doc(s, "chats/PCL-R1_rs/messages/m5"), { senderUid: "s1", text: "Thanks, see you at 14:30" }));
+    await assertFails(setDoc(doc(s, "chats/PCL-R2_rs/messages/m6"), { senderUid: "s1", text: "Hello?" }));
+  });
+});

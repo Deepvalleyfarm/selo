@@ -3,7 +3,8 @@ import { getMessaging } from "firebase-admin/messaging";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { DEFAULT_CONFIG, LIPILA_API_KEY, db } from "./config";
-import { completeDelivery, disburse, refund, retryPayout } from "./escrow";
+import { disburse, refund, retryPayout } from "./escrow";
+import { overrideDeliveryCore } from "./deliveryConfirmation";
 import { AdminRole, audit, notify, requireAdmin, securityEvent, str } from "./util";
 import { createHash, randomBytes } from "node:crypto";
 import { Timestamp } from "firebase-admin/firestore";
@@ -98,7 +99,8 @@ export const admin_resolveDispute = onCall({ secrets: [LIPILA_API_KEY] }, async 
   const d = (await dRef.get()).data();
   if (!d) throw new HttpsError("not-found", "Dispute not found.");
   if (outcome === "refund") await refund(d.orderId, "Dispute resolved in your favour");
-  else if (outcome === "release") await completeDelivery(d.orderId, `admin:${a.email}`);
+  else if (outcome === "release") await overrideDeliveryCore(d.kind === "parcel" ? "parcel" : "order", d.orderId, a,
+    `Dispute ${id} resolved in the rider's favour. ${String(req.data?.notes ?? "")}`.trim(), [`dispute:${id}`]);
   else if (outcome === "split") {
     const o = (await db.doc(`orders/${d.orderId}`).get()).data()!;
     const buyerShare = Math.round(Number(req.data?.buyerShareNgwee) || 0);

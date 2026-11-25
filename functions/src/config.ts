@@ -18,6 +18,15 @@ export const LIPILA_WEBHOOK_SECRET = defineSecret("LIPILA_WEBHOOK_SECRET");
 export const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
 /** Google Maps Platform key with the Routes API and Geocoding API enabled (rider turn-by-turn). */
 export const MAPS_API_KEY = defineSecret("MAPS_API_KEY");
+/** Server secret for HMAC-hashing delivery codes. Rotate only when no code is live (open codes would stop matching). */
+export const DELIVERY_CODE_SECRET = defineSecret("DELIVERY_CODE_SECRET");
+/** Zambian SMS gateway (fallback channel for delivery codes and key events). */
+export const SMS_API_KEY = defineSecret("SMS_API_KEY");
+export const SMS_PROVIDER = defineString("SMS_PROVIDER", { default: "africastalking" }); // africastalking | http | log
+export const SMS_USERNAME = defineString("SMS_USERNAME", { default: "" });
+export const SMS_SENDER_ID = defineString("SMS_SENDER_ID", { default: "SeloNaChipa" });
+export const SMS_HTTP_URL = defineString("SMS_HTTP_URL", { default: "" });
+export const TRACKING_BASE_URL = defineString("TRACKING_BASE_URL", { default: "https://mabala-f2d65.web.app/t/" });
 
 // Non-secret parameters (set in functions/.env.<project>)
 export const LIPILA_BASE_URL = defineString("LIPILA_BASE_URL", { default: "https://api.lipila.dev" });
