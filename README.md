@@ -128,6 +128,37 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
 - The amount is always calculated: selected items (cart or Buy now, one seller per order) + delivery + platform fee + transaction fee (`paymentProcessingPct`).
 - If the prompt fails (for example insufficient funds), the order stays open with the reason. The buyer retries with another number (`order_retryPayment`, reference `SELO-COL-{id}-R{n}`), and unpaid orders close after 30 minutes.
 
+## v6.3 — Rider app (PRD 6) and multi-stop routing
+
+**Rider money:** 8% platform fee and 5% Social Fund on every delivery fee. The fund is ring-fenced for claims (`socialFundMilestoneDeliveries: 0`). Hero and Ambassador riders get a platform-funded +10% bonus (`heroBonusPct`). Daily auto-settle pays out at midnight.
+
+**Screens**
+- **Navigation:** five-tab bar (Home · Jobs · Earnings · Fund · More).
+- **Home:** 72 dp Online/Offline toggle with a 2-second colour sweep, and four stat cards.
+- **Dispatch:** full-screen card with a 15-second countdown, Social Fund line and escrow notice.
+- **Active delivery:** route map, live remaining km/ETA/fee, multi-stop timeline, and a proof-of-delivery photo plus the buyer's code. Then the rider rates the buyer.
+- **Jobs:** history with filters and a delivery detail screen showing the fee breakdown and the photo. A Hero tier progress bar sits at the bottom.
+- **Earnings:** weekly target, auto-settle, statement and withdraw.
+- **Social Fund:** 7-day chart, claim categories, tier grid and a 4-step claim flow.
+- **More:** Messages (order chats and dispatch notices), Zone & availability (extra zones and working hours, which dispatch respects), Notifications, Profile (editable), and Settings & support (payout wallet, PIN, security questions, emergency contact, incident reports, weekly target).
+- **Login:** role avatar, on-screen keypad, and a grey keypad during the 30-minute lockout.
+
+**Multi-stop routes and turn-by-turn**
+- **Combining jobs:** a rider can carry up to `maxConcurrentDeliveries` orders. The dispatch card shows how many km a new job adds to the current route.
+- **Planning:** `domain/route/Route.kt` orders all pickups and drop-offs on the phone. Every pickup comes before its own drop-off. It starts with nearest-feasible, then improves with relocate and 2-opt moves.
+- **Directions:** `route_directions` calls the Google Maps Routes API (two-wheeler, falling back to driving). `route_locate` geocodes stops that have no coordinates. The key stays server-side:
+
+  ```bash
+  firebase functions:secrets:set MAPS_API_KEY   # Routes API + Geocoding API enabled
+  ```
+
+- **In-app navigation:**
+  - Live GPS with the current manoeuvre, distance and next step.
+  - Voice prompts at 400, 150 and 30 m.
+  - Automatic re-route when more than 50 m off the route.
+  - Arrival actions (Mark collected / Confirm delivery) at each stop.
+- **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
+
 ## What is in the box
 
 **Android** (`android/app/src/main/java/selo/Nachipa01`)

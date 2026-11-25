@@ -29,12 +29,13 @@ class DomainTest {
     }
 
     @Test fun escrowSplitMatchesPrdExample() {
-        // Goods K200, delivery K40: seller K195, platform K5, rider K39.20, fund K0.80
+        // Goods K200, delivery K40: seller K195, platform K5; rider K40 − 8% (K3.20) − 5% Social Fund (K2.00) = K34.80
         val s = Fees.split(20_000, 4_000, cfg)
         assertEquals(19_500, s.sellerNetNgwee)
         assertEquals(500, s.platformFeeNgwee)
-        assertEquals(3_920, s.riderNetNgwee)
-        assertEquals(80, s.socialFundNgwee)
+        assertEquals(3_480, s.riderNetNgwee)
+        assertEquals(200, s.socialFundNgwee)
+        assertEquals(320, s.riderPlatformFeeNgwee)
     }
 
     @Test fun parcelInsurance() {

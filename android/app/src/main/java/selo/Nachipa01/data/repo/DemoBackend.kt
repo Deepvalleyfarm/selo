@@ -95,9 +95,14 @@ class DemoBackend : Backend {
     override fun adverts(): Flow<List<Advert>> = flowOf(DemoData.adverts)
     override suspend fun questionBank() = DemoData.questions
 
+    private val wrongPins = mutableMapOf<String, Int>()
     override suspend fun login(msisdn: String, pin: String): SessionUser {
         delay(600)
-        Validation.pinProblem(pin)?.let { throw BackendException("Incorrect PIN. 4 attempts left before a 30-minute lock.") }
+        if (Validation.pinProblem(pin) != null) {
+            val n = (wrongPins[msisdn] ?: 0) + 1; wrongPins[msisdn] = if (n >= 5) 0 else n
+            throw BackendException(if (n >= 5) "Too many attempts. Locked for 30 minutes." else "Incorrect PIN. ${5 - n} attempt${if (5 - n == 1) "" else "s"} left before a 30-minute lock.")
+        }
+        wrongPins.remove(msisdn)
         val role = when (msisdn.last()) { '2' -> Role.SELLER; '3' -> Role.AGENT; '4' -> Role.RIDER; else -> Role.BUYER }
         return DemoData.demoUser(role, msisdn).also { session = it }
     }
@@ -263,15 +268,12 @@ class DemoBackend : Backend {
     }
     override suspend fun publishListing(draft: AiDraft, asDraft: Boolean): String { delay(500); return "l-new" }
 
-    override fun riderStats() = online.map { DemoData.riderStats }
-    override fun availableJobs(): Flow<List<Order>> = online.map { on ->
-        if (!on) emptyList() else listOf(Order("SNC-48240", "b3", "s1", "Mama Bupe's Veg",
-            items = listOf(OrderItem("l1", "Tomatoes 5 kg", 2, 8_000)), goodsNgwee = 16_000, deliveryNgwee = 4_000, totalNgwee = 20_000,
-            state = OrderState.BROADCASTING, zone = "Lusaka Central", dropoff = "Woodlands Ext., near Shoprite",
-            pickup = "Soweto Market, stall 14", distanceKm = 4.6))
-    }
-    override suspend fun setOnline(online: Boolean) { this.online.value = online }
-    private val riderJobs = MutableStateFlow<List<Order>>(emptyList())
+    /** Rider side lives in DemoRider; tests can reach it to control dispatch timing. */
+    val rider = DemoRider(scope, PlatformConfig())
+    override fun riderStats() = rider.stats
+    override fun availableJobs(): Flow<List<Order>> = rider.availableJobs()
+    override suspend fun setOnline(online: Boolean) { this.online.value = online; rider.setOnline(online) }
+
     /* ============================================ v6.1 discovery (in-memory, same rules as the server, simplified) */
 
     val eventLog = mutableListOf<selo.Nachipa01.data.events.BehaviourEvent>()
@@ -393,19 +395,42 @@ class DemoBackend : Backend {
         return id
     }
 
-    override suspend fun acceptJob(orderId: String) {
-        delay(400)
-        riderJobs.value = listOf(Order(orderId, "b3", "s1", "Mama Bupe's Veg", "demo-rider", "Chanda M.",
-            listOf(OrderItem("l1", "Tomatoes 5 kg", 2, 8_000)), 16_000, 4_000, 20_000, OrderState.RIDER_ASSIGNED, "Lusaka Central",
-            "Woodlands Ext., near Shoprite", "Soweto Market, stall 14", distanceKm = 4.6))
+    override suspend fun acceptJob(orderId: String) = rider.accept(orderId)
+    override fun riderActiveJobs(): Flow<List<Order>> = rider.activeJobs()
+    override suspend fun markCollected(orderId: String) = rider.collected(orderId)
+    override suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri?) = rider.delivered(orderId, code, podPhoto)
+    override suspend fun declineJob(orderId: String) = rider.decline(orderId)
+    override suspend fun rateBuyer(orderId: String, stars: Int) { delay(200) }
+    override fun riderProfile(): Flow<RiderProfile?> = rider.profile()
+    override suspend fun updateRiderProfile(changes: Map<String, Any?>, photo: Uri?) { delay(300); rider.update(changes + (if (photo != null) mapOf("photoUrl" to photo.toString()) else emptyMap())) }
+    override fun riderHistory(): Flow<List<RiderDelivery>> = rider.history()
+    override fun riderZones(): Flow<List<DeliveryZone>> = rider.zones()
+    override suspend fun addZone(zoneId: String) = rider.addZone(zoneId)
+    override fun workingHours(): Flow<List<WorkingDay>> = rider.hours()
+    override suspend fun setWorkingHours(days: List<WorkingDay>) { delay(200); rider.setHours(days) }
+    override suspend fun fileClaim(category: ClaimCategory, amountNgwee: Long, description: String, photo: Uri?) = rider.fileClaim(category, amountNgwee, description, photo)
+    override fun myClaims(): Flow<List<SocialFundClaim>> = rider.claims()
+    override fun chatThreads(): Flow<List<ChatThread>> = rider.threads()
+    override fun chatMessages(threadId: String): Flow<List<ChatMessage>> { rider.markRead(threadId); return rider.messages(threadId) }
+    override suspend fun sendChat(threadId: String, text: String) = rider.send(threadId, text)
+    override fun notifications(): Flow<List<AppNotification>> = rider.notifications()
+    override suspend fun withdraw(amountNgwee: Long) = rider.withdraw(amountNgwee)
+    override suspend fun setPayoutWallet(msisdn: String) {
+        delay(300); val m = Validation.normaliseMsisdn(msisdn) ?: throw BackendException("Enter an Airtel Money, MTN Money or Zamtel Money number.")
+        rider.setWallet(m)
     }
-    override fun riderActiveJobs(): Flow<List<Order>> = riderJobs
-    override suspend fun markCollected(orderId: String) {
-        delay(400); riderJobs.value = riderJobs.value.map { if (it.id == orderId) it.copy(state = OrderState.IN_TRANSIT) else it }
+    override suspend fun changePin(currentPin: String, newPin: String) {
+        delay(300); if (currentPin.length != 5) throw BackendException("Current PIN is incorrect.")
+        Validation.pinProblem(newPin)?.let { throw BackendException(it) }
     }
-    override suspend fun confirmDeliveryCode(orderId: String, code: String) {
-        delay(400)
-        if (code.length != 6) throw BackendException("That code doesn't match. Ask the buyer to check their app.")
-        riderJobs.value = riderJobs.value.filterNot { it.id == orderId }
+    override suspend fun updateSecurityQuestions(pin: String, answers: List<QuestionAnswer>) {
+        delay(300); if (pin.length != 5) throw BackendException("Current PIN is incorrect.")
+        if (answers.size != 3 || answers.any { it.answer.trim().length < 2 }) throw BackendException("Answer all three questions.")
     }
+    override suspend fun reportIncident(r: IncidentReport) = rider.report(r)
+    override suspend fun supportStatus() = true to 4
+    override suspend fun locateStops(orderIds: List<String>) = rider.locate(orderIds)
+    override suspend fun directions(origin: selo.Nachipa01.domain.route.LatLng, stops: List<selo.Nachipa01.domain.route.Stop>, vehicle: String) =
+        rider.directions(origin, stops)
+    override suspend fun mediaUrl(path: String): String? = path
 }

@@ -16,6 +16,8 @@ export const db = getFirestore(DB_ID);
 export const LIPILA_API_KEY = defineSecret("LIPILA_API_KEY");
 export const LIPILA_WEBHOOK_SECRET = defineSecret("LIPILA_WEBHOOK_SECRET");
 export const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
+/** Google Maps Platform key with the Routes API and Geocoding API enabled (rider turn-by-turn). */
+export const MAPS_API_KEY = defineSecret("MAPS_API_KEY");
 
 // Non-secret parameters (set in functions/.env.<project>)
 export const LIPILA_BASE_URL = defineString("LIPILA_BASE_URL", { default: "https://api.lipila.dev" });

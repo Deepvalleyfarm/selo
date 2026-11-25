@@ -1,11 +1,15 @@
 package selo.Nachipa01.ui.screens.rider
 
-import androidx.compose.animation.animateColorAsState
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -15,188 +19,151 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import selo.Nachipa01.data.model.Order
-import selo.Nachipa01.data.model.RiderStats
-import selo.Nachipa01.domain.Fees
+import selo.Nachipa01.data.model.*
 import selo.Nachipa01.ui.LocalAppState
-import selo.Nachipa01.ui.components.*
 import selo.Nachipa01.ui.theme.Selo
 
-private val tabs = listOf(
-    NavItem("home", Icons.Outlined.Home, "Home"), NavItem("jobs", Icons.Outlined.TwoWheeler, "Jobs"),
-    NavItem("earnings", Icons.Outlined.AccountBalanceWallet, "Earnings"), NavItem("more", Icons.Outlined.MoreHoriz, "More"),
-)
-private val routeItem = NavItem("route", Icons.Outlined.Map, "Route")
-
+/**
+ * Rider app after login (PRD 6). One-handed, minimum reading: going Online is the first thing on screen.
+ * A job offer interrupts any screen; an active delivery replaces Home until it is done.
+ * [initialTab]/[initialScreen] exist so screenshot tests can open a specific module.
+ */
 @Composable
-fun RiderShell(onLogout: () -> Unit) {
+fun RiderShell(initialTab: String = "home", initialScreen: String? = null, initialOnline: Boolean = false, initialNavigating: Boolean = false, onLogout: () -> Unit) {
     val app = LocalAppState.current
-    var tab by rememberSaveable { mutableStateOf("home") }
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
+    var screen by rememberSaveable { mutableStateOf(initialScreen) }
+    var navigating by rememberSaveable { mutableStateOf(initialNavigating) }
     val stats by app.backend.riderStats().collectAsState(RiderStats(0, 0, 0, 100, 0, 0, 0, "Starter"))
+    val profile by app.backend.riderProfile().collectAsState(null)
     val jobs by app.backend.availableJobs().collectAsState(emptyList())
     val active by app.backend.riderActiveJobs().collectAsState(emptyList())
-    var online by rememberSaveable { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
+    var online by rememberSaveable { mutableStateOf(initialOnline) }
+    var handled by remember { mutableStateOf(setOf<String>()) }
+    val rc = rememberRouteController(active, profile?.vehicle ?: "Motorbike")
+    val offer = if (online) jobs.firstOrNull { it.id !in handled && active.none { a -> a.id == it.id } } else null
+
+    BackHandler(enabled = screen != null || navigating) { if (navigating) navigating = false else screen = null }
+
+    Box(Modifier.fillMaxSize().background(Selo.Surface)) {
+        Scaffold(bottomBar = { if (!navigating) RiderTabBar(tab, active.size + (if (offer != null) 1 else 0)) { tab = it; screen = null } },
+            containerColor = Selo.Surface) { pad ->
+            Box(Modifier.padding(bottom = pad.calculateBottomPadding()).fillMaxSize()) {
+                val s = screen
+                when {
+                    navigating && active.isNotEmpty() -> NavigationScreen(active, profile, rc, onExit = { navigating = false })
+                    s != null -> MoreScreens(s, profile, stats, open = { screen = it }, back = { screen = null }, onLogout = onLogout)
+                    tab == "home" && active.isNotEmpty() -> ActiveDeliveryScreen(active, profile, rc, onNavigate = { navigating = true })
+                    tab == "home" -> RiderHome(profile, stats, online, onToggle = { on ->
+                        online = on; if (!on) handled = emptySet()
+                    }, openDelivery = { screen = "delivery:$it" })
+                    tab == "jobs" -> RiderJobs(active, online, openDelivery = { screen = "delivery:$it" }, openActive = { tab = "home" })
+                    tab == "earnings" -> RiderEarnings(profile, stats, open = { screen = it })
+                    tab == "fund" -> RiderFund(stats, open = { screen = it })
+                    else -> MoreMenu(profile, open = { screen = it }, onLogout = onLogout)
+                }
+            }
+        }
+        offer?.let { o ->
+            DispatchOverlay(o, active, profile, rc, onDone = { accepted -> handled = handled + o.id; if (accepted) { tab = "home"; screen = null } })
+        }
+    }
+}
+
+/* =================================================================== HOME (6.3) */
+
+@Composable
+fun RiderHome(profile: RiderProfile?, stats: RiderStats, online: Boolean, onToggle: (Boolean) -> Unit, openDelivery: (String) -> Unit) {
+    val app = LocalAppState.current
+    val history by app.backend.riderHistory().collectAsState(emptyList())
     val u = app.session.value
-    Scaffold(bottomBar = { SeloBottomBar(tabs, routeItem, tab) { tab = it } }, containerColor = Selo.Surface) { pad ->
-        Column(Modifier.padding(bottom = pad.calculateBottomPadding()).fillMaxSize().verticalScroll(rememberScrollState())) {
-            when (tab) {
-                "earnings" -> SocialFund(stats)
-                "jobs", "route" -> Column(Modifier.statusBarsPadding().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    H(if (tab == "route") "Route planner (${active.size} deliveries)" else "My jobs")
-                    if (tab == "route" && active.isNotEmpty()) { MapPlaceholder(180); NoteBox("Collect all parcels before delivering. Stops are ordered by the Directions API when a Maps key is configured.") }
-                    if (active.isEmpty()) NoteBox("No active deliveries. Accept a job from Home.")
-                    active.forEach { ActiveJobCard(it) }
-                }
-                "more" -> Column(Modifier.statusBarsPadding().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    H("More"); SeloCard { Text("Messages · Zones & availability · Notifications · Rider profile · Settings & support", color = Selo.Mute) }
-                    OutlineButton("Log out") { scope.launch { app.backend.setOnline(false); app.backend.logout(); onLogout() } }
-                }
-                else -> {
-                    HomeBand(u?.fullName ?: "", "${u?.area ?: ""} · ${u?.vehicle ?: ""}")
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val bg by animateColorAsState(if (online) Selo.Green else Selo.Grey, label = "toggle")
-                        Row(Modifier.fillMaxWidth().height(68.dp).background(bg, RoundedCornerShape(16.dp))
-                            .clickable { online = !online; scope.launch { app.backend.setOnline(online) } }.padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (online) Icons.Outlined.CheckCircle else Icons.Outlined.Cancel, null, tint = Color.White)
-                            Text(if (online) "  ONLINE — accepting jobs" else "  OFFLINE — not accepting jobs", color = Color.White, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                            Switch(online, null, colors = SwitchDefaults.colors(checkedTrackColor = Color.White.copy(alpha = .35f), checkedThumbColor = Color.White))
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard(Fees.formatK(stats.todayNetNgwee), "Today · ${stats.todayDeliveries} deliveries", Modifier.weight(1f), Selo.Green)
-                            StatCard("${stats.active} / ${app.config.collectAsState().value.maxConcurrentDeliveries}", "Active deliveries", Modifier.weight(1f), Selo.Ink)
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatCard("${stats.acceptanceRate}%", "Acceptance rate", Modifier.weight(1f), if (stats.acceptanceRate >= 80) Selo.Green else if (stats.acceptanceRate >= 60) Selo.Amber else Selo.Red)
-                            StatCard(Fees.formatK(stats.socialFundNgwee), "Social Fund (locked)", Modifier.weight(1f), Selo.Purple)
-                        }
-                        active.forEach { ActiveJobCard(it) }
-                        if (online) jobs.firstOrNull { j -> active.none { it.id == j.id } }?.let { DispatchCard(it) } ?: NoteBox("No jobs in your zones right now. Stay online — new paid orders appear here.")
-                        else NoteBox("You are offline. Toggle Online to receive orders.", Tone.GREY)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 15-second dispatch card with gross, Social Fund and net. Accept is atomic server-side. */
-@Composable
-private fun DispatchCard(o: Order) {
-    val app = LocalAppState.current
-    val cfg by app.config.collectAsState()
-    var left by remember(o.id) { mutableIntStateOf(cfg.dispatchCountdownSec) }
-    var state by remember(o.id) { mutableStateOf("open") }
-    var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(o.id) { while (left > 0 && state == "open") { delay(1000); left-- }; if (state == "open") state = "expired" }
-    val split = Fees.split(o.goodsNgwee, o.deliveryNgwee, cfg)
-    Text("New job · ${if (state == "open") "$left s to decide" else state}", fontWeight = FontWeight.ExtraBold, color = Selo.Red)
-    Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(14.dp)).border(0.dp, Color.Transparent, RoundedCornerShape(14.dp))) {
-        LinearProgressIndicator({ left / cfg.dispatchCountdownSec.toFloat() }, Modifier.fillMaxWidth(), color = Selo.Red, trackColor = Color(0xFFF3D3D8))
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Collect · ${o.pickup}", fontWeight = FontWeight.Bold)
-            Text("Deliver · ${o.dropoff}", fontWeight = FontWeight.Bold)
-            Row { Text("${o.distanceKm} km · ${o.items.sumOf { it.qty }} items", color = Selo.Mute, fontSize = 12.sp, modifier = Modifier.weight(1f)); StatusChip("Buyer has paid", Tone.OK) }
-            KvRow("Delivery fee", Fees.formatK(o.deliveryNgwee), valueColor = Selo.Green)
-            KvRow("Social Fund contribution", "+ ${Fees.formatK(split.socialFundNgwee)}", valueColor = Selo.Purple)
-            KvRow("Net to you", Fees.formatK(split.riderNetNgwee), strong = true)
-            ErrorText(error)
-            when (state) {
-                "open" -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlineButton("Decline", Modifier.weight(1f)) { state = "declined" }
-                    PrimaryButton("Accept job", Modifier.weight(1.4f), color = Selo.Green) {
-                        scope.launch { runCatching { app.backend.acceptJob(o.id) }.onSuccess { state = "accepted" }.onFailure { error = it.message ?: "Order already taken" } }
-                    }
+    var toggleError by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxSize()) {
+        Surface(color = Color.White, shadowElevation = 2.dp) {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(profile?.fullName ?: u?.fullName ?: "", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(profile?.zoneName?.ifBlank { null } ?: u?.area ?: "", fontSize = 14.sp, color = Selo.Mute)
                 }
-                "accepted" -> NoteBox("Accepted. Head to ${o.pickup} and show order ID ${o.id} to the seller.", Tone.OK)
-                else -> NoteBox("Job passed to the next rider.", Tone.GREY)
+                Text(profile?.vehicle ?: u?.vehicle ?: "", fontSize = 12.sp, color = Selo.Mute)
+            }
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OnlineToggle(online) { on ->
+                onToggle(on); toggleError = null
+                scope.launch { runCatching { app.backend.setOnline(on) }.onFailure { onToggle(!on); toggleError = it.message } }
+            }
+            toggleError?.let { Text(it, color = Selo.Red, fontSize = 12.sp) }
+            if (online) Text("You're in the dispatch pool for ${profile?.zoneName ?: "your zone"}. Job requests can arrive at any moment.", color = Selo.GreenDark, fontSize = 12.sp)
+            else Text("Your position is hidden from dispatch. Go online to receive jobs.", color = Selo.Mute, fontSize = 12.sp)
+
+            val weekTarget = profile?.weeklyTargetNgwee ?: 100_000
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MiniStat(zmw(stats.todayNetNgwee), "Today's earnings", Modifier.weight(1f), Selo.Green, "${stats.todayDeliveries} deliveries")
+                MiniStat(zmw(stats.weekNetNgwee), "This week", Modifier.weight(1f), Selo.Ink) {
+                    LinearProgressIndicator({ (stats.weekNetNgwee / weekTarget.toFloat()).coerceIn(0f, 1f) }, Modifier.fillMaxWidth().padding(top = 4.dp).height(6.dp).clip(RoundedCornerShape(3.dp)),
+                        color = Selo.Red, trackColor = Selo.Line)
+                    Text("of ${zmw(weekTarget)} target", color = Selo.Mute, fontSize = 10.5.sp)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                val ar = stats.acceptanceRate
+                MiniStat("$ar%", "Acceptance rate", Modifier.weight(1f), if (ar > 80) Selo.Green else if (ar >= 60) Selo.Amber else Selo.Red,
+                    if (ar > 80) "Priority dispatch" else "Stay above 80%")
+                MiniStat(zmw(stats.socialFundNgwee), "Social Fund", Modifier.weight(1f).border(1.5.dp, Selo.Purple.copy(.35f), RoundedCornerShape(14.dp)),
+                    Selo.Purple, "Your ring-fenced fund")
+            }
+            Text("Today's deliveries", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+            val dayStart = remember { java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0) }.timeInMillis }
+            val today = history.filter { it.at >= dayStart }
+            if (today.isEmpty()) Text("No deliveries yet today.", color = Selo.Mute, fontSize = 13.sp)
+            Column(Modifier.background(Color.White, RoundedCornerShape(14.dp))) {
+                today.forEachIndexed { i, d ->
+                    if (i > 0) HorizontalDivider(color = Selo.Line)
+                    DeliveryRow(d, showDate = false) { openDelivery(d.orderId) }
+                }
             }
         }
     }
 }
 
-/** E2: ring-fenced Social Fund (2% of every delivery fee, unlocks every 20 deliveries). */
+/** PRD 6.3.1: 72 dp, 16 dp corners, the tap is the action, with a 2-second left-to-right colour sweep. */
 @Composable
-private fun SocialFund(stats: RiderStats) {
-    val cfg by LocalAppState.current.config.collectAsState()
-    val milestone = cfg.socialFundMilestoneDeliveries
-    val progress = stats.completedDeliveries % milestone
-    SeloHeader("Social Fund", "Your ring-fenced safety net", trailing = { StatusChip("Ring-fenced", Tone.WARN) })
-    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SeloCard {
-            Text("Locked balance", color = Selo.Mute, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Text(Fees.formatK(stats.socialFundNgwee).replace("K ", "ZMW "), color = Selo.Purple, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Text("${cfg.socialFundPct}% of every delivery fee · not platform revenue", color = Selo.Mute, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator({ progress / milestone.toFloat() }, Modifier.fillMaxWidth().height(8.dp), color = Selo.Purple, trackColor = Selo.Line)
-            Row { Text("$progress of $milestone deliveries", color = Selo.Mute, fontSize = 12.sp, modifier = Modifier.weight(1f)); Text("Unlocks in ${milestone - progress}", color = Selo.Purple, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+fun OnlineToggle(online: Boolean, onChange: (Boolean) -> Unit) {
+    val sweep = remember { Animatable(1f) }
+    var from by remember { mutableStateOf(if (online) Selo.Green else Selo.Grey) }
+    val to = if (online) Selo.Green else Selo.Grey
+    LaunchedEffect(online) { if (from != to) { sweep.snapTo(0f); sweep.animateTo(1f, tween(2000, easing = LinearEasing)); from = to } }
+    Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(16.dp))
+        .drawBehind { drawRect(from); drawRect(to, size = Size(size.width * sweep.value, size.height)) }
+        .clickable { onChange(!online) }.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(34.dp).background(Color.White.copy(alpha = if (online) .25f else 1f), CircleShape), contentAlignment = Alignment.Center) {
+            Icon(if (online) Icons.Outlined.Check else Icons.Outlined.Close, null, tint = if (online) Color.White else Selo.Grey, modifier = Modifier.size(22.dp))
         }
-        SeloCard {
-            Text("Last 7 days", fontWeight = FontWeight.ExtraBold)
-            val max = (stats.weekFund.maxOrNull() ?: 1).coerceAtLeast(1)
-            Row(Modifier.fillMaxWidth().height(70.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Bottom) {
-                stats.weekFund.forEach { v -> Box(Modifier.weight(1f).fillMaxHeight(v / max.toFloat()).background(Selo.Purple, RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))) }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Starter" to "0–49", "Rising" to "50–299").forEach { (t, r) -> Tier(t, r, stats.tier == t, Modifier.weight(1f)) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Hero" to "300+ · school-fees claims", "Ambassador" to "Hero + mentor riders").forEach { (t, r) -> Tier(t, r, stats.tier == t, Modifier.weight(1f)) }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlineButton("File a claim", Modifier.weight(1f)) {}
-            PrimaryButton("Withdraw ${Fees.formatK(stats.availableNgwee).removeSuffix(".00")}", Modifier.weight(1f), enabled = stats.availableNgwee >= Fees.kwachaToNgwee(cfg.minWithdrawal + cfg.riderWithdrawalFee)) {}
-        }
-        Sub("Withdrawals cost K ${cfg.riderWithdrawalFee.toInt()} and are paid by Lipila to your linked wallet.")
+        Spacer(Modifier.width(14.dp))
+        Text(if (online) "ONLINE — accepting jobs" else "OFFLINE — not accepting jobs", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun Tier(name: String, range: String, current: Boolean, modifier: Modifier) {
-    Column(modifier.background(Color.White, RoundedCornerShape(10.dp)).border(if (current) 2.dp else 1.dp, if (current) Selo.Red else Selo.Line, RoundedCornerShape(10.dp)).padding(10.dp)) {
-        Text(if (current) "$name · you" else name, fontWeight = FontWeight.Bold); Text(range, color = Selo.Mute, fontSize = 11.sp)
-    }
-}
-
-/** Active delivery: collect from seller (releases seller payout), then deliver with the buyer's in-app code. */
-@Composable
-private fun ActiveJobCard(o: Order) {
-    val app = LocalAppState.current
-    val scope = rememberCoroutineScope()
-    var code by remember(o.id) { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val uri = androidx.compose.ui.platform.LocalUriHandler.current
-    SeloCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Order ${o.id}", fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-            StatusChip(if (o.state == selo.Nachipa01.data.model.OrderState.RIDER_ASSIGNED) "Collecting" else "In transit",
-                if (o.state == selo.Nachipa01.data.model.OrderState.RIDER_ASSIGNED) Tone.INFO else Tone.FUND)
+fun DeliveryRow(d: RiderDelivery, showDate: Boolean = true, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(d.orderId, fontSize = 12.sp, color = Selo.Mute)
+            Text("${d.pickupArea} → ${d.dropArea}", fontSize = 14.sp, maxLines = 1)
         }
-        KvRow("Collect", o.pickup); KvRow("Deliver", o.dropoff)
-        OutlineButton("Open navigation") { uri.openUri("https://www.google.com/maps/dir/?api=1&destination=" +
-            java.net.URLEncoder.encode(if (o.state == selo.Nachipa01.data.model.OrderState.RIDER_ASSIGNED) o.pickup else o.dropoff, "UTF-8") + "&travelmode=driving") }
-        Spacer(Modifier.height(6.dp))
-        if (o.state == selo.Nachipa01.data.model.OrderState.RIDER_ASSIGNED) {
-            Sub("Show order ID ${o.id} to the seller, then mark collected.")
-            PrimaryButton("Mark as collected", loading = busy) {
-                busy = true; scope.launch { runCatching { app.backend.markCollected(o.id) }.onFailure { error = it.message }; busy = false }
-            }
-        } else {
-            SeloField("Buyer's 6-digit delivery code", code, { code = it.filter(Char::isDigit).take(6) }, keyboard = androidx.compose.ui.text.input.KeyboardType.NumberPassword)
-            PrimaryButton("Confirm delivery", color = Selo.Green, enabled = code.length == 6, loading = busy) {
-                busy = true; scope.launch { runCatching { app.backend.confirmDeliveryCode(o.id, code) }.onFailure { error = it.message }; busy = false }
-            }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(zmw(d.netNgwee), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Selo.Green)
+            Text(if (showDate) java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.UK).format(java.util.Date(d.at)) else clock(d.at), fontSize = 12.sp, color = Selo.Mute)
         }
-        ErrorText(error)
     }
 }

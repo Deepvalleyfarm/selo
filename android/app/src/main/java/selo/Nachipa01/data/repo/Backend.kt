@@ -73,8 +73,42 @@ interface Backend {
     suspend fun acceptJob(orderId: String)
     fun riderActiveJobs(): Flow<List<Order>>
     suspend fun markCollected(orderId: String)
-    /** Rider enters the buyer's 6-digit in-app delivery code (no SMS). */
-    suspend fun confirmDeliveryCode(orderId: String, code: String)
+    /** Rider enters the buyer's 6-digit in-app delivery code (no SMS) and attaches the proof-of-delivery photo. */
+    suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri? = null)
+
+    // ---------------- v6.3 rider post-login
+    suspend fun declineJob(orderId: String)
+    suspend fun rateBuyer(orderId: String, stars: Int)
+    fun riderProfile(): Flow<RiderProfile?>
+    /** Allowed keys: emergencyName, emergencyPhone, vehicle, plate, weeklyTargetNgwee, autoSettle. */
+    suspend fun updateRiderProfile(changes: Map<String, Any?>, photo: Uri? = null)
+    fun riderHistory(): Flow<List<RiderDelivery>>
+    fun riderZones(): Flow<List<DeliveryZone>>
+    suspend fun addZone(zoneId: String)
+    fun workingHours(): Flow<List<WorkingDay>>
+    suspend fun setWorkingHours(days: List<WorkingDay>)
+    suspend fun fileClaim(category: ClaimCategory, amountNgwee: Long, description: String, photo: Uri?): String
+    fun myClaims(): Flow<List<SocialFundClaim>>
+    fun chatThreads(): Flow<List<ChatThread>>
+    fun chatMessages(threadId: String): Flow<List<ChatMessage>>
+    suspend fun sendChat(threadId: String, text: String)
+    fun notifications(): Flow<List<AppNotification>>
+    suspend fun withdraw(amountNgwee: Long): String
+    suspend fun setPayoutWallet(msisdn: String)
+    suspend fun changePin(currentPin: String, newPin: String)
+    suspend fun updateSecurityQuestions(pin: String, answers: List<QuestionAnswer>)
+    suspend fun reportIncident(r: IncidentReport): String
+    /** Live chat availability: online flag and average reply time in minutes. */
+    suspend fun supportStatus(): Pair<Boolean, Int>
+
+    /** Viewable URL for a stored photo path (proof of delivery, claims). */
+    suspend fun mediaUrl(path: String): String?
+
+    // ---------------- multi-stop routing and turn-by-turn
+    /** Coordinates of each order's pickup and drop-off (geocoded and cached server-side when the order has none). */
+    suspend fun locateStops(orderIds: List<String>): Map<String, Pair<selo.Nachipa01.domain.route.LatLng?, selo.Nachipa01.domain.route.LatLng?>>
+    /** Road directions through the stops in the given order, with turn-by-turn steps. */
+    suspend fun directions(origin: selo.Nachipa01.domain.route.LatLng, stops: List<selo.Nachipa01.domain.route.Stop>, vehicle: String): selo.Nachipa01.domain.route.Directions
 
     // ------------------------------------------------ v6.1 discovery (feed, rails, search, social)
     /** Writes a batch of behaviour events to the append-only log. */

@@ -4,7 +4,7 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import { getDatabase } from "firebase-admin/database";
 import { LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, PlatformConfig, db, loadConfig } from "./config";
-import { canTransition, collectionFailureReason, haversineKm, insuranceId, milestoneReached, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
+import { acceptanceRate, heroBonus, riderTier, withinWorkingHours, canTransition, collectionFailureReason, haversineKm, insuranceId, milestoneReached, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
 import { onPromoCollection } from "./promotions";
 import { lipila, verifyLipilaSignature } from "./lipila";
 import { notify, requireUser, str } from "./util";
@@ -16,9 +16,9 @@ const shortId = (p: string) => `${p}-${randomInt(10_000, 99_999)}${randomInt(10,
 
 function feeSnapshot(c: PlatformConfig) {
   const { flatPlatformFeeKwacha, buyerServiceFeePct, riderPlatformFeePct, socialFundPct, deliveryFeePerKm, deliveryBaseFee,
-    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct } = c;
+    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct, heroBonusPct } = c;
   return { flatPlatformFeeKwacha, buyerServiceFeePct, riderPlatformFeePct, socialFundPct, deliveryFeePerKm, deliveryBaseFee,
-    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct };
+    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct, heroBonusPct };
 }
 
 function move(tx: Transaction, id: string, from: OrderState, to: OrderState, extra: Record<string, unknown> = {}) {
@@ -64,7 +64,7 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =>
   const q = quote(goods, distanceKm, cfg);
   const id = shortId("SNC");
   await orderRef(id).set({
-    buyerUid: uid, buyerName: buyer.fullName ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
+    buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
     agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee, deliveryNgwee: q.deliveryNgwee,
     serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
     pickupGeo: seller.geo ?? null, dropoff, dropoffGeo: buyer.geo ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
@@ -130,7 +130,10 @@ export async function broadcast(orderId: string) {
   const cfg = await loadConfig();
   let q = db.collection("riderPresence").where("isOnline", "==", true);
   if (zone) q = q.where("zoneIds", "array-contains", zone.id);
-  const riders = (await q.limit(50).get()).docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id);
+  const candidates = (await q.limit(50).get()).docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id);
+  // Outside their own working hours riders get no dispatches, even when marked online (PRD 6.10).
+  const hours = candidates.length ? await db.getAll(...candidates.map((id) => db.doc(`riderZones/${id}`))) : [];
+  const riders = candidates.filter((_, i) => withinWorkingHours(hours[i]?.get("workingHours")));
   await orderRef(orderId).update({ zoneId: zone?.id ?? null, notifiedRiders: riders, broadcastAt: FieldValue.serverTimestamp() });
   const net = split(o.goodsNgwee, o.deliveryNgwee, o.feeSnapshot).riderNetNgwee;
   await Promise.all(riders.map((r) => notify(r, "New Order Available!", `K${(net / 100).toFixed(2)} net · ${o.pickup} → ${o.dropoff} · ~${o.distanceKm} km`,
@@ -284,12 +287,20 @@ export const rider_acceptOrder = onCall(async (req) => {
     if (o.isInsured && (wallet.get("collateralNgwee") ?? 0) < o.declaredValueNgwee * 0.1)
       throw new HttpsError("failed-precondition", "Your rider fund must exceed 10% of this parcel's declared value.");
     move(tx, id, "BROADCASTING", "RIDER_ASSIGNED", { riderUid: uid, riderName: rider.fullName, assignedAt: FieldValue.serverTimestamp() });
-    tx.update(db.doc(`riderWallets/${uid}`), { activeCount: FieldValue.increment(1) });
+    const offered = (wallet.get("jobsOffered") ?? 0) + 1, accepted = (wallet.get("jobsAccepted") ?? 0) + 1;
+    tx.set(db.doc(`riderWallets/${uid}`), { activeCount: FieldValue.increment(1), jobsOffered: offered, jobsAccepted: accepted,
+      acceptanceRate: acceptanceRate(accepted, offered) }, { merge: true });
     tx.set(db.doc(`riderPresence/${uid}`), { activeCount: FieldValue.increment(1) }, { merge: true });
     return o;
   });
   // Buyer may watch this rider's live location only while the order is active (RTDB rule orderViewers).
   await getDatabase().ref(`orderViewers/${uid}/${o.buyerUid}`).set(true);
+  // Order chats: rider ↔ buyer (delivery instructions) and rider ↔ seller (packed and ready)
+  const store = (await db.doc(`users/${o.sellerUid}`).get()).get("storeName") ?? o.sellerName ?? "";
+  await db.doc(`chats/${id}_rb`).set({ participants: [uid, o.buyerUid], kind: "rider_buyer", orderId: id, riderUid: uid, buyerUid: o.buyerUid,
+    storeName: store, lastMessage: "", lastAt: FieldValue.serverTimestamp(), unread: {} }, { merge: true });
+  if (!o.isParcel) await db.doc(`chats/${id}_rs`).set({ participants: [uid, o.sellerUid], kind: "rider_seller", orderId: id, riderUid: uid,
+    sellerUid: o.sellerUid, storeName: store, lastMessage: "", lastAt: FieldValue.serverTimestamp(), unread: {} }, { merge: true });
   await notify(o.sellerUid, "Rider on the way", `${rider.fullName} accepted order ${id}.`, "RIDER_ASSIGNED");
   await notify(o.buyerUid, "Rider assigned", `${rider.fullName} is collecting your order.`, "RIDER_ASSIGNED", `selo://orders/${id}`);
   return { ok: true };
@@ -329,24 +340,30 @@ async function completeDelivery(id: string, by: string) {
     const w = (await tx.get(wRef)).data() ?? {};
     move(tx, id, o.state, "DELIVERED", { deliveredAt: FieldValue.serverTimestamp(), confirmedBy: by, riderPayoutStatus: "DISBURSED" });
     const s = split(o.goodsNgwee, o.deliveryNgwee, o.feeSnapshot);
+    const bonus = heroBonus(s.riderNetNgwee, w.tier, o.feeSnapshot.heroBonusPct ?? 0);
     const completed = (w.completedDeliveries ?? 0) + 1;
     const unlock = milestoneReached(completed, o.feeSnapshot.socialFundMilestoneDeliveries);
     const fund = (w.socialFundNgwee ?? 0) + s.socialFundNgwee;
     const week = [...(w.weekFund ?? [0, 0, 0, 0, 0, 0, 0])]; week[6] = (week[6] ?? 0) + s.socialFundNgwee;
     tx.set(wRef, {
-      availableNgwee: (w.availableNgwee ?? 0) + s.riderNetNgwee + (unlock ? fund : 0), socialFundNgwee: unlock ? 0 : fund,
+      availableNgwee: (w.availableNgwee ?? 0) + s.riderNetNgwee + bonus + (unlock ? fund : 0), socialFundNgwee: unlock ? 0 : fund,
       completedDeliveries: completed, activeCount: Math.max(0, (w.activeCount ?? 1) - 1), todayNetNgwee: FieldValue.increment(s.riderNetNgwee),
       todayDeliveries: FieldValue.increment(1), weekFund: week, lastMilestoneUnlockAt: unlock ? FieldValue.serverTimestamp() : (w.lastMilestoneUnlockAt ?? null),
-      tier: completed >= 300 ? "Hero" : completed >= 50 ? "Rising" : (w.tier ?? "Starter"),
+      tier: riderTier(completed, w.tier === "Ambassador"),
     }, { merge: true });
     tx.set(db.doc(`riderPresence/${o.riderUid}`), { activeCount: FieldValue.increment(-1) }, { merge: true });
     tx.set(db.collection("socialFundTransactions").doc(), { riderUid: o.riderUid, orderId: id, amountNgwee: s.socialFundNgwee, type: "CONTRIBUTION", at: FieldValue.serverTimestamp() });
     if (unlock) tx.set(db.collection("socialFundTransactions").doc(), { riderUid: o.riderUid, orderId: id, amountNgwee: fund, type: "WITHDRAWAL", at: FieldValue.serverTimestamp() });
+    const area = (a?: string) => String(a ?? "").split(",")[0].trim();
     tx.set(db.collection(`ledgers/${o.riderUid}/entries`).doc(), { type: "delivery_credit", orderId: id, gross: o.deliveryNgwee,
-      platformFee: s.riderPlatformFeeNgwee, socialLevy: s.socialFundNgwee, net: s.riderNetNgwee, at: FieldValue.serverTimestamp() });
+      platformFee: s.riderPlatformFeeNgwee, socialLevy: s.socialFundNgwee, net: s.riderNetNgwee, bonus, km: o.distanceKm ?? 0,
+      pickup: o.pickup ?? "", dropoff: o.dropoff ?? "", pickupArea: area(o.pickup), dropArea: area(o.dropoff),
+      item: (o.items ?? []).map((i: { title: string; qty: number }) => `${i.qty} × ${i.title}`).join(", "), podUrl: o.proofOfDelivery ?? null,
+      at: FieldValue.serverTimestamp() });
+    if (bonus > 0) tx.set(ledger(id).doc(), { type: "debit", leg: "hero_bonus", party: "platform", amountNgwee: bonus, at: FieldValue.serverTimestamp() });
     tx.set(ledger(id).doc(), { type: "debit", leg: "rider", party: "rider", amountNgwee: s.riderNetNgwee, at: FieldValue.serverTimestamp() });
     tx.set(ledger(id).doc(), { type: "debit", leg: "social_fund", party: "rider_social_fund", amountNgwee: s.socialFundNgwee, at: FieldValue.serverTimestamp() });
-    return { o, s, unlock, fund };
+    return { o, s: { ...s, riderNetNgwee: s.riderNetNgwee + bonus }, unlock, fund };
   });
   await notify(res.o.riderUid, "Delivery Confirmed", `K${(res.s.riderNetNgwee / 100).toFixed(2)} credited to your earnings!`, "DELIVERY_CONFIRMED");
   if (res.unlock) await notify(res.o.riderUid, "Social Fund unlocked", `K${(res.fund / 100).toFixed(2)} moved to your available balance.`, "SOCIAL_FUND_UNLOCKED");
@@ -370,7 +387,8 @@ export const rider_confirmDelivery = onCall(async (req) => {
   const o = (await orderRef(id).get()).data();
   if (!o || o.riderUid !== uid) throw new HttpsError("not-found", "Order not found.");
   if (o.deliveryCodeHash !== sha256(String(req.data?.code ?? ""))) throw new HttpsError("permission-denied", "That code doesn't match. Ask the buyer to check their app.");
-  await orderRef(id).update({ proofOfDelivery: req.data?.photoPath ?? null });
+  const pod = typeof req.data?.photoPath === "string" && req.data.photoPath.startsWith(`pod/${id}/${uid}_`) ? req.data.photoPath : null;
+  await orderRef(id).update({ proofOfDelivery: pod });
   await completeDelivery(id, "rider_code");
   return { ok: true };
 });

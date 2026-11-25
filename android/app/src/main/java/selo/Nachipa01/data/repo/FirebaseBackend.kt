@@ -175,6 +175,9 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         timeline = (get("timeline") as? Map<String, Any?>)?.mapValues { it.value.toString() } ?: emptyMap(),
         paymentStatus = getString("paymentStatus") ?: "PENDING", paymentFailure = getString("paymentFailure"), walletMsisdn = getString("walletMsisdn"),
         serviceFeeNgwee = getLong("serviceFeeNgwee") ?: 0, processingFeeNgwee = getLong("processingFeeNgwee") ?: 0,
+        buyerName = getString("buyerName") ?: "", buyerMsisdn = getString("buyerMsisdn") ?: "",
+        itemsSummary = (get("items") as? List<Map<String, Any?>>)?.joinToString { "${it["qty"]} × ${it["title"]}" } ?: "",
+        pickupLat = getDouble("pickupGeo.lat"), pickupLng = getDouble("pickupGeo.lng"), dropLat = getDouble("dropoffGeo.lat"), dropLng = getDouble("dropoffGeo.lng"),
     )
 
     override fun listings(category: String?): Flow<List<Listing>> {
@@ -263,13 +266,16 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     ))["listingId"] as String
 
     override fun riderStats(): Flow<RiderStats> = uid()?.let { u ->
-        db.collection("riderWallets").document(u).live().map {
-            @Suppress("UNCHECKED_CAST")
-            RiderStats(it.getLong("todayNetNgwee") ?: 0, (it.getLong("todayDeliveries") ?: 0).toInt(),
+        combine(db.collection("riderWallets").document(u).live(), riderHistory()) { it, h ->
+            val dayStart = java.util.Calendar.getInstance().apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0) }.timeInMillis
+            val today = h.filter { d -> d.at >= dayStart }; val week = h.filter { d -> d.at >= System.currentTimeMillis() - 7 * 86_400_000L }
+            val weekFund = (6 downTo 0).map { d -> h.filter { x -> x.at in (dayStart - d * 86_400_000L) until (dayStart - d * 86_400_000L + 86_400_000L) }.sumOf { x -> x.fundNgwee } }
+            RiderStats(today.sumOf { d -> d.netNgwee }, today.size,
                 (it.getLong("activeCount") ?: 0).toInt(), (it.getLong("acceptanceRate") ?: 100).toInt(),
                 it.getLong("socialFundNgwee") ?: 0, (it.getLong("completedDeliveries") ?: 0).toInt(),
-                it.getLong("availableNgwee") ?: 0, it.getString("tier") ?: "Starter",
-                (it.get("weekFund") as? List<Number>)?.map { n -> n.toLong() } ?: emptyList())
+                it.getLong("availableNgwee") ?: 0, it.getString("tier") ?: "Starter", weekFund,
+                weekNetNgwee = week.sumOf { d -> d.netNgwee }, todayKm = today.sumOf { d -> d.km }, fundTodayNgwee = today.sumOf { d -> d.fundNgwee },
+                bonusWeekNgwee = week.sumOf { d -> d.bonusNgwee })
         }.catch { emit(DemoData.riderStats) }
     } ?: emptyFlow()
 
@@ -296,8 +302,10 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
 
     override suspend fun markCollected(orderId: String) { call("rider_markCollected", mapOf("orderId" to orderId)) }
 
-    override suspend fun confirmDeliveryCode(orderId: String, code: String) {
-        call("rider_confirmDelivery", mapOf("orderId" to orderId, "code" to code))
+    override suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri?) {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = podPhoto?.let { p -> storage.reference.child("pod/$orderId/${u}_${System.currentTimeMillis()}.jpg").also { it.putFile(p).await() }.path }
+        call("rider_confirmDelivery", mapOf("orderId" to orderId, "code" to code, "photoPath" to path))
     }
 
     /* ======================================================= v6.1 discovery */
@@ -479,4 +487,146 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun stories(): List<Story> = (call("stories_list", emptyMap())["stories"] as? List<Map<*, *>>)?.map {
         Story(it["promoId"] as String, (it["listing"] as Map<*, *>).toListing(), it["sellerName"] as? String ?: "", it["followed"] == true)
     } ?: emptyList()
+
+    // ---------------- v6.3 rider post-login
+    override suspend fun declineJob(orderId: String) { call("rider_declineOrder", mapOf("orderId" to orderId)) }
+    override suspend fun rateBuyer(orderId: String, stars: Int) { call("rider_rateBuyer", mapOf("orderId" to orderId, "stars" to stars)) }
+
+    override fun riderProfile(): Flow<RiderProfile?> = uid()?.let { u ->
+        combine(db.collection("users").document(u).live(), db.collection("riderWallets").document(u).live()) { p, w ->
+            @Suppress("UNCHECKED_CAST") val ec = p.get("emergencyContact") as? Map<String, Any?> ?: emptyMap()
+            @Suppress("UNCHECKED_CAST") val rs = p.get("riderSettings") as? Map<String, Any?> ?: emptyMap()
+            val prof: RiderProfile? = RiderProfile(u, p.getString("fullName") ?: "", p.getString("msisdn") ?: "", p.getString("area") ?: "", p.getString("city") ?: "Lusaka",
+                p.getString("vehicle") ?: "Motorbike", p.getString("vehicleDetails.plate") ?: "", p.getString("photoPath")?.let { mediaUrl(it) } ?: p.getString("photoUrl"), w.getString("tier") ?: "Starter",
+                w.getDouble("rating") ?: 0.0, (w.getLong("ratingCount") ?: 0).toInt(), (w.getLong("completedDeliveries") ?: 0).toInt(),
+                (w.getLong("completionRate") ?: 100).toInt(), (w.getLong("acceptanceRate") ?: 100).toInt(),
+                ec["name"] as? String ?: "", ec["phone"] as? String ?: "", p.getString("payoutWallet") ?: "",
+                p.getString("memberSince") ?: "",
+                (rs["weeklyTargetNgwee"] as? Number)?.toLong() ?: 100_000, rs["autoSettle"] as? Boolean ?: true)
+            prof
+        }.catch { emit(null) }
+    } ?: flowOf(null)
+
+    override suspend fun updateRiderProfile(changes: Map<String, Any?>, photo: Uri?) {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = photo?.let { p -> storage.reference.child("profiles/$u/portrait_${System.currentTimeMillis()}.jpg").also { it.putFile(p).await() }.path }
+        call("rider_updateProfile", changes + (if (path != null) mapOf("photoPath" to path) else emptyMap()))
+    }
+
+    override fun riderHistory(): Flow<List<RiderDelivery>> = uid()?.let { u ->
+        db.collection("ledgers").document(u).collection("entries").whereEqualTo("type", "delivery_credit")
+            .orderBy("at", Query.Direction.DESCENDING).limit(400).live().map { s -> s.documents.map { d ->
+                RiderDelivery(d.getString("orderId") ?: "", d.getString("pickupArea") ?: "", d.getString("dropArea") ?: "", d.getString("pickup") ?: "",
+                    d.getString("dropoff") ?: "", d.getString("item") ?: "", d.getLong("gross") ?: 0, d.getLong("platformFee") ?: 0, d.getLong("socialLevy") ?: 0,
+                    d.getLong("bonus") ?: 0, (d.getLong("net") ?: 0) + (d.getLong("bonus") ?: 0), d.getDouble("km") ?: 0.0,
+                    d.getTimestamp("at")?.toDate()?.time ?: 0, d.getString("podUrl"))
+            } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override fun riderZones(): Flow<List<DeliveryZone>> = uid()?.let { u ->
+        combine(db.collection("zones").whereEqualTo("isActive", true).live(), db.collection("riderZones").document(u).live()) { z, mine ->
+            @Suppress("UNCHECKED_CAST") val active = mine.get("activeZoneIds") as? List<String> ?: emptyList()
+            val primary = mine.getString("primaryZoneId") ?: active.firstOrNull()
+            z.documents.map { d -> @Suppress("UNCHECKED_CAST") DeliveryZone(d.id, d.getString("name") ?: d.id, d.getString("city") ?: "Lusaka",
+                d.get("neighbourhoods") as? List<String> ?: emptyList(), d.getDouble("radiusKm") ?: 5.0, d.id in active, d.id == primary) }
+                .sortedWith(compareByDescending<DeliveryZone> { it.primary }.thenByDescending { it.active })
+        }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override suspend fun addZone(zoneId: String) {
+        val u = uid() ?: return
+        db.collection("riderZones").document(u).set(mapOf("activeZoneIds" to FieldValue.arrayUnion(zoneId), "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
+    }
+
+    override fun workingHours(): Flow<List<WorkingDay>> = uid()?.let { u ->
+        db.collection("riderZones").document(u).live().map { d ->
+            @Suppress("UNCHECKED_CAST") (d.get("workingHours") as? List<Map<String, Any?>>)?.map {
+                WorkingDay((it["day"] as Number).toInt(), it["on"] == true, it["start"] as? String ?: "07:00", it["end"] as? String ?: "19:00") }
+                ?.sortedBy { it.day } ?: WorkingDay.DEFAULT
+        }.catch { emit(WorkingDay.DEFAULT) }
+    } ?: flowOf(WorkingDay.DEFAULT)
+
+    override suspend fun setWorkingHours(days: List<WorkingDay>) {
+        val u = uid() ?: return
+        db.collection("riderZones").document(u).set(mapOf("workingHours" to days.map { mapOf("day" to it.day, "on" to it.on, "start" to it.start, "end" to it.end) },
+            "updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge()).await()
+    }
+
+    override suspend fun fileClaim(category: ClaimCategory, amountNgwee: Long, description: String, photo: Uri?): String {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = photo?.let { p -> storage.reference.child("claims/$u/${System.currentTimeMillis()}.jpg").also { it.putFile(p).await() }.path }
+        return call("rider_fileClaim", mapOf("category" to category.name, "amountNgwee" to amountNgwee, "description" to description, "photoPath" to path))["claimId"] as String
+    }
+
+    override fun myClaims(): Flow<List<SocialFundClaim>> = uid()?.let { u ->
+        db.collection("socialFundClaims").whereEqualTo("riderUid", u).orderBy("createdAt", Query.Direction.DESCENDING).limit(20).live().map { s -> s.documents.map {
+            SocialFundClaim(it.id, it.getString("category") ?: "", it.getLong("amountNgwee") ?: 0, it.getString("description") ?: "", it.getString("status") ?: "PENDING",
+                it.getTimestamp("createdAt")?.toDate()?.time ?: 0) } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override fun chatThreads(): Flow<List<ChatThread>> = uid()?.let { u ->
+        db.collection("chats").whereArrayContains("participants", u).orderBy("lastAt", Query.Direction.DESCENDING).limit(30).live().map { s -> s.documents.map { d ->
+            val kind = if (d.getString("buyerUid") != null && d.getString("buyerUid") != u && d.getString("kind") != "rider_seller") "buyer" else "seller"
+            val ref = d.getString("orderId") ?: ""
+            @Suppress("UNCHECKED_CAST") val unread = ((d.get("unread") as? Map<String, Number>)?.get(u))?.toInt() ?: 0
+            ChatThread(d.id, if (kind == "buyer") "Buyer — $ref" else "Seller — ${d.getString("storeName") ?: ""} — $ref", kind, ref,
+                d.getString("lastMessage") ?: "", d.getTimestamp("lastAt")?.toDate()?.time ?: 0, unread)
+        } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override fun chatMessages(threadId: String): Flow<List<ChatMessage>> {
+        val u = uid() ?: return flowOf(emptyList())
+        db.collection("chats").document(threadId).collection("messages")
+        return db.collection("chats").document(threadId).collection("messages").orderBy("at").limitToLast(200).live().map { s -> s.documents.map {
+            ChatMessage(it.id, it.getString("text") ?: "", it.getString("senderUid") == u, it.getTimestamp("at")?.toDate()?.time ?: System.currentTimeMillis()) } }
+            .catch { emit(emptyList()) }
+    }
+
+    override suspend fun sendChat(threadId: String, text: String) {
+        val u = uid() ?: return
+        db.collection("chats").document(threadId).collection("messages").add(mapOf("senderUid" to u, "text" to text.take(1000), "at" to FieldValue.serverTimestamp())).await()
+    }
+
+    override fun notifications(): Flow<List<AppNotification>> = uid()?.let { u ->
+        db.collection("notifications").document(u).collection("items").orderBy("createdAt", Query.Direction.DESCENDING).limit(100).live().map { s -> s.documents.map {
+            AppNotification(it.id, it.getString("type") ?: "", it.getString("title") ?: "", it.getString("body") ?: "",
+                it.getTimestamp("createdAt")?.toDate()?.time ?: 0, it.get("readAt") != null) } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override suspend fun withdraw(amountNgwee: Long): String = call("wallet_withdraw", mapOf("amountNgwee" to amountNgwee))["withdrawalId"] as String
+    override suspend fun setPayoutWallet(msisdn: String) { call("wallet_setPayout", mapOf("msisdn" to msisdn)) }
+    override suspend fun changePin(currentPin: String, newPin: String) { call("auth_changePin", mapOf("currentPin" to currentPin, "newPin" to newPin)) }
+    override suspend fun updateSecurityQuestions(pin: String, answers: List<QuestionAnswer>) {
+        call("auth_updateSecurityQuestions", mapOf("pin" to pin, "answers" to answers.map { mapOf("questionId" to it.questionId, "answer" to it.answer) }))
+    }
+    override suspend fun reportIncident(r: IncidentReport): String {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = r.photo?.let { p -> storage.reference.child("incidents/$u/${System.currentTimeMillis()}.jpg").also { it.putFile(p).await() }.path }
+        return call("incident_report", mapOf("type" to r.type, "description" to r.description, "orderRef" to r.orderRef, "photoPath" to path))["incidentId"] as String
+    }
+    override suspend fun supportStatus(): Pair<Boolean, Int> = runCatching {
+        val d = db.collection("platformConfig").document("support").get().await()
+        (d.getBoolean("liveChatOnline") ?: false) to ((d.getLong("avgResponseMin") ?: 10).toInt())
+    }.getOrDefault(false to 10)
+
+    override suspend fun locateStops(orderIds: List<String>): Map<String, Pair<selo.Nachipa01.domain.route.LatLng?, selo.Nachipa01.domain.route.LatLng?>> {
+        if (orderIds.isEmpty()) return emptyMap()
+        @Suppress("UNCHECKED_CAST") val res = call("route_locate", mapOf("orderIds" to orderIds))["stops"] as? Map<String, Map<String, Any?>> ?: return emptyMap()
+        fun ll(v: Any?) = (v as? Map<*, *>)?.let { m -> val a = (m["lat"] as? Number)?.toDouble(); val b = (m["lng"] as? Number)?.toDouble()
+            if (a != null && b != null) selo.Nachipa01.domain.route.LatLng(a, b) else null }
+        return res.mapValues { (_, v) -> ll(v["pickup"]) to ll(v["dropoff"]) }
+    }
+
+    override suspend fun directions(origin: selo.Nachipa01.domain.route.LatLng, stops: List<selo.Nachipa01.domain.route.Stop>, vehicle: String): selo.Nachipa01.domain.route.Directions {
+        val res = call("route_directions", mapOf("origin" to mapOf("lat" to origin.lat, "lng" to origin.lng), "vehicle" to vehicle,
+            "stops" to stops.map { s -> if (s.at != null) mapOf("lat" to s.at.lat, "lng" to s.at.lng) else mapOf("address" to s.address) }))
+        @Suppress("UNCHECKED_CAST") val steps = (res["steps"] as? List<Map<String, Any?>> ?: emptyList()).map {
+            selo.Nachipa01.domain.route.NavStep(it["instruction"] as? String ?: "", it["maneuver"] as? String ?: "straight",
+                (it["distanceM"] as? Number)?.toInt() ?: 0, (it["durationS"] as? Number)?.toInt() ?: 0,
+                selo.Nachipa01.domain.route.NavigationEngine.decodePolyline(it["polyline"] as? String ?: ""), (it["legIndex"] as? Number)?.toInt() ?: 0)
+        }
+        return selo.Nachipa01.domain.route.Directions(steps, (res["distanceM"] as? Number)?.toInt() ?: steps.sumOf { it.distanceM },
+            (res["durationS"] as? Number)?.toInt() ?: steps.sumOf { it.durationS }, res["source"] as? String ?: "google")
+    }
+    override suspend fun mediaUrl(path: String): String? = runCatching { storage.reference.child(path).downloadUrl.await().toString() }.getOrNull()
 }

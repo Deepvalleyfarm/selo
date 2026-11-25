@@ -20,8 +20,22 @@ service firebase.storage {
     match /listing-media/{path=**} { allow read: if true; }
     // Proof-of-delivery and collection photos
     match /pod/{orderId}/{file} {
-      allow create: if request.auth != null && request.auth.token.role == 'RIDER' && request.resource.size < 5 * 1024 * 1024;
-      allow read: if admin(['operations', 'support']);
+      allow create: if request.auth != null && request.auth.token.role == 'RIDER' && file.matches(request.auth.uid + '_.*')
+        && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if (request.auth != null && file.matches(request.auth.uid + '_.*')) || admin(['operations', 'support']);
+    }
+    // Rider portrait, Social Fund claim evidence, incident photos: owner uploads; owner and the reviewing team read
+    match /profiles/{uid}/{file} {
+      allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if request.auth != null;
+    }
+    match /claims/{uid}/{file} {
+      allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if (request.auth != null && request.auth.uid == uid) || admin(['finance']);
+    }
+    match /incidents/{uid}/{file} {
+      allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if (request.auth != null && request.auth.uid == uid) || admin(['operations', 'support']);
     }
     match /content/{path=**} { allow read: if true; allow write: if admin(['moderator']); }
   }

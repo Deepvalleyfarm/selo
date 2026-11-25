@@ -33,13 +33,16 @@ class MainActivity : ComponentActivity() {
         if (state.rememberedMsisdn.value == null) {
             state.rememberedMsisdn.value = prefs.getString("msisdn", null)
             state.rememberedName.value = prefs.getString("firstName", null)
+            state.rememberedFullName.value = prefs.getString("fullName", null)
+            state.rememberedRole.value = prefs.getString("role", null)?.let { r -> runCatching { selo.Nachipa01.data.model.Role.valueOf(r) }.getOrNull() }
+            state.pinLockedUntil.value = prefs.getLong("pinLockedUntil", 0L)
         }
         sharedMedia(intent)?.let { state.capturedMedia.add(it) }
         deepLinkListing(intent)?.let { state.pendingListingId.value = it }
         setContent {
             SeloTheme {
                 CompositionLocalProvider(LocalAppState provides state) {
-                    SeloNavHost(onSignedIn = { u -> prefs.edit { putString("msisdn", u.msisdn); putString("firstName", u.firstName) } })
+                    SeloNavHost(onSignedIn = { u -> prefs.edit { putString("msisdn", u.msisdn); putString("firstName", u.firstName); putString("fullName", u.fullName); putString("role", u.role.name); putLong("pinLockedUntil", 0L) } })
                 }
             }
         }

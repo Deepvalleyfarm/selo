@@ -122,3 +122,45 @@ export function insuranceId(rand: () => number = Math.random) {
   const seg = () => Array.from({ length: 4 }, () => ALPHA[Math.floor(rand() * ALPHA.length)]).join("");
   return `INS-${seg()}-${seg()}`;
 }
+
+/* ------------------------------------------------------------------ v6.3 riders */
+
+export const RISING_AT = 50, HERO_AT = 300;
+export function riderTier(completed: number, ambassador = false) {
+  return ambassador && completed >= HERO_AT ? "Ambassador" : completed >= HERO_AT ? "Hero" : completed >= RISING_AT ? "Rising" : "Starter";
+}
+export const isHero = (tier?: string) => tier === "Hero" || tier === "Ambassador";
+/** Platform-funded bonus on the rider's net delivery earnings for Hero and Ambassador tiers. */
+export const heroBonus = (riderNetNgwee: number, tier: string | undefined, pct: number) => (isHero(tier) ? Math.round((riderNetNgwee * pct) / 100) : 0);
+
+export interface WorkingDay { day: number; on: boolean; start: string; end: string }
+/** day 0 = Monday. True when [atMs] (Lusaka time, UTC+2) falls inside the rider's working hours. No hours set = always. */
+export function withinWorkingHours(hours: WorkingDay[] | undefined | null, atMs = Date.now()): boolean {
+  if (!hours?.length) return true;
+  const d = new Date(atMs + 2 * 3_600_000);
+  const day = (d.getUTCDay() + 6) % 7, mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const h = hours.find((x) => x.day === day);
+  if (!h || !h.on) return false;
+  const toMin = (s: string) => { const [a, b] = s.split(":").map(Number); return a * 60 + (b || 0); };
+  const s = toMin(h.start), e = toMin(h.end);
+  return e > s ? mins >= s && mins < e : mins >= s || mins < e; // overnight shifts
+}
+
+/** Acceptance rate from offers and accepts (100% until there is history). */
+export const acceptanceRate = (accepted: number, offered: number) => (offered > 0 ? Math.round((accepted * 100) / offered) : 100);
+
+export const CLAIM_CATEGORIES = {
+  MEDICAL: { label: "Medical emergency", heroOnly: false, photoRequired: false },
+  BIKE: { label: "Bike repair or accident", heroOnly: false, photoRequired: true },
+  FUNERAL: { label: "Funeral support", heroOnly: false, photoRequired: false },
+  SCHOOL: { label: "School fees for children", heroOnly: true, photoRequired: false },
+} as const;
+export function claimProblem(cat: string, amountNgwee: number, fundNgwee: number, tier: string | undefined, hasPhoto: boolean): string | null {
+  const c = CLAIM_CATEGORIES[cat as keyof typeof CLAIM_CATEGORIES];
+  if (!c) return "Choose what the claim is for.";
+  if (c.heroOnly && !isHero(tier)) return "School fees claims unlock at Hero tier (300 deliveries).";
+  if (c.photoRequired && !hasPhoto) return "Add a photo of the damage for a bike repair claim.";
+  if (!Number.isFinite(amountNgwee) || amountNgwee <= 0) return "Enter the amount you need.";
+  if (amountNgwee > fundNgwee) return `Claims can be up to your fund balance of K${(fundNgwee / 100).toFixed(2)}.`;
+  return null;
+}

@@ -26,7 +26,7 @@ describe("auth rules", () => {
 describe("escrow money rules", () => {
   it("matches the PRD worked example (K200 goods, K40 delivery)", () => {
     const s = split(20_000, 4_000, DEFAULT_CONFIG);
-    expect(s).toEqual({ sellerNetNgwee: 19_500, platformFeeNgwee: 500, riderNetNgwee: 3_920, riderPlatformFeeNgwee: 0, socialFundNgwee: 80 });
+    expect(s).toEqual({ sellerNetNgwee: 19_500, platformFeeNgwee: 500, riderNetNgwee: 3_480, riderPlatformFeeNgwee: 320, socialFundNgwee: 200 });
   });
   it("prices insured parcels", () => {
     const q = quote(0, 7.4, DEFAULT_CONFIG, 350_000);

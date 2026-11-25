@@ -1,6 +1,7 @@
 package selo.Nachipa01.ui.screens.auth
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -45,7 +46,19 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
 
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val cfg by app.config.collectAsState()
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(app.pinLockedUntil.value) { while (now < app.pinLockedUntil.value) { kotlinx.coroutines.delay(1000); now = System.currentTimeMillis() } }
+    val locked = now < app.pinLockedUntil.value
+    fun lock() {
+        val until = System.currentTimeMillis() + 30 * 60_000L
+        app.pinLockedUntil.value = until; now = System.currentTimeMillis(); pin = ""
+        ctx.getSharedPreferences("selo", android.content.Context.MODE_PRIVATE).edit().putLong("pinLockedUntil", until).apply()
+    }
+
     fun login() {
+        if (locked) return
         val msisdn = if (switchNumber) Validation.normaliseMsisdn(number) else remembered
         if (msisdn == null) { error = "Enter a valid Airtel, MTN or Zamtel number."; return }
         if (pin.length != Validation.PIN_LENGTH) { error = "Enter your 5-digit PIN."; return }
@@ -53,7 +66,7 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
         scope.launch {
             runCatching { app.backend.login(msisdn, pin) }
                 .onSuccess(onLoggedIn)
-                .onFailure { error = it.message; pin = "" }
+                .onFailure { error = it.message; pin = ""; if (it.message?.contains("Locked", true) == true || it.message?.contains("Too many", true) == true) lock() }
             loading = false
         }
     }
@@ -70,20 +83,32 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
         Spacer(Modifier.height(18.dp))
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).background(Color.White, RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
             .navigationBarsPadding().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val role = app.rememberedRole.value
+            if (!switchNumber && role != null) Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                val full = app.rememberedFullName.value ?: app.rememberedName.value ?: ""
+                Box(Modifier.size(64.dp).background(Selo.Red, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(full.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Text(full, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 6.dp))
+                Text("${role.name.lowercase().replaceFirstChar { it.uppercase() }} account", fontSize = 12.sp, color = Selo.Mute)
+            }
             if (!switchNumber) Text("Last signed in: ${SimpleDateFormat("HH:mm | dd/MM/yy", Locale.UK).format(Date())}",
                 color = Selo.Mute, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             if (switchNumber) SeloField("Mobile number", number, { number = it }, keyboard = KeyboardType.Phone, placeholder = "097 123 4567")
             Text("5-digit PIN", color = Selo.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             var reveal by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { PinInput(pin, { pin = it; error = null }, reveal = reveal, error = error != null) }
+                Box(Modifier.weight(1f)) { PinBoxes(pin, reveal = reveal, error = error != null, locked = locked) }
                 IconButton({ reveal = !reveal }) { Icon(if (reveal) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Show PIN", tint = Selo.Red) }
             }
-            ErrorText(error)
-            PrimaryButton("Login", enabled = pin.length == 5, loading = loading, onClick = ::login)
+            if (locked) Text("Too many wrong PINs. Try again in ${((app.pinLockedUntil.value - now) / 60_000 + 1)} min, or reset your PIN with your security questions.",
+                color = Selo.Red, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            else ErrorText(error)
+            NumberPad(enabled = !locked && !loading, onDigit = { d -> if (pin.length < 5) { pin += d; error = null } }, onDelete = { pin = pin.dropLast(1) })
+            PrimaryButton("Login", enabled = pin.length == 5 && !locked, loading = loading, onClick = ::login)
             Row(Modifier.fillMaxWidth()) {
-                Text("Forgot PIN?", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onForgotPin))
-                Spacer(Modifier.weight(1f))
+                Text("Forgot PIN? Reset with security questions", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                    modifier = Modifier.weight(1f).clickable(onClick = onForgotPin))
                 Text(if (switchNumber) "Use saved number" else "Not you? Switch number", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                     modifier = Modifier.clickable(enabled = remembered != null || !switchNumber) { switchNumber = !switchNumber })
             }
@@ -106,5 +131,41 @@ private fun FooterIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(Modifier.clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(42.dp).background(Selo.Red, CircleShape), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Color.White) }
         Text(label, color = Selo.Mute, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+    }
+}
+
+
+/** Display-only PIN boxes; digits come from the on-screen pad (one-handed use, no system keyboard). */
+@Composable
+private fun PinBoxes(value: String, reveal: Boolean, error: Boolean, locked: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(Validation.PIN_LENGTH) { i ->
+            val filled = i < value.length
+            Box(Modifier.weight(1f).height(50.dp).background(if (locked) Color(0xFFF1F1F4) else Color.White, RoundedCornerShape(10.dp))
+                .border(2.dp, when { locked -> Selo.Field; error -> Selo.Red; filled || i == value.length -> Selo.Red; else -> Selo.Field }, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center) {
+                if (filled) { if (reveal) Text(value[i].toString(), fontSize = 20.sp, fontWeight = FontWeight.Bold) else Box(Modifier.size(12.dp).background(Selo.Ink, CircleShape)) }
+                else if (locked) Icon(Icons.Outlined.Lock, null, tint = Selo.Grey, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+/** 3 × 4 number pad. Greyed out and inactive during a PIN lockout. */
+@Composable
+private fun NumberPad(enabled: Boolean, onDigit: (Char) -> Unit, onDelete: () -> Unit) {
+    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        keys.chunked(3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { k ->
+                    Box(Modifier.weight(1f).height(48.dp).background(if (k.isEmpty()) Color.Transparent else if (enabled) Color(0xFFF5F5F7) else Color(0xFFE4E4E8), RoundedCornerShape(12.dp))
+                        .clickable(enabled = enabled && k.isNotEmpty()) { if (k == "⌫") onDelete() else onDigit(k[0]) }, contentAlignment = Alignment.Center) {
+                        if (k == "⌫") Icon(Icons.Outlined.Backspace, "Delete", tint = if (enabled) Selo.Ink else Selo.Grey)
+                        else Text(k, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = if (enabled) Selo.Ink else Selo.Grey)
+                    }
+                }
+            }
+        }
     }
 }

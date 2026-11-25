@@ -39,7 +39,7 @@ const adverts = [
 const batch = db.batch();
 for (const [id, text] of Object.entries(questions)) batch.set(db.doc(`securityQuestionBank/${id}`), { text_en: text, active: true });
 batch.set(db.doc("platformConfig/default"), {
-  flatPlatformFeeKwacha: 5, buyerServiceFeePct: 0, riderPlatformFeePct: 0, socialFundPct: 2, socialFundMilestoneDeliveries: 20,
+  flatPlatformFeeKwacha: 5, buyerServiceFeePct: 0, riderPlatformFeePct: 8, socialFundPct: 5, socialFundMilestoneDeliveries: 0, heroBonusPct: 10,
   deliveryFeePerKm: 5, deliveryBaseFee: 5, paymentProcessingPct: 0, parcelListingFee: 5, insurancePremiumPct: 2,
   insuranceMaxDeclaredValue: 20000, agentPlatformCutPct: 5, sellerRegistrationFee: 10, riderWithdrawalFee: 15, minWithdrawal: 50,
   broadcastTimeoutMin: 5, autoConfirmHours: 48, maxConcurrentDeliveries: 4, dispatchCountdownSec: 15, pinMaxAttempts: 5,

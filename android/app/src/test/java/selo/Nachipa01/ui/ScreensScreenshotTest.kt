@@ -42,13 +42,13 @@ class ScreensScreenshotTest {
     @get:Rule val rule = createComposeRule()
 
     private fun shot(name: String, role: Role? = null, status: AccountStatus = AccountStatus.ACTIVE, msisdn: String = "+260971234512",
-                     prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
+                     advance: Long = 600, prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
         val state = AppState(DemoBackend())
         if (role != null) state.signedIn(DemoData.demoUser(role, msisdn, status = status))
         state.rememberedMsisdn.value = "+260971234512"; state.rememberedName.value = "Mwila"
         runBlocking { prep(state) }
         rule.setContent { SeloTheme { CompositionLocalProvider(LocalAppState provides state) { ui() } } }
-        rule.mainClock.advanceTimeBy(600)
+        rule.mainClock.advanceTimeBy(advance)
         rule.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
     }
 
@@ -163,4 +163,41 @@ class ScreensScreenshotTest {
         LaunchedEffect(Unit) { stories = app.backend.stories() }
         if (stories.isNotEmpty()) selo.Nachipa01.ui.screens.discover.StoryViewer(stories, 0, {}, {})
     }
+
+    // ---------------- v6.3 rider post-login (PRD 6) + multi-stop routing
+    private fun demo(s: AppState) = (s.backend as DemoBackend).rider
+    private suspend fun twoJobs(s: AppState) {
+        s.backend.setOnline(true); val r = demo(s)
+        r.offerNow(); s.backend.acceptJob(s.backend.availableJobs().first().first().id)
+        r.offerNow(); s.backend.acceptJob(s.backend.availableJobs().first().first().id)
+        s.backend.setOnline(false)
+    }
+    @Test fun r01_homeOffline() = shot("R01-rider-home-offline", Role.RIDER) { RiderShell {} }
+    @Test fun r02_homeOnline() = shot("R02-rider-home-online", Role.RIDER, advance = 2_500) { RiderShell(initialOnline = true) {} }
+    @Test fun r03_dispatch() = shot("R03-dispatch-card", Role.RIDER, advance = 3_000, prep = { s -> s.backend.setOnline(true); demo(s).offerNow() }) { RiderShell(initialOnline = true) {} }
+    @Test fun r04_dispatchCombine() = shot("R04-dispatch-combine", Role.RIDER, advance = 3_000, prep = { s ->
+        s.backend.setOnline(true); demo(s).offerNow(); s.backend.acceptJob(s.backend.availableJobs().first().first().id); demo(s).offerNow()
+    }) { RiderShell(initialOnline = true) {} }
+    @Test fun r05_activeRoute() = shot("R05-active-multistop-route", Role.RIDER, advance = 4_000, prep = { s -> twoJobs(s) }) { RiderShell {} }
+    @Test fun r06_turnByTurn() = shot("R06-turn-by-turn", Role.RIDER, advance = 6_000, prep = { s -> twoJobs(s) }) { RiderShell(initialNavigating = true) {} }
+    @Test fun r07_deliverStop() = shot("R07-active-deliver-stop", Role.RIDER, advance = 4_000, prep = { s ->
+        twoJobs(s); s.backend.riderActiveJobs().first().forEach { s.backend.markCollected(it.id) }
+    }) { RiderShell {} }
+    @Test fun r08_jobsHistory() = shot("R08-jobs-history", Role.RIDER) { RiderShell("jobs") {} }
+    @Test fun r09_deliveryDetail() = shot("R09-delivery-detail", Role.RIDER) { RiderShell("jobs", initialScreen = "delivery:SNC-48100") {} }
+    @Test fun r10_earnings() = shot("R10-earnings", Role.RIDER) { RiderShell("earnings") {} }
+    @Test fun r11_fund() = shot("R11-social-fund", Role.RIDER) { RiderShell("fund") {} }
+    @Test fun r12_claim() = shot("R12-file-claim", Role.RIDER) { RiderShell("fund", initialScreen = "claim") {} }
+    @Test fun r13_more() = shot("R13-more", Role.RIDER) { RiderShell("more") {} }
+    @Test fun r14_messages() = shot("R14-messages", Role.RIDER) { RiderShell("more", initialScreen = "messages") {} }
+    @Test fun r15_chat() = shot("R15-chat", Role.RIDER) { RiderShell("more", initialScreen = "chat:t1") {} }
+    @Test fun r16_zones() = shot("R16-zone-availability", Role.RIDER) { RiderShell("more", initialScreen = "zones") {} }
+    @Test fun r17_notifications() = shot("R17-notifications", Role.RIDER) { RiderShell("more", initialScreen = "notifications") {} }
+    @Test fun r18_profile() = shot("R18-rider-profile", Role.RIDER) { RiderShell("more", initialScreen = "profile") {} }
+    @Test fun r19_settings() = shot("R19-settings-support", Role.RIDER) { RiderShell("more", initialScreen = "settings") {} }
+    @Test fun r20_incident() = shot("R20-report-incident", Role.RIDER) { RiderShell("more", initialScreen = "incident") {} }
+    @Test fun r21_login() = shot("R21-rider-login", prep = { s -> s.rememberedRole.value = Role.RIDER; s.rememberedName.value = "Chanda"; s.rememberedFullName.value = "Chanda Mulenga"; s.rememberedMsisdn.value = "+260971234514" }) {
+        WelcomeScreen({}, {}, {}) }
+    @Test fun r22_loginLocked() = shot("R22-rider-login-locked", prep = { s -> s.rememberedRole.value = Role.RIDER; s.rememberedName.value = "Chanda"; s.rememberedFullName.value = "Chanda Mulenga"
+        s.rememberedMsisdn.value = "+260971234514"; s.pinLockedUntil.value = System.currentTimeMillis() + 29 * 60_000L }) { WelcomeScreen({}, {}, {}) }
 }

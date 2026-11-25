@@ -31,9 +31,10 @@ data class SessionUser(
 data class PlatformConfig(
     val flatPlatformFeeKwacha: Double = 5.0,
     val buyerServiceFeePct: Double = 0.0,
-    val riderPlatformFeePct: Double = 0.0,
-    val socialFundPct: Double = 2.0,
-    val socialFundMilestoneDeliveries: Int = 20,
+    val riderPlatformFeePct: Double = 8.0,
+    val socialFundPct: Double = 5.0,
+    /** 0 = the fund stays ring-fenced for claims (PRD 6.5); >0 releases it every N deliveries. */
+    val socialFundMilestoneDeliveries: Int = 0,
     val deliveryFeePerKm: Double = 5.0,
     val deliveryBaseFee: Double = 5.0,
     val paymentProcessingPct: Double = 0.0,
@@ -54,6 +55,8 @@ data class PlatformConfig(
     /** v6.2 paid promotions (platform revenue) */
     val boostLocalPerDay: Double = 20.0, val boostRegionalPerDay: Double = 45.0, val boostNationalPerDay: Double = 90.0, val storyPrice24h: Double = 10.0,
     val boostFrequencyCap: Int = 3, val boostSlotsPerPage: Int = 2,
+    /** Rider Hero/Ambassador bonus on net delivery earnings (platform-funded). 0 disables. */
+    val heroBonusPct: Double = 10.0,
 ) {
     companion object {
         fun fromMap(m: Map<String, Any?>): PlatformConfig {
@@ -74,6 +77,7 @@ data class PlatformConfig(
                 i("aiTimeoutSec", x.aiTimeoutSec), i("videoMinSec", x.videoMinSec), i("videoMaxSec", x.videoMaxSec), i("maxPhotos", x.maxPhotos),
                 d("boostLocalPerDay", x.boostLocalPerDay), d("boostRegionalPerDay", x.boostRegionalPerDay), d("boostNationalPerDay", x.boostNationalPerDay),
                 d("storyPrice24h", x.storyPrice24h), i("boostFrequencyCap", x.boostFrequencyCap), i("boostSlotsPerPage", x.boostSlotsPerPage),
+                heroBonusPct = d("heroBonusPct", x.heroBonusPct),
             )
         }
     }
@@ -144,13 +148,64 @@ data class Order(
     /** Latest mobile-money collection attempt: PENDING, PAID or FAILED (with a reason the buyer can act on). */
     val paymentStatus: String = "PENDING", val paymentFailure: String? = null, val walletMsisdn: String? = null,
     val serviceFeeNgwee: Long = 0, val processingFeeNgwee: Long = 0,
+    /** Rider view: who to call and where things are (lat/lng when known). */
+    val buyerName: String = "", val buyerMsisdn: String = "", val itemsSummary: String = "",
+    val pickupLat: Double? = null, val pickupLng: Double? = null, val dropLat: Double? = null, val dropLng: Double? = null,
 )
 
 data class RiderStats(
     val todayNetNgwee: Long, val todayDeliveries: Int, val active: Int, val acceptanceRate: Int,
     val socialFundNgwee: Long, val completedDeliveries: Int, val availableNgwee: Long, val tier: String,
+    /** Social Fund contributions per day, oldest first, last entry = today. */
     val weekFund: List<Long> = emptyList(),
+    val weekNetNgwee: Long = 0, val todayKm: Double = 0.0, val fundTodayNgwee: Long = 0, val bonusWeekNgwee: Long = 0,
 )
+
+/* ---------------------------------------------------------------- v6.3 rider post-login */
+
+object RiderTiers {
+    const val RISING = 50; const val HERO = 300
+    fun forDeliveries(n: Int, ambassador: Boolean = false) = when { ambassador && n >= HERO -> "Ambassador"; n >= HERO -> "Hero"; n >= RISING -> "Rising"; else -> "Starter" }
+    fun isHero(tier: String) = tier == "Hero" || tier == "Ambassador"
+}
+
+data class RiderProfile(
+    val uid: String, val fullName: String, val msisdn: String, val zoneName: String, val city: String, val vehicle: String, val plate: String,
+    val photoUrl: String? = null, val tier: String = "Starter", val rating: Double = 0.0, val ratingCount: Int = 0,
+    val totalDeliveries: Int = 0, val completionRate: Int = 100, val acceptanceRate: Int = 100,
+    val emergencyName: String = "", val emergencyPhone: String = "", val payoutWallet: String = "", val memberSince: String = "",
+    val weeklyTargetNgwee: Long = 100_000, val autoSettle: Boolean = true,
+)
+
+/** One completed delivery in the rider's history, with the money breakdown and proof-of-delivery photo. */
+data class RiderDelivery(
+    val orderId: String, val pickupArea: String, val dropArea: String, val pickupAddress: String, val dropAddress: String, val item: String,
+    val grossNgwee: Long, val platformNgwee: Long, val fundNgwee: Long, val bonusNgwee: Long, val netNgwee: Long, val km: Double,
+    val at: Long, val podUrl: String? = null,
+)
+
+data class DeliveryZone(val id: String, val name: String, val city: String, val neighbourhoods: List<String>, val radiusKm: Double,
+                        val active: Boolean, val primary: Boolean = false)
+
+/** day 0 = Monday. Times are "HH:mm" Lusaka time. */
+data class WorkingDay(val day: Int, val on: Boolean, val start: String = "07:00", val end: String = "19:00") {
+    companion object {
+        val NAMES = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+        val DEFAULT = (0..6).map { WorkingDay(it, it < 6) }
+    }
+}
+
+enum class ClaimCategory(val label: String, val heroOnly: Boolean = false, val photoRequired: Boolean = false) {
+    MEDICAL("Medical emergency"), BIKE("Bike repair or accident", photoRequired = true), FUNERAL("Funeral support"), SCHOOL("School fees for children", heroOnly = true)
+}
+data class SocialFundClaim(val id: String, val category: String, val amountNgwee: Long, val description: String, val status: String, val createdAt: Long)
+
+data class ChatThread(val id: String, val label: String, val kind: String, val orderId: String, val lastMessage: String, val lastAt: Long, val unread: Int)
+data class ChatMessage(val id: String, val text: String, val mine: Boolean, val at: Long)
+
+data class AppNotification(val id: String, val type: String, val title: String, val body: String, val at: Long, val read: Boolean)
+
+data class IncidentReport(val type: String, val description: String, val orderRef: String, val photo: android.net.Uri? = null)
 
 data class SellerStats(
     val earningsNgwee: Long, val todayNgwee: Long, val toPack: Int, val liveListings: Int, val lowStock: Int,

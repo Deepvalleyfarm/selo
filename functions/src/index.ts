@@ -6,3 +6,5 @@ export * from "./scheduled";
 export * from "./discovery";
 export * from "./algoJobs";
 export * from "./promotions";
+export * from "./rider";
+export * from "./routes";

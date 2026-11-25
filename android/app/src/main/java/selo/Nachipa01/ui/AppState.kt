@@ -24,6 +24,10 @@ class AppState(val backend: Backend) : ViewModel() {
     /** Last number used on this device, shown masked on the welcome screen. */
     val rememberedMsisdn = mutableStateOf<String?>(null)
     val rememberedName = mutableStateOf<String?>(null)
+    val rememberedFullName = mutableStateOf<String?>(null)
+    val rememberedRole = mutableStateOf<selo.Nachipa01.data.model.Role?>(null)
+    /** Set after 5 wrong PINs; the login keypad stays grey until then (epoch ms). */
+    val pinLockedUntil = mutableStateOf(0L)
 
     // Listing creation flow (seller and agent)
     val capturedMedia = mutableStateListOf<Uri>()
@@ -36,6 +40,8 @@ class AppState(val backend: Backend) : ViewModel() {
         if (first) tracker.sessionStart(android.os.Build.MODEL ?: "android", selo.Nachipa01.BuildConfig.VERSION_NAME)
         rememberedMsisdn.value = user.msisdn
         rememberedName.value = user.firstName
+        rememberedFullName.value = user.fullName
+        rememberedRole.value = user.role
     }
 
     fun resetListingFlow() { capturedMedia.clear(); listingPrompt.value = null; aiDraft.value = null; listingMediaType.value = "video"; videoDurationMs.value = 0 }
