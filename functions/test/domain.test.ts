@@ -67,3 +67,11 @@ describe("Lipila webhook signature", () => {
     expect(verifyLipilaSignature(body, undefined, "s3cret")).toBe(false);
   });
 });
+
+import { SECURITY_QUESTION_BANK } from "../src/domain-defaults";
+describe("security question bank", () => {
+  it("has 12 questions with the same ids as the app", () => {
+    expect(Object.keys(SECURITY_QUESTION_BANK)).toHaveLength(12);
+    expect(SECURITY_QUESTION_BANK.q_favourite_dish).toBe("What is your favourite traditional Zambian dish?");
+  });
+});

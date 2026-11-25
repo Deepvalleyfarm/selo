@@ -31,6 +31,7 @@ import selo.Nachipa01.data.model.SessionUser
 import selo.Nachipa01.data.repo.QuestionAnswer
 import selo.Nachipa01.data.repo.RegistrationRequest
 import selo.Nachipa01.domain.Fees
+import selo.Nachipa01.domain.SecurityQuestions
 import selo.Nachipa01.domain.Validation
 import selo.Nachipa01.ui.LocalAppState
 import selo.Nachipa01.ui.components.*
@@ -41,8 +42,10 @@ class RegState(val role: Role) {
     val text = mutableStateMapOf<String, String>()
     val chips = mutableStateMapOf<String, Set<String>>()
     val docs = mutableStateMapOf<String, Uri>()
-    val questionIds = mutableStateListOf("", "", "")
-    val answers = mutableStateListOf("", "", "")
+    /** The 4 shuffled questions on offer, the ids picked (in order) and an answer per picked id. */
+    val offered = mutableStateListOf<SecurityQuestion>()
+    val questionIds = mutableStateListOf<String>()
+    val answers = mutableStateMapOf<String, String>()
     var pin by mutableStateOf(""); var pinConfirm by mutableStateOf("")
     var biometric by mutableStateOf(true)
     var walletNetwork by mutableStateOf("Airtel Money")
@@ -61,13 +64,18 @@ private class Page(val title: String, val from: Int, val to: Int, val validate: 
 private fun total(role: Role) = when (role) { Role.BUYER -> 6; Role.SELLER -> 9; Role.AGENT -> 8; Role.RIDER -> 11 }
 
 @Composable
-fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUser) -> Unit) {
+fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUser) -> Unit, initialPage: Int = 0) {
     val app = LocalAppState.current
     val state = remember { RegState(role) }
-    var bank by remember { mutableStateOf<List<SecurityQuestion>>(emptyList()) }
-    LaunchedEffect(Unit) { bank = runCatching { app.backend.questionBank() }.getOrDefault(emptyList()) }
+    // Built-in bank first so the questions always show; Firestore wording replaces it once loaded.
+    var bank by remember { mutableStateOf(SecurityQuestions.BANK) }
+    LaunchedEffect(Unit) { bank = runCatching { app.backend.questionBank() }.getOrDefault(SecurityQuestions.BANK).ifEmpty { SecurityQuestions.BANK } }
+    LaunchedEffect(bank) {
+        if (state.offered.isEmpty()) state.offered.addAll(SecurityQuestions.offer(bank))
+        else state.offered.replaceAll { q -> bank.firstOrNull { it.id == q.id } ?: q }
+    }
     val pages = remember(bank) { pagesFor(role, bank) }
-    var index by rememberSaveable { mutableIntStateOf(0) }
+    var index by rememberSaveable { mutableIntStateOf(initialPage) }
     var error by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -87,7 +95,7 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
             runCatching {
                 app.backend.register(RegistrationRequest(
                     role = role, msisdn = msisdn, pin = state.pin,
-                    questions = state.questionIds.indices.map { QuestionAnswer(state.questionIds[it], state.answers[it]) },
+                    questions = state.questionIds.map { QuestionAnswer(it, state.answers[it].orEmpty()) },
                     profile = state.text.toMap() + state.chips.mapValues { it.value.toList() } +
                         mapOf("workingDays" to state.hours.filterValues { it }.keys.toList(), "biometric" to state.biometric,
                             "walletNetwork" to state.walletNetwork),
@@ -172,8 +180,8 @@ private fun validateWallet(s: RegState): String? = when {
     else -> null
 }
 private fun validateSecurity(s: RegState): String? {
-    if (s.questionIds.any { it.isBlank() } || s.questionIds.toSet().size < 3) return "Choose 3 different questions."
-    s.answers.forEach { a -> Validation.answerProblem(a)?.let { return it } }
+    if (s.questionIds.toSet().size != SecurityQuestions.REQUIRED) return "Choose ${SecurityQuestions.REQUIRED} of the ${SecurityQuestions.OFFERED} questions."
+    s.questionIds.forEach { id -> Validation.answerProblem(s.answers[id].orEmpty())?.let { return "Answer \"${SecurityQuestions.textFor(id)}\": $it" } }
     Validation.pinProblem(s.pin)?.let { return it }
     if (s.pin != s.pinConfirm) return "PINs don't match. Try again."
     return null
@@ -238,21 +246,34 @@ private fun AddressPage(s: RegState, catTitle: String, cats: List<String>, landm
 
 @Composable
 private fun SecurityPage(s: RegState, bank: List<SecurityQuestion>) {
-    H("Set 3 security questions", 14)
-    (0..2).forEach { i ->
-        var open by remember { mutableStateOf(false) }
-        val taken = s.questionIds.filterIndexed { j, _ -> j != i }.toSet()
-        Box {
-            Row(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(10.dp)).border(1.3.dp, Selo.Field, RoundedCornerShape(10.dp))
-                .clickable { open = true }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(bank.firstOrNull { it.id == s.questionIds[i] }?.text ?: "Choose question ${i + 1}", Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Icon(Icons.Outlined.ExpandMore, null, tint = Selo.Mute)
+    H("Choose 3 security questions", 14)
+    Sub("Tap 3 of these 4 questions and answer them. We'll ask the same 3 if you ever forget your PIN.")
+    s.offered.forEach { q ->
+        val picked = q.id in s.questionIds
+        val order = s.questionIds.indexOf(q.id) + 1
+        val full = !picked && s.questionIds.size >= SecurityQuestions.REQUIRED
+        Column(Modifier.fillMaxWidth().background(if (picked) Selo.RedTint else Color.White, RoundedCornerShape(12.dp))
+            .border(1.5.dp, if (picked) Selo.Red else Selo.Field, RoundedCornerShape(12.dp))) {
+            Row(Modifier.fillMaxWidth().clickable(enabled = !full) {
+                if (picked) { s.questionIds.remove(q.id); s.answers.remove(q.id) } else s.questionIds.add(q.id)
+            }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(24.dp).background(if (picked) Selo.Red else Color.White, CircleShape)
+                    .border(1.5.dp, if (picked) Selo.Red else Selo.Field, CircleShape), contentAlignment = Alignment.Center) {
+                    if (picked) Text("$order", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(q.text, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = if (full) Selo.Mute else Selo.Ink, modifier = Modifier.weight(1f))
             }
-            DropdownMenu(open, { open = false }) {
-                bank.filter { it.id !in taken }.forEach { q -> DropdownMenuItem({ Text(q.text) }, { s.questionIds[i] = q.id; open = false }) }
-            }
+            if (picked) SeloField("Your answer", s.answers[q.id].orEmpty(), { s.answers[q.id] = it }, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp), secret = true)
         }
-        SeloField("Answer ${i + 1}", s.answers[i], { s.answers[i] = it }, secret = true)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("${s.questionIds.size} of ${SecurityQuestions.REQUIRED} chosen", color = Selo.Mute, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        TextButton({
+            val previous = s.offered.map { it.id }.toSet()
+            s.offered.clear(); s.questionIds.clear(); s.answers.clear()
+            s.offered.addAll(SecurityQuestions.offer(bank, exclude = previous))
+        }) { Text("Show 4 other questions", color = Selo.Red, fontWeight = FontWeight.Bold) }
     }
     Sub("These questions help us verify it's really you if you ever forget your PIN. Answers are not case sensitive.")
     H("Create a 5-digit PIN", 14); PinInput(s.pin, { s.pin = it })

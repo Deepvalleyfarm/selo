@@ -8,7 +8,9 @@ plugins {
 // The google-services plugin needs app/google-services.json from the Firebase console
 // (project Mabala, App ID 1:237562839144:android:234228db94a7ab9370fbdd).
 // Without it the app still builds and runs in demo mode with sample data.
-val hasGoogleServices = file("google-services.json").exists()
+// -PdemoMode=true builds a sample-data APK even though google-services.json is present.
+val demoMode = (project.findProperty("demoMode") as String?) == "true"
+val hasGoogleServices = file("google-services.json").exists() && !demoMode
 if (hasGoogleServices) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -21,8 +23,8 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "6.0.0"
+        versionCode = 2
+        versionName = "6.0.1"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")

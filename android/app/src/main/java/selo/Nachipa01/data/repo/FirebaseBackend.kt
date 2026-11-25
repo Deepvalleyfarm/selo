@@ -87,10 +87,13 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
                 }
             }.catch { emit(emptyList()) }
 
-    override suspend fun questionBank(): List<SecurityQuestion> =
-        db.collection("securityQuestionBank").whereEqualTo("active", true).get().await()
-            .documents.map { SecurityQuestion(it.id, it.getString("text_en") ?: "") }
-            .ifEmpty { DemoData.questions }
+    /** Never empty: the built-in 12-question bank is used if Firestore can't be read (e.g. before login or seeding). */
+    override suspend fun questionBank(): List<SecurityQuestion> = selo.Nachipa01.domain.SecurityQuestions.merge(
+        runCatching {
+            db.collection("securityQuestionBank").whereEqualTo("active", true).get().await()
+                .documents.map { SecurityQuestion(it.id, it.getString("text_en") ?: "") }
+        }.getOrDefault(emptyList())
+    )
 
     override suspend fun login(msisdn: String, pin: String): SessionUser {
         val res = call("auth_loginWithPin", mapOf("msisdn" to msisdn, "pin" to pin))
@@ -123,7 +126,10 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         val res = call("auth_getRecoveryQuestions", mapOf("msisdn" to msisdn))
         if (res["hasQuestions"] == false) return null
         @Suppress("UNCHECKED_CAST")
-        return (res["questions"] as? List<Map<String, String>>)?.map { SecurityQuestion(it["id"]!!, it["text"]!!) }
+        return (res["questions"] as? List<Map<String, String>>)?.map { q ->
+            val id = q["id"]!!
+            SecurityQuestion(id, q["text"]?.takeIf { it.isNotBlank() && it != id } ?: selo.Nachipa01.domain.SecurityQuestions.textFor(id))
+        }
     }
 
     override suspend fun verifyAnswers(msisdn: String, answers: List<QuestionAnswer>): String =

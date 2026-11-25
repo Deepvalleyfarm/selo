@@ -52,6 +52,11 @@ class ScreensScreenshotTest {
     @Test fun sr1_sellerReg() = shot("SR1-seller-registration") { RegistrationWizard(Role.SELLER, {}, {}) }
     @Test fun ag1_agentReg() = shot("AG1-agent-registration") { RegistrationWizard(Role.AGENT, {}, {}) }
     @Test fun rr1_riderReg() = shot("RR1-rider-registration") { RegistrationWizard(Role.RIDER, {}, {}) }
+    // Security step for every role (page index of the Security step in each wizard)
+    @Test fun a5_buyerSecurity() = shot("A5-buyer-security") { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 2) }
+    @Test fun sr_sellerSecurity() = shot("SR-seller-security") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 4) }
+    @Test fun ag_agentSecurity() = shot("AG-agent-security") { RegistrationWizard(Role.AGENT, {}, {}, initialPage = 2) }
+    @Test fun rr_riderSecurity() = shot("RR-rider-security") { RegistrationWizard(Role.RIDER, {}, {}, initialPage = 5) }
     @Test fun a7_done() = shot("A7-account-created", Role.BUYER) { AccountCreatedScreen {} }
     @Test fun sr6_pending() = shot("SR6-seller-pending", Role.SELLER, AccountStatus.PENDING_KYC) { PendingScreen({}, {}) }
     @Test fun rr6_pending() = shot("RR6-rider-pending", Role.RIDER, AccountStatus.PENDING_VERIFICATION) { PendingScreen({}, {}) }

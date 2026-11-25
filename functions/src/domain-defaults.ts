@@ -9,3 +9,19 @@ export const DEFAULT_CONFIG = {
   shareLinkExpiryDays: 3, minAppVersion: 1,
 };
 export type PlatformConfig = typeof DEFAULT_CONFIG;
+
+/** Built-in 12-question bank (same IDs as the Android app and seed script). Firestore wording overrides it. */
+export const SECURITY_QUESTION_BANK: Record<string, string> = {
+  q_mother_maiden_name: "What is your mother's maiden name?",
+  q_first_school: "What was the name of your first school?",
+  q_favourite_dish: "What is your favourite traditional Zambian dish?",
+  q_birth_town: "What is the name of the village or town where you were born?",
+  q_childhood_nickname: "What was your childhood nickname?",
+  q_best_friend: "What is the first name of your best friend growing up?",
+  q_favourite_teacher: "What is the name of your favourite teacher?",
+  q_first_phone: "What was the make of your first phone?",
+  q_father_first_name: "What is your father's first name?",
+  q_childhood_street: "What is the name of the street you grew up on?",
+  q_football_team: "What is your favourite football team?",
+  q_first_job: "What was your first job?",
+};

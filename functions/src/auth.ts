@@ -4,6 +4,7 @@ import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { LIPILA_API_KEY, db, loadConfig } from "./config";
+import { SECURITY_QUESTION_BANK } from "./domain-defaults";
 import { normaliseAnswer, normaliseMsisdn, pinProblem, kwachaToNgwee } from "./domain";
 import { lipila } from "./lipila";
 import { AppRole, requireUser, securityEvent, str } from "./util";
@@ -14,6 +15,14 @@ import { AppRole, requireUser, securityEvent, str } from "./util";
  */
 const ROLES: AppRole[] = ["BUYER", "SELLER", "AGENT", "RIDER"];
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+/** Question bank = built-in 12 questions, with any active Firestore wording or extra questions on top. */
+async function questionBank(): Promise<{ id: string; text: string }[]> {
+  const docs = await db.collection("securityQuestionBank").where("active", "==", true).get().then((s) => s.docs).catch(() => []);
+  const fromDb = new Map(docs.map((d) => [d.id, String(d.get("text_en") ?? "")]));
+  const ids = [...new Set([...Object.keys(SECURITY_QUESTION_BANK), ...fromDb.keys()])];
+  return ids.map((id) => ({ id, text: fromDb.get(id) || SECURITY_QUESTION_BANK[id] || id }));
+}
 const minutes = (m: number) => Timestamp.fromMillis(Date.now() + m * 60_000);
 
 async function token(uid: string, role: AppRole) {
@@ -30,9 +39,8 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
   if (pinErr) throw new HttpsError("invalid-argument", pinErr);
   const qs = Array.isArray(d.questions) ? d.questions as { questionId: string; answer: string }[] : [];
   if (qs.length !== 3 || new Set(qs.map((q) => q.questionId)).size !== 3) throw new HttpsError("invalid-argument", "Choose 3 different security questions.");
-  const bank = await db.collection("securityQuestionBank").get();
-  const valid = new Set(bank.docs.map((x) => x.id));
-  if (valid.size && qs.some((q) => !valid.has(q.questionId))) throw new HttpsError("invalid-argument", "Unknown security question.");
+  const valid = new Set((await questionBank()).map((q) => q.id));
+  if (qs.some((q) => !valid.has(q.questionId))) throw new HttpsError("invalid-argument", "Unknown security question.");
   if (qs.some((q) => normaliseAnswer(String(q.answer ?? "")).length < 2)) throw new HttpsError("invalid-argument", "Answers must be at least 2 characters.");
 
   const profile = (d.profile ?? {}) as Record<string, unknown>;
@@ -124,13 +132,13 @@ export const auth_loginWithPin = onCall(async (req) => {
 export const auth_getRecoveryQuestions = onCall(async (req) => {
   const msisdn = normaliseMsisdn(req.data?.msisdn);
   if (!msisdn) throw new HttpsError("invalid-argument", "Enter a valid number.");
-  const bank = (await db.collection("securityQuestionBank").where("active", "==", true).get()).docs;
-  const text = (id: string) => bank.find((b) => b.id === id)?.get("text_en") ?? id;
+  const bank = await questionBank();
+  const text = (id: string) => bank.find((b) => b.id === id)?.text ?? SECURITY_QUESTION_BANK[id] ?? id;
   const idx = await db.doc(`msisdnIndex/${msisdn}`).get();
   if (!idx.exists) {
     const h = parseInt(sha256(msisdn).slice(0, 8), 16);
-    const pick = [0, 1, 2].map((i) => bank[(h + i * 5) % Math.max(bank.length, 1)]).filter(Boolean);
-    return { hasQuestions: true, questions: pick.map((b) => ({ id: b.id, text: text(b.id) })) };
+    const pick = [0, 1, 2].map((i) => bank[(h + i * 5) % bank.length]);
+    return { hasQuestions: true, questions: pick.map((b) => ({ id: b.id, text: b.text })) };
   }
   const sec = (await db.doc(`users/${idx.get("uid")}/private/security`).get()).data();
   const qs = (sec?.securityQuestions ?? []) as { questionId: string }[];

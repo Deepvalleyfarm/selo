@@ -15,20 +15,7 @@ import selo.Nachipa01.domain.Fees
 import selo.Nachipa01.domain.Validation
 
 object DemoData {
-    val questions = listOf(
-        "q_mother_maiden_name" to "What is your mother's maiden name?",
-        "q_first_school" to "What was the name of your first school?",
-        "q_favourite_dish" to "What is your favourite traditional Zambian dish?",
-        "q_birth_town" to "What is the name of the village or town where you were born?",
-        "q_childhood_nickname" to "What was your childhood nickname?",
-        "q_best_friend" to "What is the first name of your best friend growing up?",
-        "q_favourite_teacher" to "What is the name of your favourite teacher?",
-        "q_first_phone" to "What was the make of your first phone?",
-        "q_father_first_name" to "What is your father's first name?",
-        "q_childhood_street" to "What is the name of the street you grew up on?",
-        "q_football_team" to "What is your favourite football team?",
-        "q_first_job" to "What was your first job?",
-    ).map { SecurityQuestion(it.first, it.second) }
+    val questions = selo.Nachipa01.domain.SecurityQuestions.BANK
 
     val adverts = listOf(
         Advert("ad1", "Fresh tomatoes, 20 kg crate", "Mama Bupe's Veg · Soweto Market", 18_000, "Shop now", "produce", 0xFF7A0016, 0xFFE2334D),
@@ -82,8 +69,12 @@ class DemoBackend : Backend {
         return DemoData.demoUser(role, msisdn).also { session = it }
     }
 
+    /** Remembers each number's chosen questions and normalised answers so Forgot PIN asks the same three. */
+    private val securityByMsisdn = mutableMapOf<String, List<QuestionAnswer>>()
+
     override suspend fun register(req: RegistrationRequest, onProgress: (String) -> Unit): SessionUser {
         onProgress("Creating your account"); delay(700)
+        securityByMsisdn[req.msisdn] = req.questions.map { it.copy(answer = Validation.normaliseAnswer(it.answer)) }
         if (req.kycDocs.isNotEmpty()) { onProgress("Uploading documents"); delay(700) }
         val status = if (req.role == Role.BUYER) AccountStatus.ACTIVE
             else if (req.role == Role.RIDER) AccountStatus.PENDING_VERIFICATION else AccountStatus.PENDING_KYC
@@ -97,11 +88,16 @@ class DemoBackend : Backend {
     }
 
     override suspend fun recoveryQuestions(msisdn: String): List<SecurityQuestion>? {
-        delay(400); return listOf(DemoData.questions[1], DemoData.questions[2], DemoData.questions[4])
+        delay(400)
+        val set = securityByMsisdn[msisdn] ?: return listOf(DemoData.questions[1], DemoData.questions[2], DemoData.questions[4])
+        return set.map { SecurityQuestion(it.questionId, selo.Nachipa01.domain.SecurityQuestions.textFor(it.questionId)) }
     }
     override suspend fun verifyAnswers(msisdn: String, answers: List<QuestionAnswer>): String {
         delay(600)
-        if (answers.any { Validation.answerProblem(it.answer) != null }) throw BackendException("One or more answers did not match. Try again.")
+        val set = securityByMsisdn[msisdn]
+        val ok = if (set != null) set.all { s -> answers.any { it.questionId == s.questionId && Validation.normaliseAnswer(it.answer) == s.answer } }
+            else answers.none { Validation.answerProblem(it.answer) != null }
+        if (!ok) throw BackendException("One or more answers did not match. Try again.")
         return "demo-reset-token"
     }
     override suspend fun resetPin(resetToken: String, newPin: String) { delay(400) }
