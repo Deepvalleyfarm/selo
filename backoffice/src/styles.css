@@ -122,3 +122,9 @@ tr.click { cursor: pointer; } tr.click:hover td { background: #faf9fb; }
 .endpromo { display: grid; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .chk { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
 @media (max-width: 600px) { .oprow { grid-template-columns: 84px 1fr 80px; } .oplogo { width: 84px; height: 34px; } }
+
+/* ---- v6.4 support threads */
+.thread { display: grid; gap: 8px; margin: 10px 0 14px; max-height: 360px; overflow: auto; }
+.bubble { background: #f1eff4; border-radius: 12px; padding: 9px 11px; max-width: 85%; font-size: 12.5px; }
+.bubble.me { background: var(--brand); color: #fff; justify-self: end; }
+.bubble small { display: block; opacity: .7; font-size: 10.5px; margin-top: 3px; }

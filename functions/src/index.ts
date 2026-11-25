@@ -11,3 +11,4 @@ export * from "./routes";
 export * from "./deliveryConfirmation";
 export * from "./parcels";
 export * from "./geo";
+export * from "./account";

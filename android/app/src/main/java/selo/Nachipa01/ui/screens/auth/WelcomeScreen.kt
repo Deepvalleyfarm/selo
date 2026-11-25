@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,7 +35,7 @@ import java.util.Locale
 
 /** A1: welcome back / login with five sliding paid adverts and Create Profile. No OTP anywhere. */
 @Composable
-fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit, onForgotPin: () -> Unit) {
+fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit, onForgotPin: () -> Unit, initialMode: String = "login") {
     val app = LocalAppState.current
     val ads by app.adverts.collectAsState()
     val remembered = app.rememberedMsisdn.value
@@ -92,6 +93,23 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
                 Text(full, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 6.dp))
                 Text("${role.name.lowercase().replaceFirstChar { it.uppercase() }} account", fontSize = 12.sp, color = Selo.Mute)
             }
+            // three clear entry points: Log In · Sign Up · Forgot PIN
+            var mode by rememberSaveable { mutableStateOf(initialMode) }
+            Row(Modifier.fillMaxWidth().background(Selo.Surface, RoundedCornerShape(50)).padding(4.dp)) {
+                listOf("login" to "Log In", "signup" to "Sign Up").forEach { (k, l) ->
+                    Text(l, Modifier.weight(1f).background(if (mode == k) Selo.Red else Color.Transparent, RoundedCornerShape(50)).clickable { mode = k }.padding(vertical = 10.dp),
+                        color = if (mode == k) Color.White else Selo.Ink, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+            if (mode == "signup") {
+                Text("Create your SeloNaChipa account", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+                listOf(Icons.Outlined.ShoppingBag to "Buy with escrow protection", Icons.Outlined.Storefront to "Sell with AI video listings",
+                    Icons.Outlined.TwoWheeler to "Deliver and earn as a rider", Icons.Outlined.Handshake to "Grow sales as an agent").forEach { (i, t) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) { Icon(i, null, tint = Selo.Red, modifier = Modifier.size(20.dp)); Text("  $t", fontSize = 14.sp) } }
+                Sub("Takes about 2 minutes. We confirm your number with an SMS code, then you choose a 5-digit PIN and 3 security questions.")
+                PrimaryButton("Sign up", onClick = onCreateProfile)
+                TextButton({ mode = "login" }, Modifier.align(Alignment.CenterHorizontally)) { Text("Already have an account? Log in", color = Selo.Red, fontWeight = FontWeight.Bold) }
+            } else {
             if (!switchNumber) Text("Last signed in: ${SimpleDateFormat("HH:mm | dd/MM/yy", Locale.UK).format(Date())}",
                 color = Selo.Mute, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             if (switchNumber) SeloField("Mobile number", number, { number = it }, keyboard = KeyboardType.Phone, placeholder = "097 123 4567")
@@ -107,17 +125,15 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
             NumberPad(enabled = !locked && !loading, onDigit = { d -> if (pin.length < 5) { pin += d; error = null } }, onDelete = { pin = pin.dropLast(1) })
             PrimaryButton("Login", enabled = pin.length == 5 && !locked, loading = loading, onClick = ::login)
             Row(Modifier.fillMaxWidth()) {
-                Text("Forgot PIN? Reset with security questions", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                    modifier = Modifier.weight(1f).clickable(onClick = onForgotPin))
+                Spacer(Modifier.weight(1f))
                 Text(if (switchNumber) "Use saved number" else "Not you? Switch number", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                     modifier = Modifier.clickable(enabled = remembered != null || !switchNumber) { switchNumber = !switchNumber })
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                HorizontalDivider(Modifier.weight(1f), color = Selo.Line)
-                Text("  New to SeloNaChipa?  ", color = Selo.Mute, fontSize = 12.sp)
-                HorizontalDivider(Modifier.weight(1f), color = Selo.Line)
+                if (error == selo.Nachipa01.data.repo.NETWORK_ERROR) TextButton({ login() }) { Text("Retry", color = Selo.Red, fontWeight = FontWeight.Bold) }
+                OutlinedButton(onForgotPin, Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(50), border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Field)) {
+                    Icon(Icons.Outlined.LockReset, null, tint = Selo.Red); Text("  Forgot PIN? Reset with security questions", color = Selo.Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
             }
-            OutlineButton("CREATE PROFILE", sub = "Buy · Sell · Deliver · Earn", onClick = onCreateProfile)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                 FooterIcon(Icons.Outlined.Call, "Contact us") { uri.openUri("https://wa.me/260978070734") }
                 FooterIcon(Icons.Outlined.ReportProblem, "Report fraud") { uri.openUri("https://wa.me/260978070734?text=Fraud%20report") }

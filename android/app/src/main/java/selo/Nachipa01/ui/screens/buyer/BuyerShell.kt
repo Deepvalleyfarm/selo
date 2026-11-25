@@ -48,7 +48,7 @@ fun BuyerShell(nav: NavHostController, initialTab: String = "discover", onLogout
         Box(Modifier.padding(bottom = pad.calculateBottomPadding())) {
             when (tab) {
                 "discover" -> selo.Nachipa01.ui.screens.discover.DiscoverScreen(onBuy = { nav.navigate("checkout/${it.id}") })
-                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { tab = "search" }, onOrders = { tab = "orders" }, onOpen = open)
+                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { c -> tab = if (c == "cart") "cart" else "search" }, onOrders = { tab = "orders" }, onOpen = open)
                 "search" -> selo.Nachipa01.ui.screens.discover.SearchScreen(onOpen = open)
                 "cart" -> CartScreen(onCheckout = { nav.navigate("checkout/cart") }, onBrowse = { tab = "discover" })
                 "orders" -> BuyerOrders(onOpen = { o -> nav.navigate(if (o.isParcel) "parcelTrack/${o.id}" else "track/${o.id}") })
@@ -66,9 +66,9 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrde
         Box {
             Column(Modifier.fillMaxWidth().background(Selo.Red).statusBarsPadding().padding(16.dp).height(64.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(36.dp).background(Color.Transparent, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AccountCircle, null, tint = Color.White) }
+                    IconButton({ app.navRequest.value = "account?r=profile" }) { Icon(Icons.Outlined.AccountCircle, "My profile", tint = Color.White) }
                     Spacer(Modifier.weight(1f)); LogoTile(); Spacer(Modifier.weight(1f))
-                    Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White)
+                    IconButton({ app.navRequest.value = "account?r=inbox" }) { Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White) }
                 }
             }
         }
@@ -97,6 +97,8 @@ fun stateLabel(s: OrderState) = when (s) {
     OrderState.RIDER_ASSIGNED -> "Rider assigned" to Tone.INFO; OrderState.PICKED_UP, OrderState.IN_TRANSIT -> "En route" to Tone.FUND
     OrderState.DELIVERED -> "Delivered" to Tone.OK; OrderState.REFUNDED -> "Refunded" to Tone.GREY
     OrderState.CANCELLED -> "Cancelled" to Tone.GREY; OrderState.PAYOUT_PENDING_RETRY -> "Delivered" to Tone.OK
+    OrderState.AWAITING_DELIVERY_CODE -> "Rider arrived" to Tone.WARN; OrderState.COMPLETED -> "Completed" to Tone.OK
+    OrderState.DELIVERY_FAILED -> "Delivery failed" to Tone.BRAND; OrderState.DISPUTED -> "Under review" to Tone.BRAND
 }
 
 /** Cart (PRD v6.2): items from one seller; the total is worked out at checkout with delivery and fees. */
@@ -173,7 +175,8 @@ private fun BuyerProfile(onLogout: () -> Unit, onOrders: () -> Unit, onOpen: (Li
     var confirm by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(Modifier.fillMaxWidth().background(Selo.Red).statusBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.fillMaxWidth()) { Text("My profile", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.weight(1f)); Icon(Icons.Outlined.Edit, "Edit", tint = Color.White) }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("My profile", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                IconButton({ app.navRequest.value = "account?r=profile" }) { Icon(Icons.Outlined.Edit, "Edit profile", tint = Color.White) } }
             Box(Modifier.padding(top = 8.dp).size(76.dp).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
                 Text(u?.fullName?.split(" ")?.mapNotNull { it.firstOrNull() }?.take(2)?.joinToString("") ?: "", color = Selo.Red, fontWeight = FontWeight.ExtraBold, fontSize = 26.sp)
             }
@@ -184,7 +187,11 @@ private fun BuyerProfile(onLogout: () -> Unit, onOrders: () -> Unit, onOpen: (Li
         }
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatCard("38", "Orders", Modifier.weight(1f)); StatCard("K 6,420", "Total spent", Modifier.weight(1f)); StatCard("12", "Saved", Modifier.weight(1f))
+                val myOrders by app.backend.buyerOrders().collectAsState(emptyList())
+                val lists by app.backend.wishlists().collectAsState(emptyList())
+                StatCard("${myOrders.size}", "Orders", Modifier.weight(1f))
+                StatCard(Fees.formatK(myOrders.filter { it.state !in listOf(OrderState.REFUNDED, OrderState.CANCELLED, OrderState.INITIATED) }.sumOf { it.totalNgwee }).removeSuffix(".00"), "Total spent", Modifier.weight(1f))
+                StatCard("${lists.sumOf { it.itemIds.size }}", "Saved", Modifier.weight(1f))
             }
             selo.Nachipa01.ui.screens.discover.LikedSavedTabs(onOpen)
             SectionLabel("Privacy")
@@ -199,22 +206,8 @@ private fun BuyerProfile(onLogout: () -> Unit, onOrders: () -> Unit, onOpen: (Li
                 }
             }
             SectionLabel("Account settings")
-            SeloCard(padding = 4.dp) {
-                listOf(
-                    Triple(Icons.Outlined.Inventory2, "My orders", ""),
-                    Triple(Icons.Outlined.Place, "Delivery addresses", "2"), Triple(Icons.Outlined.AccountBalanceWallet, "Payment wallets", "Airtel, MTN"),
-                    Triple(Icons.Outlined.Lock, "Change 5-digit PIN", ""), Triple(Icons.Outlined.Shield, "Security questions", "3 set"),
-                    Triple(Icons.Outlined.Notifications, "Notifications", ""), Triple(Icons.Outlined.Language, "Language", "English"),
-                    Triple(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", ""),
-                ).forEachIndexed { i, (icon, label, v) ->
-                    if (i > 0) HorizontalDivider(color = Selo.Line)
-                    Row(Modifier.fillMaxWidth().clickable { if (label == "My orders") onOrders() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, null, tint = Selo.Red, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
-                        Text(label, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text(v, color = Selo.Mute, fontSize = 12.sp); Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = Color(0xFFB5B5BE))
-                    }
-                }
-            }
+            selo.Nachipa01.ui.screens.account.AccountSettingsCard(open = { app.navRequest.value = "account?r=$it" },
+                extra = listOf(Triple(Icons.Outlined.Inventory2, "My orders", onOrders), Triple(Icons.Outlined.LocalShipping, "My parcels") { app.navRequest.value = "parcel" }))
             OutlineButton("Log out") { confirm = true }
         }
     }

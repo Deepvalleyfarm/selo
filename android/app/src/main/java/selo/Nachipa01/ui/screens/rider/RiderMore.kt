@@ -67,6 +67,7 @@ fun MoreScreens(s: String, profile: RiderProfile?, stats: RiderStats, open: (Str
         s == "claim" -> ClaimFlow(stats, back)
         s == "fundHistory" -> FundHistory(back)
         s == "ambassador" -> AmbassadorScreen(back)
+        s == "questions" || s == "pin" || s.startsWith("support") -> selo.Nachipa01.ui.screens.account.AccountHost(s, back)
         else -> MoreMenu(profile, open, onLogout)
     }
 }
@@ -386,7 +387,7 @@ fun SettingsScreen(profile: RiderProfile?, back: () -> Unit, onLogout: () -> Uni
             Column(Modifier.background(Color.White, RoundedCornerShape(14.dp))) {
                 SettingRow(Icons.Outlined.AccountBalanceWallet, "Change payout wallet", profile?.payoutWallet?.let { walletBadge(it) }) { sheet = "wallet" }
                 SettingRow(Icons.Outlined.Pin, "Change PIN", "Current PIN required") { sheet = "pin" }
-                SettingRow(Icons.Outlined.Quiz, "Update security questions", "Current PIN required") { sheet = "questions" }
+                SettingRow(Icons.Outlined.Quiz, "Security questions", "View or change · current PIN required") { open("questions") }
                 SettingRow(Icons.Outlined.ContactEmergency, "Update emergency contact", profile?.let { "${it.emergencyName} · ${it.emergencyPhone.replace("+260", "0")}" }, last = true) { sheet = "emergency" }
             }
             RedHeading("WEEKLY EARNINGS TARGET")
@@ -398,7 +399,8 @@ fun SettingsScreen(profile: RiderProfile?, back: () -> Unit, onLogout: () -> Uni
             RedHeading("SUPPORT")
             Column(Modifier.background(Color.White, RoundedCornerShape(14.dp))) {
                 SettingRow(Icons.Outlined.SupportAgent, "Live chat", support?.let { (on, min) -> if (on) "● Online · replies in about $min min" else "● Offline · leave a message" },
-                    subColor = if (support?.first == true) Selo.Green else Selo.Mute) { uri.openUri("https://wa.me/260978070734?text=" + Uri.encode("Rider live chat")) }
+                    subColor = if (support?.first == true) Selo.Green else Selo.Mute) { open("support/new") }
+                SettingRow(Icons.Outlined.HelpOutline, "Help centre & my requests", "FAQs and replies from support") { open("support") }
                 SettingRow(Icons.Outlined.Chat, "WhatsApp support", "+260 978 070 734") { uri.openUri("https://wa.me/260978070734") }
                 SettingRow(Icons.Outlined.ReportProblem, "Report an incident", "Reviewed by operations within 24 hours", last = true) { open("incident") }
             }

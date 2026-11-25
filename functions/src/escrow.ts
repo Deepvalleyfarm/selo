@@ -3,13 +3,14 @@ import { FieldValue, Timestamp, Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import { getDatabase } from "firebase-admin/database";
-import { LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, PlatformConfig, db, loadConfig } from "./config";
+import { LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, MAPS_API_KEY, PlatformConfig, db, loadConfig } from "./config";
 import { acceptanceRate, withinWorkingHours, canTransition, collectionFailureReason, haversineKm, network, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
 import { onPromoCollection } from "./promotions";
 import { writeLedger, type Leg } from "./ledger";
 import { lipila, verifyLipilaSignature } from "./lipila";
 import { notify, requireUser, str } from "./util";
 import { sendSms } from "./sms";
+import { routeDistance } from "./geo";
 
 const ledger = (orderId: string) => db.collection(`escrowLedger/${orderId}/entries`);
 const orderRef = (id: string) => db.doc(`orders/${id}`);
@@ -40,7 +41,7 @@ async function createCollection(orderId: string, totalNgwee: number, msisdn: str
 
 /* ------------------------------------------------------------------ create */
 
-export const order_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "BUYER");
   const items = (req.data?.items ?? []) as { listingId: string; qty: number }[];
   if (!items.length || items.length > 20) throw new HttpsError("invalid-argument", "Your cart is empty.");
@@ -57,20 +58,41 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =>
   const lines = items.map((i, k) => ({ listingId: i.listingId, title: listings[k].get("title"), qty: Math.max(1, Math.floor(i.qty)),
     unitNgwee: listings[k].get("priceNgwee") as number }));
   const goods = lines.reduce((s, l) => s + l.qty * l.unitNgwee, 0);
-  const distanceKm = seller.geo && buyer.geo ? Math.round(haversineKm(seller.geo, buyer.geo) * 1.3 * 10) / 10 : 6;
+  const dropGeo = isGeo(req.data?.dropoffGeo) ? { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) } : buyer.geo ?? null;
+  const route = seller.geo && dropGeo ? await routeDistance(seller.geo, dropGeo) : null;
+  const distanceKm = route?.distanceKm ?? (seller.geo && buyer.geo ? Math.round(haversineKm(seller.geo, buyer.geo) * 1.3 * 10) / 10 : 6);
   const q = quote(goods, distanceKm, cfg);
   const id = shortId("SNC");
   await orderRef(id).set({
     buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
     agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee, deliveryNgwee: q.deliveryNgwee,
     serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
-    pickupGeo: seller.geo ?? null, dropoff, dropoffGeo: buyer.geo ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
+    pickupGeo: seller.geo ?? null, dropoff, dropoffGeo: dropGeo, distanceApproximate: route?.approximate ?? true, addressId: req.data?.addressId ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
     state: "INITIATED", feeSnapshot: feeSnapshot(cfg), isParcel: false, riderUid: null, notifiedRiders: [],
     sellerPayoutStatus: "HELD", riderPayoutStatus: "HELD", timeline: { INITIATED: FieldValue.serverTimestamp() },
     createdAt: FieldValue.serverTimestamp(),
   });
   await createCollection(id, q.totalNgwee, wallet, `SeloNaChipa order ${id}`);
   return { orderId: id, totalNgwee: q.totalNgwee };
+});
+
+const isGeo = (v: any) => v && Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lng));
+
+/** Checkout preview: delivery fee from the road distance between the seller and the chosen drop-off (§ address system). */
+export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
+  requireUser(req);
+  const items = (req.data?.items ?? []) as { listingId: string; qty: number }[];
+  if (!items.length) throw new HttpsError("invalid-argument", "Your cart is empty.");
+  if (!isGeo(req.data?.dropoffGeo)) throw new HttpsError("invalid-argument", "Choose a delivery address.");
+  const drop = { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) };
+  const cfg = await loadConfig();
+  const listings = await Promise.all(items.map((i) => db.doc(`listings/${i.listingId}`).get()));
+  const unavailable = listings.filter((l) => !l.exists || l.get("status") !== "live" || (l.get("stock") ?? 1) <= 0).map((l) => l.id);
+  const goods = items.reduce((s, it, k) => s + Math.max(1, Math.floor(it.qty)) * (listings[k].get("priceNgwee") ?? 0), 0);
+  const seller = (await db.doc(`users/${listings[0].get("sellerUid")}`).get()).data() ?? {};
+  const route = seller.geo ? await routeDistance(seller.geo, drop) : { distanceKm: 6, durationMin: 20, approximate: true };
+  const q = quote(goods, route.distanceKm, cfg);
+  return { ...q, distanceKm: route.distanceKm, approximate: route.approximate || !seller.geo, etaMin: route.durationMin + 10, unavailable };
 });
 
 /** Default number had no funds (or was declined): pay the same order, same amount, from another number. */

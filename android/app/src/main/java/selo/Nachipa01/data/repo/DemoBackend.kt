@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import selo.Nachipa01.data.model.*
 import selo.Nachipa01.data.model.FeedGuard
 import selo.Nachipa01.data.model.FeedPage
 import selo.Nachipa01.data.model.Rail
@@ -84,7 +87,7 @@ object DemoData {
 class DemoBackend : Backend {
     override val isDemo = true
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var session: SessionUser? = null
+    internal var session: SessionUser? = null
     private val orders = MutableStateFlow<Map<String, Order>>(emptyMap())
     private val online = MutableStateFlow(true)
 
@@ -165,13 +168,18 @@ class DemoBackend : Backend {
         delay(3000); advance(id, OrderState.RIDER_ASSIGNED, "Chanda M.")
         delay(4000); advance(id, OrderState.PICKED_UP)
         delay(3000); advance(id, OrderState.IN_TRANSIT)
+        // rider arrives: the server sends the buyer (receiver) a 5-digit code; the rider enters it a little later
+        delay(6000); advance(id, OrderState.AWAITING_DELIVERY_CODE)
+        selo.Nachipa01.push.DeliveryCodeStore.put(ReceivedCode("order", id, "%05d".format((10_000..99_998).random()), System.currentTimeMillis() + 15 * 60_000, System.currentTimeMillis()))
+        delay(15_000)
+        if (orders.value[id]?.state == OrderState.AWAITING_DELIVERY_CODE) { advance(id, OrderState.DELIVERED); selo.Nachipa01.push.DeliveryCodeStore.clear("order", id) }
     }
 
     override suspend fun checkout(req: CheckoutRequest): String {
         val q = Fees.quote(req.items.sumOf { it.unitNgwee * it.qty }, req.distanceKm, PlatformConfig(paymentProcessingPct = 1.0))
         val id = "SNC-${(48_200..48_999).random()}"
         put(Order(id, "demo-buyer", req.sellerUid, req.sellerName.ifBlank { "Mama Bupe's Veg" }, null, null, req.items, q.goodsNgwee, q.deliveryNgwee, q.totalNgwee,
-            OrderState.INITIATED, "Lusaka Central", req.dropoff, "Soweto Market, stall 14",
+            OrderState.INITIATED, "Lusaka Central", req.dropoff, v64.sellerPlace(req.sellerUid).label,
             deliveryCode = "%06d".format((100_000..999_999).random()), distanceKm = req.distanceKm, lipilaRef = "SELO-COL-$id",
             walletMsisdn = req.walletMsisdn, serviceFeeNgwee = q.serviceFeeNgwee, processingFeeNgwee = q.processingFeeNgwee))
         simulate(id); return id
@@ -229,18 +237,8 @@ class DemoBackend : Backend {
         return (mine + seeded).sortedByDescending { it.followed }
     }
 
-    override suspend fun sendParcel(req: ParcelRequest): String {
-        val q = Fees.quote(0, req.distanceKm, PlatformConfig(), if (req.insured) req.declaredValueNgwee else 0)
-        val id = "PCL-${(20_000..29_999).random()}"
-        val ins = if (req.insured) "INS-" + List(4) { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("") +
-            "-" + List(4) { "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".random() }.joinToString("") else null
-        put(Order(id, "demo-buyer", "", req.sender, null, null, listOf(OrderItem("", req.contents, 1, 0)), 0, q.deliveryNgwee,
-            q.totalNgwee, OrderState.INITIATED, "Lusaka", req.dropoff, req.pickup, "%06d".format((100_000..999_999).random()),
-            req.distanceKm, true, ins, if (req.insured) req.declaredValueNgwee else 0, "SELO-COL-$id"))
-        simulate(id); return id
-    }
 
-    override suspend fun confirmReceipt(orderId: String) { advance(orderId, OrderState.DELIVERED) }
+    override suspend fun confirmReceipt(orderId: String) { advance(orderId, OrderState.COMPLETED) }
 
     override fun sellerStats() = flowOf(DemoData.sellerStats)
     override fun sellerOrders(): Flow<List<Order>> = flowOf(listOf(
@@ -398,7 +396,6 @@ class DemoBackend : Backend {
     override suspend fun acceptJob(orderId: String) = rider.accept(orderId)
     override fun riderActiveJobs(): Flow<List<Order>> = rider.activeJobs()
     override suspend fun markCollected(orderId: String) = rider.collected(orderId)
-    override suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri?) = rider.delivered(orderId, code, podPhoto)
     override suspend fun declineJob(orderId: String) = rider.decline(orderId)
     override suspend fun rateBuyer(orderId: String, stars: Int) { delay(200) }
     override fun riderProfile(): Flow<RiderProfile?> = rider.profile()
@@ -433,4 +430,100 @@ class DemoBackend : Backend {
     override suspend fun directions(origin: selo.Nachipa01.domain.route.LatLng, stops: List<selo.Nachipa01.domain.route.Stop>, vehicle: String) =
         rider.directions(origin, stops)
     override suspend fun mediaUrl(path: String): String? = path
+
+    /* ======================================================== v6.4 (demo) */
+    val v64 = DemoV64(scope) { session }
+    override suspend fun addressSuggestions(input: String, cityId: String?, nearLat: Double?, nearLng: Double?) = v64.suggestions(input, cityId)
+    override suspend fun placeDetails(id: String) = v64.details(id)
+    override suspend fun reverseGeocode(lat: Double, lng: Double) = v64.reverse(lat, lng)
+    override suspend fun routeDistance(from: Place, to: Place) = v64.distance(from, to)
+    override suspend fun savePlace(p: Place, source: String) = v64.save(p)
+    override fun savedAddresses() = v64.saved()
+    override suspend fun saveMyAddress(nickname: String, p: Place, makeDefault: Boolean): String { delay(200); return v64.saveMine(nickname, p, makeDefault) }
+    override suspend fun deleteMyAddress(id: String) { delay(150); v64.deleteMine(id) }
+    override suspend fun orderQuote(items: List<OrderItem>, dropoff: Place): OrderQuoteResult {
+        delay(250)
+        if (!dropoff.inServiceArea) throw BackendException("That address is outside our delivery area.")
+        val listings = all()
+        val sellerUid = listings.firstOrNull { it.id == items.firstOrNull()?.listingId }?.sellerUid ?: "s1"
+        val d = v64.distance(v64.sellerPlace(sellerUid), dropoff)
+        val q = Fees.quote(items.sumOf { it.unitNgwee * it.qty }, d.distanceKm, PlatformConfig(paymentProcessingPct = 1.0))
+        val unavailable = items.filter { i -> listings.firstOrNull { it.id == i.listingId }?.let { it.stock <= 0 || it.availability.equals("Sold out", true) } ?: false }.map { it.listingId }
+        return OrderQuoteResult(q.goodsNgwee, q.deliveryNgwee, q.serviceFeeNgwee, q.processingFeeNgwee, q.totalNgwee, d.distanceKm, d.approximate, d.durationMin + 10, unavailable)
+    }
+
+    override suspend fun parcelQuote(pickup: Place, dropoff: Place, insured: Boolean, declaredNgwee: Long): ParcelQuoteResult { delay(300); return v64.quote(pickup, dropoff, insured, declaredNgwee) }
+    override suspend fun createParcel(r: NewParcel): String { delay(400); return v64.create(r) }
+    override fun myParcels() = v64.list()
+    override fun parcel(id: String) = v64.one(id)
+    override fun parcelPickupPin(id: String) = v64.pin(id)
+    override suspend fun retryParcelPayment(id: String, walletMsisdn: String) = v64.retry(id, walletMsisdn)
+    override suspend fun cancelParcel(id: String) = v64.cancel(id)
+    override suspend fun editParcelReceiver(id: String, name: String, msisdn: String) = v64.editReceiver(id, name, msisdn)
+    override suspend fun confirmParcelPickup(id: String, pin: String) = rider.collectParcel(id, pin)
+    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>) {
+        delay(200); if (neighbourhoods.size !in 1..10) throw BackendException("Choose between 1 and 10 neighbourhoods.")
+    }
+    override suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?) { riderPos = lat to lng }
+    private var riderPos: Pair<Double, Double>? = null
+
+    override suspend fun requestDeliveryCode(kind: String, id: String, lat: Double?, lng: Double?, resend: Boolean, smsOnly: Boolean): CodeRequestResult {
+        delay(500)
+        val o = rider.activeJobs().first().firstOrNull { it.id == id } ?: throw BackendException("This delivery isn't assigned to you.")
+        val drop = rider.placeOf(o.dropoff)
+        val at = if (lat != null && lng != null) lat to lng else riderPos
+        if (drop != null && at != null && selo.Nachipa01.domain.route.Geo.m(selo.Nachipa01.domain.route.LatLng(at.first, at.second), drop) > 150)
+            throw BackendException("You are not at the delivery location yet.")
+        val r = v64.issueCode(id, resend || smsOnly)
+        rider.arrived(id)
+        return r
+    }
+    override suspend fun verifyDeliveryCode(kind: String, id: String, code: String, lat: Double?, lng: Double?): CodeVerifyResult {
+        delay(400)
+        val r = v64.check(id, code)
+        if (r.result != "verified") return r
+        val o = rider.activeJobs().first().firstOrNull { it.id == id }
+        val earnings = o?.let { if (it.kind == "parcel") selo.Nachipa01.domain.ParcelFees.split(it.deliveryNgwee).first else Fees.split(0, it.deliveryNgwee, PlatformConfig()).riderNetNgwee }
+        rider.delivered(id, code, null)
+        return r.copy(earningsNgwee = earnings)
+    }
+    override suspend fun receiverUnavailable(kind: String, id: String, lat: Double?, lng: Double?): Long {
+        delay(300)
+        val o = rider.activeJobs().first().firstOrNull { it.id == id } ?: throw BackendException("Not found.")
+        val waited = System.currentTimeMillis() - (o.arrivedAt ?: System.currentTimeMillis())
+        // the real rule is 10 minutes at the door; the demo shortens it to 10 seconds
+        if (waited < 10_000) throw BackendException("Please wait at the drop-off a little longer before reporting the receiver unavailable (10 min; 10 s in the demo).")
+        scope.launch { delay(6_000); rider.failed(id) }
+        return System.currentTimeMillis() + 20 * 60_000
+    }
+    override suspend fun respondUnavailable(kind: String, id: String, action: String, name: String?, msisdn: String?) = v64.respond(id, action)
+    override suspend fun confirmReceipt(kind: String, id: String) { if (kind == "parcel") v64.confirmReceipt(id) else confirmReceipt(id) }
+    override suspend fun rateDelivery(kind: String, id: String, stars: Int, comment: String) { delay(200); if (stars !in 1..5) throw BackendException("Choose 1 to 5 stars.") }
+    override suspend fun reportIssue(kind: String, id: String, type: String, description: String) = if (kind == "parcel") v64.reportIssue(id) else "D-${(1000..9999).random()}"
+    override suspend fun ackDeliveryCode(kind: String, id: String) {}
+    override suspend fun attachProofOfDelivery(kind: String, id: String, photo: Uri) { delay(300) }
+
+    override suspend fun sendSignupOtp(msisdn: String): Int { delay(400); return v64.sendOtp(msisdn) }
+    override suspend fun verifySignupOtp(msisdn: String, code: String): String { delay(300); return v64.verifyOtp(code) }
+    override suspend fun myQuestions(): List<SecurityQuestion> {
+        delay(200)
+        val chosen = session?.msisdn?.let { securityByMsisdn[it] }?.map { it.questionId } ?: listOf("q_mother_maiden_name", "q_first_school", "q_football_team")
+        return chosen.map { id -> SecurityQuestion(id, selo.Nachipa01.domain.SecurityQuestions.textFor(id)) }
+    }
+    override suspend fun updateProfile(changes: Map<String, Any?>) {
+        delay(250)
+        val name = (changes["fullName"] as? String)?.trim()
+        if (name != null && name.length < 3) throw BackendException("Enter your full name.")
+        session = session?.let { s -> s.copy(fullName = name ?: s.fullName, firstName = name?.substringBefore(" ") ?: s.firstName, area = (changes["area"] as? String) ?: s.area) }
+    }
+    override fun notificationPrefs() = v64.prefs
+    override suspend fun saveNotificationPrefs(prefs: Map<String, Boolean>) { delay(200); v64.prefs.value = prefs }
+    override fun paymentWallets() = v64.wallets
+    override suspend fun savePaymentWallets(wallets: List<String>) {
+        delay(200); v64.wallets.value = wallets.map { Validation.normaliseMsisdn(it) ?: throw BackendException("$it isn't an Airtel, MTN or Zamtel number.") }.distinct()
+    }
+    override fun supportTickets() = v64.ticketList()
+    override fun ticketMessages(id: String) = v64.ticketMsgs(id)
+    override suspend fun createTicket(subject: String, category: String, message: String, orderRef: String): String { delay(400); return v64.newTicket(subject, category, message) }
+    override suspend fun replyTicket(id: String, text: String) { delay(200); v64.reply(id, text) }
 }

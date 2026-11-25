@@ -143,6 +143,7 @@ fun FeedCard(l: Listing, active: Boolean, liked: Boolean, saved: Boolean, follow
             }
             Text("${l.district.ifBlank { l.province }} · View details", color = Color.White.copy(.9f), fontSize = 12.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable { actions.onDetails() }.padding(vertical = 4.dp))
+            selo.Nachipa01.ui.components.ProductActions(l, Modifier.fillMaxWidth().padding(top = 4.dp), onDark = true, height = 40.dp)
         }
 
         AnimatedVisibility(heart, Modifier.align(Alignment.Center), enter = scaleIn() + fadeIn(), exit = fadeOut()) {

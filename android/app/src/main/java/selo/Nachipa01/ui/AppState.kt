@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -63,20 +64,47 @@ class AppState(val backend: Backend) : ViewModel() {
     val onDeviceCategory = mutableStateOf<String?>(null)
     val listingForm = mutableStateOf<ListingForm?>(null)
 
-    // ---------------- v6.2 cart (one seller per order, so escrow and delivery stay one leg)
+    // ---------------- cart (v6.2, persistent since v6.4). One seller per order, so escrow and delivery stay one leg.
     val cart = mutableStateListOf<selo.Nachipa01.data.model.CartItem>()
     val cartCount get() = cart.sumOf { it.qty }
-    /** Adds one unit. Returns a notice when the cart held another seller's items and was replaced. */
-    fun addToCart(l: selo.Nachipa01.data.model.Listing): String? {
+    /** Set by MainActivity: writes "listingId:qty,…" to private storage after every change (cart survives restarts). */
+    var persistCart: (String) -> Unit = {}
+    private fun saveCart() = persistCart(cart.joinToString(",") { "${it.listing.id}:${it.qty}" })
+    fun inStock(l: selo.Nachipa01.data.model.Listing) = l.stock > 0 && !l.availability.equals("Sold out", true) && l.status == "live"
+
+    /** Adds [qty] units. Returns a message for the toast (added, replaced the other seller's cart, or out of stock). */
+    fun addToCart(l: selo.Nachipa01.data.model.Listing, qty: Int = 1): String? {
+        if (!inStock(l)) return "${l.title} is out of stock."
         val notice = if (cart.isNotEmpty() && cart.first().listing.sellerUid != l.sellerUid) { cart.clear(); "Your cart now holds items from ${l.sellerName} only. One seller per order keeps delivery in one trip." } else null
         val i = cart.indexOfFirst { it.listing.id == l.id }
         val max = l.stock.coerceAtLeast(1)
-        if (i >= 0) cart[i] = cart[i].copy(qty = (cart[i].qty + 1).coerceAtMost(max)) else cart.add(selo.Nachipa01.data.model.CartItem(l, 1))
+        if (i >= 0) cart[i] = cart[i].copy(listing = l, qty = (cart[i].qty + qty).coerceAtMost(max)) else cart.add(selo.Nachipa01.data.model.CartItem(l, qty.coerceIn(1, max)))
+        saveCart()
         return notice
     }
     fun setQty(listingId: String, qty: Int) {
         val i = cart.indexOfFirst { it.listing.id == listingId }; if (i < 0) return
         if (qty <= 0) cart.removeAt(i) else cart[i] = cart[i].copy(qty = qty.coerceAtMost(cart[i].listing.stock.coerceAtLeast(1)))
+        saveCart()
+    }
+    fun removeFromCart(ids: Collection<String>) { cart.removeAll { it.listing.id in ids }; saveCart() }
+    /** Restores the saved cart, refreshing each listing so price and stock are current. */
+    fun restoreCart(saved: String?) {
+        if (saved.isNullOrBlank() || cart.isNotEmpty()) return
+        val wanted = saved.split(",").mapNotNull { e -> e.split(":").takeIf { it.size == 2 }?.let { (id, q) -> q.toIntOrNull()?.let { id to it } } }
+        kotlinx.coroutines.MainScope().launch {
+            wanted.forEach { (id, q) -> runCatching { backend.listing(id) }.getOrNull()?.let { l -> cart.add(selo.Nachipa01.data.model.CartItem(l, q.coerceAtLeast(1))) } }
+        }
+    }
+
+    // ---------------- app-wide toast and navigation requests (product buttons live deep inside lists and sheets)
+    val toast = mutableStateOf<String?>(null)
+    val navRequest = mutableStateOf<String?>(null)
+    /** Buy: put the item in the cart if it isn't there, then open checkout with just that item selected. */
+    fun buyNow(l: selo.Nachipa01.data.model.Listing) {
+        if (!inStock(l)) { toast.value = "${l.title} is out of stock."; return }
+        if (cart.none { it.listing.id == l.id }) addToCart(l)?.let { toast.value = it }
+        navRequest.value = "checkout/cart?select=${l.id}"
     }
 }
 

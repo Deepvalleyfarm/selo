@@ -2,6 +2,10 @@ package selo.Nachipa01.ui.nav
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -19,8 +23,8 @@ import selo.Nachipa01.ui.screens.seller.*
 object R {
     const val WELCOME = "welcome"; const val ROLE = "role"; const val REGISTER = "register/{role}"
     const val REG_DONE = "regDone"; const val FORGOT = "forgot"; const val PENDING = "pending"
-    const val BUYER = "buyer"; const val CHECKOUT = "checkout/{listingId}"; const val PROMOTE = "promote/{listingId}/{type}"; const val PROMOTION = "promotion/{promoId}"; const val ESCROW = "escrow/{orderId}"
-    const val TRACK = "track/{orderId}"; const val PARCEL = "parcel"; const val PARCEL_TRACK = "parcelTrack/{orderId}"
+    const val BUYER = "buyer"; const val CHECKOUT = "checkout/{listingId}?select={select}"; const val PROMOTE = "promote/{listingId}/{type}"; const val PROMOTION = "promotion/{promoId}"; const val ESCROW = "escrow/{orderId}"
+    const val TRACK = "track/{orderId}"; const val PARCEL = "parcel"; const val PARCEL_SEND = "parcelSend"; const val PARCEL_TRACK = "parcelTrack/{orderId}"; const val CODE = "code/{kind}/{id}"
     const val SELLER = "seller"; const val ADD_LISTING = "addListing"; const val CAMERA = "camera"; const val AI = "ai"
     const val REVIEW = "review"; const val RIDER = "rider"; const val AGENT = "agent"
     const val PHOTOS = "photos"; const val PREVIEW = "previewListing"; const val LISTING = "listing/{id}"
@@ -52,6 +56,10 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         if (pending != null && app.session.value != null) { app.pendingListingId.value = null; nav.navigate("listing/$pending") }
     }
 
+    // product buttons and notifications ask for navigation through AppState
+    val req = app.navRequest.value
+    LaunchedEffect(req) { if (req != null) { app.navRequest.value = null; runCatching { nav.navigate(req) } } }
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier) {
     NavHost(nav, startDestination = R.WELCOME) {
         composable(R.WELCOME) {
             WelcomeScreen(
@@ -74,12 +82,17 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.BUYER) {
             BuyerShell(nav = nav, onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } })
         }
-        composable(R.CHECKOUT) { e -> CheckoutScreen(e.arguments?.getString("listingId") ?: "", onBack = { nav.popBackStack() },
+        composable(R.CHECKOUT, arguments = listOf(androidx.navigation.navArgument("select") { nullable = true; defaultValue = null })) { e ->
+            CheckoutScreen(e.arguments?.getString("listingId") ?: "", select = e.arguments?.getString("select"), onBack = { nav.popBackStack() },
             onPaid = { id -> nav.navigate("escrow/$id") { popUpTo(R.BUYER) } }) }
         composable(R.ESCROW) { e -> EscrowLockedScreen(e.arguments?.getString("orderId") ?: "", onTrack = { id -> nav.navigate("track/$id") { popUpTo(R.BUYER) } }) }
         composable(R.TRACK) { e -> TrackingScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }) }
-        composable(R.PARCEL) { ParcelScreen(onBack = { nav.popBackStack() }, onBooked = { id -> nav.navigate("parcelTrack/$id") { popUpTo(R.BUYER) } }) }
-        composable(R.PARCEL_TRACK) { e -> ParcelTrackScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }) }
+        composable(R.PARCEL) { ParcelsHome(onBack = { nav.popBackStack() }, onSend = { nav.navigate(R.PARCEL_SEND) }, onOpen = { nav.navigate("parcelTrack/$it") }) }
+        composable(R.PARCEL_SEND) { SendParcelScreen(onBack = { nav.popBackStack() }, onBooked = { id -> nav.navigate("parcelTrack/$id") { popUpTo(R.PARCEL) } }) }
+        composable(R.PARCEL_TRACK) { e -> ParcelDetailScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }, onOpenCode = { nav.navigate("code/parcel/$it") }) }
+        composable("account?r={r}", arguments = listOf(androidx.navigation.navArgument("r") { defaultValue = "support" })) { e ->
+            selo.Nachipa01.ui.screens.account.AccountHost(e.arguments?.getString("r") ?: "support") { nav.popBackStack() } }
+        composable(R.CODE) { e -> DeliveryCodeScreen(e.arguments?.getString("kind") ?: "order", e.arguments?.getString("id") ?: "", onBack = { nav.popBackStack() }) }
 
         composable(R.PROMOTE) { e -> selo.Nachipa01.ui.screens.seller.PromoteScreen(e.arguments?.getString("listingId") ?: "", e.arguments?.getString("type") ?: "boost",
             onBack = { nav.popBackStack() }, onStarted = { id -> nav.navigate("promotion/$id") { popUpTo(R.SELLER) } }) }
@@ -99,4 +112,17 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.RIDER) { RiderShell(onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }) }
         composable(R.AGENT) { AgentHomeScreen(onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }, onAddListing = { nav.navigate(R.ADD_LISTING) }) }
     }
+    ToastHost()
+    }
+}
+
+/** App-wide confirmation toast (e.g. "Added to cart · 3 items") shown without leaving the page. */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.ToastHost() {
+    val app = LocalAppState.current
+    val msg = app.toast.value ?: return
+    LaunchedEffect(msg) { kotlinx.coroutines.delay(2_400); if (app.toast.value == msg) app.toast.value = null }
+    androidx.compose.material3.Text(msg, color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+        modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 96.dp, start = 20.dp, end = 20.dp)
+            .background(selo.Nachipa01.ui.theme.Selo.Ink, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp))
 }

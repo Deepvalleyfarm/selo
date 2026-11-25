@@ -57,6 +57,8 @@ fun ListingTile(l: Listing, modifier: Modifier = Modifier, onClick: () -> Unit) 
                 if (l.hasOffer) Text(" ${Fees.formatK(l.priceNgwee).removeSuffix(".00")}", color = Selo.Mute, fontSize = 10.sp, textDecoration = TextDecoration.LineThrough)
             }
             Text("${l.district.ifBlank { l.province }} · ♥ ${compact(l.likes)}", color = Selo.Mute, fontSize = 10.5.sp, maxLines = 1)
+            Spacer(Modifier.height(6.dp))
+            selo.Nachipa01.ui.components.ProductActions(l, Modifier.fillMaxWidth(), compact = true)
         }
     }
 }

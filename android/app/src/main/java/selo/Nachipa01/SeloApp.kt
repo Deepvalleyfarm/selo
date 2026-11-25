@@ -25,5 +25,10 @@ class SeloApp : Application() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("orders", getString(R.string.channel_orders), NotificationManager.IMPORTANCE_HIGH)
         )
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel("delivery_code", "Delivery codes", NotificationManager.IMPORTANCE_HIGH).apply { lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE }
+        )
+        selo.Nachipa01.push.DeliveryCodeStore.init(this)
+        org.osmdroid.config.Configuration.getInstance().apply { userAgentValue = "SeloNaChipa/${BuildConfig.VERSION_NAME}"; osmdroidBasePath = cacheDir; osmdroidTileCache = java.io.File(cacheDir, "tiles") }
     }
 }

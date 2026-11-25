@@ -6,6 +6,7 @@ import Algorithm from "./pages/Algorithm";
 import Engagement from "./pages/Engagement";
 import Leads from "./pages/Leads";
 import Promotions from "./pages/Promotions";
+import { DeliveryCodes, EscrowLedger, OverrideLog, Parcels, Support } from "./pages/ParcelsOps";
 import Audit from "./pages/Audit";
 import Config from "./pages/Config";
 import Content from "./pages/Content";
@@ -35,6 +36,8 @@ function Gate() {
       <Route path="listings" element={<Listings />} /><Route path="content" element={<Content />} /><Route path="notify" element={<Notify />} />
       <Route path="config" element={<Config />} /><Route path="reports" element={<Reports />} /><Route path="audit" element={<Audit />} />
       <Route path="admins" element={<Admins />} /><Route path="promotions" element={<Promotions />} />
+      <Route path="parcels" element={<Parcels />} /><Route path="escrow-ledger" element={<EscrowLedger />} /><Route path="delivery-codes" element={<DeliveryCodes />} />
+      <Route path="overrides" element={<OverrideLog />} /><Route path="support" element={<Support />} />
       <Route path="algorithm" element={<Algorithm />} /><Route path="engagement" element={<Engagement />} /><Route path="leads" element={<Leads />} /><Route path="*" element={<Overview />} />
     </Route>
   </Routes>;

@@ -9,8 +9,8 @@ enum class AccountStatus { ACTIVE, PENDING_KYC, PENDING_VERIFICATION, SUSPENDED;
 }
 
 enum class OrderState {
-    INITIATED, ESCROW_LOCKED, BROADCASTING, RIDER_ASSIGNED, PICKED_UP, IN_TRANSIT,
-    DELIVERED, REFUNDED, CANCELLED, PAYOUT_PENDING_RETRY;
+    INITIATED, ESCROW_LOCKED, BROADCASTING, RIDER_ASSIGNED, PICKED_UP, IN_TRANSIT, AWAITING_DELIVERY_CODE,
+    DELIVERED, COMPLETED, DELIVERY_FAILED, DISPUTED, REFUNDED, CANCELLED, PAYOUT_PENDING_RETRY;
     companion object { fun from(s: String?) = entries.firstOrNull { it.name == s } ?: INITIATED }
 }
 
@@ -151,6 +151,9 @@ data class Order(
     /** Rider view: who to call and where things are (lat/lng when known). */
     val buyerName: String = "", val buyerMsisdn: String = "", val itemsSummary: String = "",
     val pickupLat: Double? = null, val pickupLng: Double? = null, val dropLat: Double? = null, val dropLng: Double? = null,
+    /** v6.4: "order" or "parcel" (rider jobs mix both); parcel jobs need the sender's 4-digit Pickup PIN at collection. */
+    val kind: String = "order", val codeState: String? = null, val arrivedAt: Long? = null, val unavailableDeadline: Long? = null,
+    val riderEarningsNgwee: Long? = null, val weightBand: String = "", val distanceApproximate: Boolean = false,
 )
 
 data class RiderStats(

@@ -4,7 +4,7 @@ type Row = Record<string, unknown> & { id: string };
 
 export const demo: Record<string, Row[]> = {
   "platformConfig": [{ id: "default", flatPlatformFeeKwacha: 5, buyerServiceFeePct: 0, riderPlatformFeePct: 8, socialFundPct: 5,
-    socialFundMilestoneDeliveries: 0, heroBonusPct: 10, deliveryFeePerKm: 5, deliveryBaseFee: 5, paymentProcessingPct: 0, parcelListingFee: 5,
+    socialFundMilestoneDeliveries: 0, heroBonusPct: 10, deliveryFeePerKm: 5, deliveryBaseFee: 5, paymentProcessingPct: 0, parcelBaseFee: 30, parcelPerKmRate: 4.5, sendingFeeRate: 15, minSendingFee: 10, parcelPlatformFeePct: 10, parcelSocialFundPct: 1, deliveryGeofenceM: 150, deliveryCodeExpiryMin: 15, deliveryCodeMaxAttempts: 5, disputeWindowHours: 24, parcelListingFee: 5,
     insurancePremiumPct: 2, insuranceMaxDeclaredValue: 20000, agentPlatformCutPct: 5, sellerRegistrationFee: 10, riderWithdrawalFee: 15,
     minWithdrawal: 50, broadcastTimeoutMin: 5, autoConfirmHours: 48, maxConcurrentDeliveries: 4, dispatchCountdownSec: 15,
     pinMaxAttempts: 5, pinLockMinutes: 30, sqMaxAttempts: 5, sqLockMinutes: 30, referralSharePct: 20, referralFlatBonusKwacha: 0,
@@ -130,6 +130,71 @@ demo.orders[1] = { ...demo.orders[1], paymentStatus: "PAID", walletMsisdn: "+260
 demo.orders.unshift({ id: "SNC-4823390", state: "INITIATED", buyerName: "Chipo N.", sellerName: "Tembo Electronics", totalNgwee: 252_470, goodsNgwee: 245_000,
   deliveryNgwee: 4_000, processingFeeNgwee: 2_470, zoneName: "Kalingalinga", isParcel: false, createdAt: ago(4), paymentStatus: "FAILED",
   paymentFailure: "Insufficient funds on Zamtel Money 0955 ••• 210.", walletMsisdn: "+260955120210" });
+
+
+// v6.4 parcels, escrow ledger, delivery codes and support
+const fees = (deliveryNgwee: number, extra: Record<string, number> = {}) => { const sending = Math.max(1_000, Math.min(Math.round(deliveryNgwee * .15), deliveryNgwee / 2));
+  return { deliveryNgwee, sendingNgwee: sending, insuranceNgwee: 0, totalNgwee: deliveryNgwee + sending, riderEarningsNgwee: Math.round(deliveryNgwee * .89),
+    platformFeeNgwee: Math.round(deliveryNgwee * .10), socialFundNgwee: deliveryNgwee - Math.round(deliveryNgwee * .89) - Math.round(deliveryNgwee * .10), ...extra }; };
+const stop = (neighbourhood: string, address: string) => ({ neighbourhood, address, label: address });
+demo.parcels = [
+  { id: "PCL-7K2M9Q", status: "AWAITING_DELIVERY_CODE", cityId: "lusaka", cityName: "Lusaka", senderName: "Mwila Chanda", senderMsisdn: "+260971234512",
+    receiver: { name: "Natasha Banda", msisdn: "+260955559876", uid: "u9" }, pickup: stop("Munali", "Plot 12, Great East Rd"), dropoff: stop("Chilenje", "House 44, Chilenje South"),
+    weightBand: "1–3 kg", category: "Documents", description: "Signed tenancy papers", riderName: "Chanda Mulenga", riderPlate: "BAK 4471", riderUid: "u3", distanceKm: 9.4, distanceApproximate: false,
+    fees: fees(7_230), escrowStatus: "HELD", codeSummary: { state: "sent", channel: "push", attempts: 1, codesIssued: 1 }, arrivedAt: ago(6), createdAt: ago(70) },
+  { id: "PCL-3X8B1D", status: "AWAITING_DELIVERY_CODE", cityId: "lusaka", cityName: "Lusaka", senderName: "Tembo Electronics", senderMsisdn: "+260977412233",
+    receiver: { name: "Kunda Mumba", msisdn: "+260966661234", uid: null }, pickup: stop("Cairo Road", "Shop 8, Cairo Rd"), dropoff: stop("Kabwata", "Flat 3B, Kabwata Estates"),
+    weightBand: "Under 1 kg", category: "Electronics", description: "Phone charger", riderName: "Mutale Phiri", riderPlate: "ALB 902", riderUid: "u10", distanceKm: 5.1, distanceApproximate: true,
+    fees: fees(5_295), escrowStatus: "HELD", codeSummary: { state: "locked", channel: "sms", attempts: 5, codesIssued: 2 }, arrivedAt: ago(22),
+    unavailable: { reportedAt: ago(9), response: null }, createdAt: ago(95) },
+  { id: "PCL-9P4R2T", status: "IN_TRANSIT", cityId: "kitwe", cityName: "Kitwe", senderName: "Bupe Mwanza", senderMsisdn: "+260977654334",
+    receiver: { name: "Joseph Lungu", msisdn: "+260971110022", uid: null }, pickup: stop("Nkana East", "12 Freedom Ave"), dropoff: stop("Parklands", "7 Mpezeni Rd"),
+    weightBand: "3–5 kg", category: "Food", description: "Groceries", riderName: "Chanda Mulenga", riderPlate: "BAK 4471", riderUid: "u3", distanceKm: 4.2,
+    fees: fees(4_890, { insuranceNgwee: 500 }), escrowStatus: "HELD", createdAt: ago(40) },
+  { id: "PCL-2H6N8C", status: "AWAITING_RIDER", cityId: "lusaka", cityName: "Lusaka", senderName: "Natasha Banda", senderMsisdn: "+260955559876",
+    receiver: { name: "Mwila Chanda", msisdn: "+260971234512", uid: "u1" }, pickup: stop("Chilenje", "House 44, Chilenje South"), dropoff: stop("Woodlands", "Stand 210, Woodlands"),
+    weightBand: "Under 1 kg", category: "Clothing", description: "Dress", distanceKm: 6.8, fees: fees(6_060), escrowStatus: "HELD", createdAt: ago(3) },
+  { id: "PCL-5D1F7G", status: "COMPLETED", cityId: "lusaka", cityName: "Lusaka", senderName: "Mwila Chanda", senderMsisdn: "+260971234512",
+    receiver: { name: "Kunda Mumba", msisdn: "+260966661234", uid: "u8" }, pickup: stop("Munali", "Plot 12, Great East Rd"), dropoff: stop("Kabwata", "Flat 3B, Kabwata Estates"),
+    weightBand: "1–3 kg", category: "Documents", description: "School certificates", riderName: "Chanda Mulenga", riderUid: "u3", distanceKm: 11.2,
+    fees: fees(8_040), escrowStatus: "RELEASED", codeSummary: { state: "verified", channel: "push", attempts: 1 },
+    verification: { verifiedAt: ago(60 * 30), riderGeo: { lat: -15.4486, lng: 28.2865 }, positionSource: "client", channel: "push", attempts: 1 }, createdAt: ago(60 * 31) },
+  { id: "PCL-8L3V6W", status: "DELIVERY_FAILED", cityId: "ndola", cityName: "Ndola", senderName: "Tembo Electronics", senderMsisdn: "+260977412233",
+    receiver: { name: "Grace Zulu", msisdn: "+260965000111", uid: null }, pickup: stop("Ndola CBD", "Broadway Rd"), dropoff: stop("Kansenshi", "18 Kansenshi Rd"),
+    weightBand: "Under 1 kg", category: "Electronics", description: "Earphones", riderName: "Mutale Phiri", riderUid: "u10", distanceKm: 3.6,
+    fees: fees(4_620), escrowStatus: "HELD_PENDING_ADMIN", failureReason: "receiver_unavailable", returnStatus: "RETURN_TO_SENDER", failedAt: ago(60 * 5), createdAt: ago(60 * 7),
+    codeSummary: { state: "expired", channel: "sms", attempts: 0 } },
+];
+demo.escrow_ledger = demo.parcels.filter((p) => p.escrowStatus !== "PENDING").flatMap((p) => {
+  const f = p.fees as Record<string, number>; const at = p.createdAt as Date;
+  const held = [["delivery_fee", f.deliveryNgwee], ["sending_fee", f.sendingNgwee], ...(f.insuranceNgwee ? [["insurance", f.insuranceNgwee]] : [])]
+    .map(([leg, a], i) => ({ id: `lh_${p.id}_${i}`, kind: "parcel", orderId: p.id, type: "HELD", leg, party: "escrow", amountNgwee: a, override: false, by: "system", at: new Date(at.getTime() + 60_000) }));
+  const rel = p.escrowStatus !== "RELEASED" ? [] : [["delivery_fee", "rider", f.riderEarningsNgwee], ["delivery_fee", "platform", f.platformFeeNgwee], ["delivery_fee", "rider_social_fund", f.socialFundNgwee], ["sending_fee", "platform", f.sendingNgwee]]
+    .map(([leg, party, a], i) => ({ id: `lx_${p.id}_${i}`, kind: "parcel", orderId: p.id, type: "RELEASED", leg, party, amountNgwee: a, override: false, by: "system", at: ago(60 * 30) }));
+  return [...held, ...rel];
+});
+demo.escrow_ledger.push({ id: "lo_1", kind: "order", orderId: "SNC-4811020", type: "HELD", leg: "goods", party: "escrow", amountNgwee: 45_000, override: false, by: "system", at: ago(60 * 3) });
+demo.deliveryCodeAttempts = [
+  { id: "ca1", kind: "parcel", orderId: "PCL-3X8B1D", action: "request", result: "issued", lat: -15.4352, lng: 28.2861, at: ago(21) },
+  ...[1, 2, 3, 4, 5].map((n) => ({ id: `ca${n + 1}`, kind: "parcel", orderId: "PCL-3X8B1D", action: "verify", result: n === 5 ? "locked" : "wrong", lat: -15.4352, lng: 28.2861, at: ago(20 - n * 2) })),
+  { id: "ca9", kind: "parcel", orderId: "PCL-7K2M9Q", action: "request", result: "issued", lat: -15.4544, lng: 28.3062, at: ago(5) },
+  { id: "ca10", kind: "parcel", orderId: "PCL-5D1F7G", action: "verify", result: "verified", lat: -15.4486, lng: 28.2865, at: ago(60 * 30) },
+];
+demo.riderFlags = [{ id: "u10", riderUid: "u10", reason: "repeated_code_lockouts", count24h: 3, status: "OPEN", flaggedAt: ago(15) }];
+demo.admin_audit_log = [{ id: "al1", action: "parcel.edit_receiver", kind: "parcel", orderId: "PCL-9P4R2T", actorEmail: "chileshe@selonachipa.zm", reason: "Sender called: receiver's old number was off", at: ago(30) }];
+demo.supportTickets = [
+  { id: "t1", uid: "u1", role: "BUYER", reference: "SUP-A1B2C3", name: "Mwila Chanda", msisdn: "+260971234512", subject: "Rider says code is wrong", category: "Delivery",
+    orderRef: "PCL-7K2M9Q", status: "OPEN", lastMessage: "I read the code from my app but the rider says it doesn't work.", lastFrom: "user", createdAt: ago(8), updatedAt: ago(8) },
+  { id: "t2", uid: "u2", role: "SELLER", reference: "SUP-D4E5F6", name: "Bupe Mwanza", msisdn: "+260977654334", subject: "Payout not received", category: "Payments",
+    orderRef: "", status: "AWAITING_USER", lastMessage: "We've retried the payout — please confirm it arrived.", lastFrom: "support", createdAt: ago(60 * 20), updatedAt: ago(60 * 2) },
+];
+demo["supportTickets/t1/messages"] = [{ id: "m1", from: "user", text: "I read the code from my app but the rider says it doesn't work.", at: ago(8) }];
+demo["supportTickets/t2/messages"] = [{ id: "m2", from: "user", text: "My payout for yesterday's sale hasn't arrived.", at: ago(60 * 20) },
+  { id: "m3", from: "support", agent: "Chileshe", text: "We've retried the payout — please confirm it arrived.", at: ago(60 * 2) }];
+demo.disputes = demo.disputes.map((d) => ({ ...d, kind: "order" }));
+demo.disputes.push({ id: "D-1051", kind: "parcel", orderId: "PCL-5D1F7G", raisedBy: "Kunda M.", reason: "not_received", description: "Says delivered but I never got it.", status: "OPEN", createdAt: ago(60 * 2),
+  verification: { verifiedAt: ago(60 * 30), riderGeo: { lat: -15.4486, lng: 28.2865 }, positionSource: "client", channel: "push", attempts: 1 }, codeSummary: { state: "verified" },
+  codeAttempts: [{ result: "verified", lat: -15.4486, lng: 28.2865, at: ago(60 * 30) }] });
 
 const listeners = new Set<() => void>();
 export const demoSubscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };

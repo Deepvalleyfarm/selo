@@ -7,6 +7,7 @@ import { LIPILA_API_KEY, db, loadConfig } from "./config";
 import { SECURITY_QUESTION_BANK } from "./domain-defaults";
 import { normaliseAnswer, normaliseMsisdn, pinProblem, kwachaToNgwee } from "./domain";
 import { lipila } from "./lipila";
+import { consumeOtpToken } from "./account";
 import { AppRole, requireUser, securityEvent, str } from "./util";
 
 /**
@@ -37,6 +38,8 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
   if (!msisdn) throw new HttpsError("invalid-argument", "Enter a valid Airtel, MTN or Zamtel number.");
   const pinErr = pinProblem(d.pin);
   if (pinErr) throw new HttpsError("invalid-argument", pinErr);
+  if ((await loadConfig()).signupOtpRequired && !(await consumeOtpToken(msisdn, d.otpToken)))
+    throw new HttpsError("failed-precondition", "Confirm your number with the SMS code first.");
   const qs = Array.isArray(d.questions) ? d.questions as { questionId: string; answer: string }[] : [];
   if (qs.length !== 3 || new Set(qs.map((q) => q.questionId)).size !== 3) throw new HttpsError("invalid-argument", "Choose 3 different security questions.");
   const valid = new Set((await questionBank()).map((q) => q.id));

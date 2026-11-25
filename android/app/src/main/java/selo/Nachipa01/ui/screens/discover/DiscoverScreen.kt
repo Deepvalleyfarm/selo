@@ -143,8 +143,7 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
         ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = Color.White) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (kind) {
-                    "details" -> DetailsSheet(l, onBuy = { sheet = null; onBuy(l) }, onAddToCart = { ev("add_to_cart", l); sheet = null
-                        snack = app.addToCart(l) ?: "Added to cart · ${app.cartCount} item${if (app.cartCount == 1) "" else "s"}" }, onEnquire = { ev("enquiry_open", l); sheet = "enquire" to l })
+                    "details" -> DetailsSheet(l, onBuy = { sheet = null; onBuy(l) }, onAddToCart = { ev("add_to_cart", l) }, onEnquire = { ev("enquiry_open", l); sheet = "enquire" to l })
                     "share" -> ShareSheet(l, onShared = { ch -> ev("share", l, "channel" to ch); sheet = null; snack = if (ch == "inapp") "Sent." else null })
                     "save" -> SaveSheet(l, lists.map { it.name }) { name -> scope.launch { app.backend.saveToWishlist(l.id, name); ev("save", l, "wishlistId" to name); sheet = null; snack = "Saved to $name." } }
                     "enquire" -> EnquireSheet(l)
@@ -182,11 +181,16 @@ private fun DetailsSheet(l: Listing, onBuy: () -> Unit, onAddToCart: () -> Unit,
         KvRow("Seller", l.sellerName + if (l.sellerVerified) " ✓" else "")
         if (l.tags.isNotEmpty()) KvRow("Tags", l.tags.joinToString(" ") { "#$it" })
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlineButton("Enquire", Modifier.weight(1f), onClick = onEnquire)
-        OutlineButton("Add to cart", Modifier.weight(1f), onClick = onAddToCart)
+    var qty by remember(l.id) { mutableIntStateOf(1) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Quantity", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        TextButton({ if (qty > 1) qty-- }) { Text("−", color = Selo.Red, fontSize = 20.sp) }
+        Text("$qty", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        TextButton({ if (qty < l.stock.coerceAtLeast(1)) qty++ }, enabled = qty < l.stock) { Text("+", color = Selo.Red, fontSize = 20.sp) }
+        Text(if (l.stock > 0) "${l.stock} in stock" else "Out of stock", color = if (l.stock > 0) Selo.Mute else Selo.Red, fontSize = 12.sp)
     }
-    PrimaryButton("Buy now", onClick = onBuy)
+    selo.Nachipa01.ui.components.ProductActions(l, Modifier.fillMaxWidth(), qty = qty)
+    OutlineButton("Enquire", onClick = onEnquire)
     NoteBox("Pay safely with Selo Escrow: the seller is paid only after a rider collects your order.", Tone.OK, Icons.Outlined.Shield)
 }
 

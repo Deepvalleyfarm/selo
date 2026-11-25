@@ -23,12 +23,13 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "6.3.0"
+        versionCode = 6
+        versionName = "6.4.0"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
         buildConfigField("String", "FUNCTIONS_REGION", "\"us-central1\"")
+        buildConfigField("String", "TRACKING_BASE_URL", "\"https://mabala-f2d65.web.app/t/\"")
         buildConfigField("String", "RTDB_URL", "\"https://mabala-f2d65-default-rtdb.firebaseio.com\"")
         buildConfigField("boolean", "HAS_FIREBASE_CONFIG", hasGoogleServices.toString())
     }
@@ -101,6 +102,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    // Interactive map for address pin-drop (OpenStreetMap tiles, no API key)
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
 
     // Firebase BoM from the Firebase console; versions come from the BoM

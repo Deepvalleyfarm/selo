@@ -56,6 +56,8 @@ class RegState(val role: Role) {
     fun set(k: String, v: String) { text[k] = v }
     fun toggle(group: String, v: String) { val s = chips[group] ?: emptySet(); chips[group] = if (v in s) s - v else s + v }
     fun msisdn() = Validation.normaliseMsisdn(this["mobile"])
+    /** Set when the SMS code for [otpFor] was verified; changing the number afterwards needs a new code. */
+    var otpToken by mutableStateOf<String?>(null); var otpFor by mutableStateOf<String?>(null)
 }
 
 /** One wizard screen = one or more numbered steps of the role's flow. */
@@ -101,7 +103,7 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
                             "walletNetwork" to state.walletNetwork),
                     payoutWallet = Validation.normaliseMsisdn(state["wallet"]),
                     referralCode = state["referral"].ifBlank { null },
-                    kycDocs = state.docs.toMap(),
+                    kycDocs = state.docs.toMap(), otpToken = state.otpToken,
                 )) { submitting = it }
             }.onSuccess(onRegistered).onFailure { error = it.message }
             submitting = null
@@ -132,7 +134,8 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
 private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
     val security = Page("Security", 0, 0, ::validateSecurity) { SecurityPage(it, bank) }
     fun sec(n: Int) = Page(security.title, n, n, security.validate, security.body)
-    return when (role) {
+    val otp = Page("Confirm your number", 1, 1, { s -> if (s.otpToken == null || s.otpFor != s.msisdn()) "Confirm your number with the SMS code first." else null }) { OtpPage(it) }
+    return withOtp(otp, when (role) {
         Role.BUYER -> listOf(
             Page("Personal information", 1, 1, { s -> req(s, "fullName" to "full name") ?: mobileProblem(s) }) { BuyerPersonal(it) },
             Page("Address & interests", 2, 3, { s -> req(s, "area" to "area") }) { AddressPage(it, "What do you shop for?", buyerCats, "Landmark (helps riders)") },
@@ -164,7 +167,40 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
             sec(9),
             Page("Terms & referral", 10, 11, { s -> terms(s, "terms", "fund", "withdrawFee") }) { RiderTerms(it) },
         )
+    })
+}
+
+/** The SMS confirmation sits right after the page where the number is entered (always the first page). */
+private fun withOtp(otp: Page, pages: List<Page>) = listOf(pages.first(), Page(otp.title, pages.first().to, pages.first().to, otp.validate, otp.body)) + pages.drop(1)
+
+/** Sends a 6-digit SMS code and verifies it — proves the number before the account exists (prevents duplicates and typos). */
+@Composable
+private fun OtpPage(s: RegState) {
+    val app = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    val m = s.msisdn()
+    var code by remember { mutableStateOf("") }
+    var sentAt by remember { mutableLongStateOf(0L) }
+    var busy by remember { mutableStateOf(false) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(sentAt) { while (sentAt > 0) { kotlinx.coroutines.delay(1_000); now = System.currentTimeMillis() } }
+    val verified = s.otpToken != null && s.otpFor == m
+    fun send() = scope.launch { busy = true; err = null
+        runCatching { app.backend.sendSignupOtp(m!!) }.onSuccess { sentAt = System.currentTimeMillis(); now = sentAt; code = "" }.onFailure { err = it.message }; busy = false }
+    LaunchedEffect(m) { if (m != null && !verified && sentAt == 0L) send() }
+    H("Confirm ${m?.let(Validation::maskMsisdn) ?: "your number"}", 18)
+    if (verified) { NoteBox("Number confirmed.", Tone.OK, Icons.Outlined.CheckCircle); return }
+    Sub("We sent a 6-digit code by SMS. Enter it to confirm this number is yours.")
+    PinInput(code, { code = it; err = null }, length = 6)
+    ErrorText(err)
+    val wait = (30 - (now - sentAt) / 1000).coerceAtLeast(0)
+    PrimaryButton("Confirm", loading = busy, enabled = code.length == 6) {
+        busy = true; err = null
+        scope.launch { runCatching { app.backend.verifySignupOtp(m!!, code) }.onSuccess { s.otpToken = it; s.otpFor = m }.onFailure { err = it.message }; busy = false }
     }
+    TextButton({ send() }, enabled = !busy && wait == 0L) { Text(if (wait > 0) "Resend code in ${wait}s" else "Resend code", color = Selo.Red) }
+    (app.backend as? selo.Nachipa01.data.repo.DemoBackend)?.v64?.lastOtp?.let { Text("DEMO ONLY · SMS code: $it", color = Selo.AmberDark, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
 }
 
 /* ============================================================ validation */

@@ -69,9 +69,22 @@ class DemoRider(private val scope: CoroutineScope, private val cfg: PlatformConf
     private var nextJob: Job? = null
     private var jobNo = 0
 
+    /** Pickup PINs the senders of demo parcel jobs would read out (shown to the tester in demo builds only). */
+    val parcelPins = mutableMapOf<String, String>()
+
     private fun newJob(): Order {
         jobNo++
         val (p, d) = areas[(jobNo + 2) % areas.size]
+        if (jobNo % 3 == 0) { // every third job is a parcel
+            val fee = selo.Nachipa01.domain.ParcelFees.delivery(4.6)
+            val id = "PCL-D${(1000 + jobNo * 37)}"
+            parcelPins[id] = "%04d".format(1000 + (jobNo * 7919) % 8999)
+            return Order(id, "sender-d", "sender-d", "Grace Phiri", items = listOf(OrderItem("", "Signed contract documents", 1, 0)), goodsNgwee = 0,
+                deliveryNgwee = fee, totalNgwee = fee, state = OrderState.BROADCASTING, zone = "Kabulonga", dropoff = "$d, House ${100 + jobNo * 7}",
+                pickup = "$p, Office 3", distanceKm = 4.6, buyerName = "Joseph Banda", buyerMsisdn = "+260966451200", itemsSummary = "Signed contract documents",
+                kind = "parcel", weightBand = "Under 1 kg", riderEarningsNgwee = selo.Nachipa01.domain.ParcelFees.split(fee).first,
+                pickupLat = -15.42, pickupLng = 28.29, dropLat = -15.40, dropLng = 28.33)
+        }
         val fee = 3_500L + jobNo * 250
         return Order("SNC-${48_240 + jobNo}", "b3", "s1", if (jobNo % 2 == 1) "Mama Bupe's Veg" else "Bashi Tembo Electronics",
             items = listOf(OrderItem("l1", if (jobNo % 2 == 1) "Fresh tomatoes 5 kg" else "Bluetooth speaker, 20 W", 2, 8_000)), goodsNgwee = 16_000,
@@ -106,11 +119,17 @@ class DemoRider(private val scope: CoroutineScope, private val cfg: PlatformConf
         schedule(20_000)
     }
     suspend fun collected(id: String) { delay(300); active.value = active.value.map { if (it.id == id) it.copy(state = OrderState.IN_TRANSIT) else it } }
+    suspend fun collectParcel(id: String, pin: String) {
+        delay(300)
+        if (parcelPins[id] != null && parcelPins[id] != pin) throw BackendException("That Pickup PIN doesn't match. Ask the sender to read it from their parcel screen.")
+        collected(id)
+    }
+    fun arrived(id: String) { active.value = active.value.map { if (it.id == id && it.state == OrderState.IN_TRANSIT) it.copy(state = OrderState.AWAITING_DELIVERY_CODE, arrivedAt = System.currentTimeMillis()) else it } }
+    fun failed(id: String) { active.value = active.value.filterNot { it.id == id } }
     suspend fun delivered(id: String, code: String, pod: Uri?) {
         delay(400)
-        if (code.length != 6) throw BackendException("That code doesn't match. Ask the buyer to check their app.")
         val o = active.value.firstOrNull { it.id == id } ?: throw BackendException("Order not found.")
-        val s = Fees.split(0, o.deliveryNgwee, cfg)
+        val s = if (o.kind == "parcel") selo.Nachipa01.domain.ParcelFees.split(o.deliveryNgwee).let { (r, pl, f) -> selo.Nachipa01.domain.PayoutSplit(0, 0, r, pl, f) } else Fees.split(0, o.deliveryNgwee, cfg)
         val bonus = if (RiderTiers.isHero(profile.value.tier)) (s.riderNetNgwee * cfg.heroBonusPct / 100).roundToLong() else 0
         history.value = listOf(RiderDelivery(o.id, o.pickup.substringBefore(","), o.dropoff.substringBefore(","), o.pickup, o.dropoff,
             o.itemsSummary.ifBlank { o.items.joinToString { "${it.title} × ${it.qty}" } }, o.deliveryNgwee, s.riderPlatformFeeNgwee, s.socialFundNgwee,

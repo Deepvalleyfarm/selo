@@ -8,10 +8,10 @@ import { where } from "firebase/firestore";
 
 const NAV: [string, [string, string, string, string?][]][] = [
   ["MAIN", [["/", "home", "Overview"], ["/users", "users", "Users"], ["/kyc", "idcard", "KYC queue", "kyc"]]],
-  ["OPERATIONS", [["/orders", "box", "Orders & parcels"], ["/riders", "bike", "Riders & live map"], ["/zones", "pin", "Zones & cities"]]],
-  ["MONEY", [["/payouts", "coins", "Escrow & payouts", "payouts"], ["/disputes", "gavel", "Disputes", "disputes"], ["/social-fund", "heart", "Social Fund"], ["/promotions", "report", "Boosts & revenue"]]],
+  ["OPERATIONS", [["/orders", "box", "Orders"], ["/parcels", "box", "Parcels"], ["/delivery-codes", "lock", "Delivery codes"], ["/riders", "bike", "Riders & live map"], ["/zones", "pin", "Zones & cities"]]],
+  ["MONEY", [["/payouts", "coins", "Escrow & payouts", "payouts"], ["/disputes", "gavel", "Disputes", "disputes"], ["/social-fund", "heart", "Social Fund"], ["/promotions", "report", "Boosts & revenue"], ["/escrow-ledger", "log", "Escrow ledger"], ["/overrides", "gavel", "Override log"]]],
   ["DISCOVERY", [["/engagement", "report", "Engagement & outcomes"], ["/algorithm", "sliders", "Discovery algorithm"], ["/leads", "users", "Buyer leads"]]],
-  ["CONTENT", [["/listings", "flag", "Listings moderation", "moderation"], ["/content", "image", "Banners & content"], ["/notify", "send", "Notifications"]]],
+  ["CONTENT", [["/listings", "flag", "Listings moderation", "moderation"], ["/content", "image", "Banners & content"], ["/notify", "send", "Notifications"], ["/support", "users", "Support inbox"]]],
   ["SYSTEM", [["/config", "sliders", "Configuration"], ["/reports", "report", "Reports"], ["/audit", "log", "Audit log"], ["/admins", "lock", "Admin users"]]],
 ];
 

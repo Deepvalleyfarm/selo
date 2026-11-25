@@ -61,6 +61,27 @@ const demoFns: Record<string, (d: any) => unknown> = {
       { id: `v${String(version).padStart(6, "0")}`, version, reason: `rollback to ${d.versionId}`, createdBy: "you (demo)", createdAt: new Date(), changes: [{ rule: "rollback", detail: `replayed ${d.versionId}` }] },
       ...demo.algorithmState.filter((r) => r.id !== "current")]; demoAudit("algorithm.rollback", "algorithmState/current", null, { version }); demoChanged(); return { version }; },
   admin_exportLeads: () => ({ rows: demo.leads, shareable: demo.leads.filter((r) => r.consent) }),
+  admin_overrideDelivery: (d) => { const coll = d.kind === "parcel" ? "parcels" : "orders"; const p = demo[coll].find((x) => x.id === d.orderId);
+    if (!p) throw new Error("Not found."); if (p.escrowStatus === "RELEASED") throw new Error("Escrow was already released.");
+    const f: any = p.fees ?? {}; const statusKey = d.kind === "parcel" ? "status" : "state";
+    demoPatch(coll, d.orderId, { [statusKey]: "DELIVERED", escrowStatus: "RELEASED", deliveryOverride: true, codeSummary: { ...(p.codeSummary ?? {}), state: "overridden" },
+      verification: { override: true, by: "you (demo)", reason: d.reason } });
+    demo.escrow_ledger = [...[["delivery_fee", "rider", f.riderEarningsNgwee], ["delivery_fee", "platform", f.platformFeeNgwee], ["delivery_fee", "rider_social_fund", f.socialFundNgwee], ["sending_fee", "platform", f.sendingNgwee]]
+      .filter(([, , a]) => a).map(([leg, party, a], i) => ({ id: `lo${Date.now()}${i}`, kind: d.kind, orderId: d.orderId, type: "RELEASED", leg, party, amountNgwee: a, override: true, by: "you (demo)", at: new Date() })), ...demo.escrow_ledger];
+    demo.admin_audit_log = [{ id: `al${Date.now()}`, action: "delivery.override", kind: d.kind, orderId: d.orderId, actorEmail: "you (demo)", reason: d.reason, evidence: d.evidence, riderEarningsNgwee: f.riderEarningsNgwee, at: new Date() }, ...demo.admin_audit_log];
+    demoChanged(); return { ok: true }; },
+  admin_refundParcel: (d) => { const p: any = demo.parcels.find((x) => x.id === d.parcelId)!; const amt = d.amountNgwee ?? p.fees.totalNgwee;
+    if (amt > p.fees.totalNgwee) throw new Error("Refund is more than the sender paid.");
+    demoPatch("parcels", d.parcelId, { escrowStatus: "REFUNDED", status: p.status === "DELIVERY_FAILED" || p.status === "DISPUTED" ? p.status : "CANCELLED" });
+    demo.escrow_ledger = [{ id: `lr${Date.now()}`, kind: "parcel", orderId: d.parcelId, type: "REFUNDED", leg: "delivery_fee", party: "payer", amountNgwee: amt, override: true, by: "you (demo)", at: new Date() }, ...demo.escrow_ledger];
+    demo.admin_audit_log = [{ id: `al${Date.now()}`, action: "parcel.refund", kind: "parcel", orderId: d.parcelId, actorEmail: "you (demo)", reason: d.reason, amountNgwee: amt, at: new Date() }, ...demo.admin_audit_log];
+    demoChanged(); return { refundedNgwee: amt }; },
+  admin_editReceiver: (d) => { if (!/^(\+?260|0)?(95|96|97|76|77)\d{7}$/.test(String(d.msisdn).replace(/\s/g, ""))) throw new Error("Enter a valid Zambian mobile number.");
+    const p: any = demo.parcels.find((x) => x.id === d.parcelId)!; demoPatch("parcels", d.parcelId, { receiver: { ...p.receiver, msisdn: d.msisdn } });
+    demo.admin_audit_log = [{ id: `al${Date.now()}`, action: "parcel.edit_receiver", kind: "parcel", orderId: d.parcelId, actorEmail: "you (demo)", reason: d.reason, at: new Date() }, ...demo.admin_audit_log]; demoChanged(); },
+  admin_replyTicket: (d) => { const path = `supportTickets/${d.ticketId}/messages`;
+    demo[path] = [...(demo[path] ?? []), { id: `m${Date.now()}`, from: "support", agent: "you (demo)", text: d.text, at: new Date() }];
+    demoPatch("supportTickets", d.ticketId, { status: d.close ? "RESOLVED" : "AWAITING_USER", lastMessage: d.text.slice(0, 140), lastFrom: "support", updatedAt: new Date() }); },
   admin_setRole: (d) => { demoPatch("admins", d.email, { email: d.email, role: d.role }); demoAudit("admin.set_role", "admins", null, d); },
 };
 

@@ -17,6 +17,8 @@ data class RegistrationRequest(
     val referralCode: String?,
     val kycDocs: Map<String, Uri>,
     val acceptedTermsVersion: String = "2026-11",
+    /** Proof that the number received the sign-up SMS code (auth_verifyOtp). */
+    val otpToken: String? = null,
 )
 
 data class AiDraft(
@@ -26,13 +28,10 @@ data class AiDraft(
     val condition: String = "Good", val priceScope: String = "", val aiUsed: Boolean = true,
 )
 
-data class CheckoutRequest(val items: List<OrderItem>, val sellerUid: String, val dropoff: String, val walletMsisdn: String, val distanceKm: Double, val sellerName: String = "")
+data class CheckoutRequest(val items: List<OrderItem>, val sellerUid: String, val dropoff: String, val walletMsisdn: String, val distanceKm: Double, val sellerName: String = "",
+    /** v6.4: the confirmed delivery point; the server recomputes the road distance and fee from it. */
+    val dropoffPlace: Place? = null)
 
-data class ParcelRequest(
-    val pickup: String, val dropoff: String, val sender: String, val recipientName: String, val recipientMsisdn: String,
-    val contents: String, val size: String, val insured: Boolean, val declaredValueNgwee: Long, val distanceKm: Double,
-    val walletMsisdn: String,
-)
 
 /** Everything the screens need. FirebaseBackend talks to project Mabala; DemoBackend serves sample data. */
 interface Backend {
@@ -56,7 +55,6 @@ interface Backend {
     fun buyerOrders(): Flow<List<Order>>
     fun order(id: String): Flow<Order?>
     suspend fun checkout(req: CheckoutRequest): String
-    suspend fun sendParcel(req: ParcelRequest): String
     suspend fun confirmReceipt(orderId: String)
 
     fun sellerStats(): Flow<SellerStats>
@@ -73,8 +71,6 @@ interface Backend {
     suspend fun acceptJob(orderId: String)
     fun riderActiveJobs(): Flow<List<Order>>
     suspend fun markCollected(orderId: String)
-    /** Rider enters the buyer's 6-digit in-app delivery code (no SMS) and attaches the proof-of-delivery photo. */
-    suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri? = null)
 
     // ---------------- v6.3 rider post-login
     suspend fun declineJob(orderId: String)
@@ -144,6 +140,57 @@ interface Backend {
     fun promotion(id: String): Flow<Promotion?>
     fun myPromotions(): Flow<List<Promotion>>
     suspend fun stories(): List<Story>
+
+    // ------------------------------------------------ v6.4 shared address system
+    suspend fun addressSuggestions(input: String, cityId: String? = null, nearLat: Double? = null, nearLng: Double? = null): List<AddressSuggestion>
+    suspend fun placeDetails(id: String): Place
+    suspend fun reverseGeocode(lat: Double, lng: Double): Place
+    suspend fun routeDistance(from: Place, to: Place): RouteDistance
+    /** Saves a confirmed point to the shared platform address store (deduplicated server-side). Returns its id. */
+    suspend fun savePlace(p: Place, source: String = "user"): String
+    fun savedAddresses(): Flow<List<SavedAddress>>
+    suspend fun saveMyAddress(nickname: String, p: Place, makeDefault: Boolean = false): String
+    suspend fun deleteMyAddress(id: String)
+    suspend fun orderQuote(items: List<OrderItem>, dropoff: Place): OrderQuoteResult
+
+    // ------------------------------------------------ v6.4 parcels
+    suspend fun parcelQuote(pickup: Place, dropoff: Place, insured: Boolean, declaredNgwee: Long): ParcelQuoteResult
+    suspend fun createParcel(r: NewParcel): String
+    fun myParcels(): Flow<List<Parcel>>
+    fun parcel(id: String): Flow<Parcel?>
+    /** The 4-digit Pickup PIN — visible to the sender only. */
+    fun parcelPickupPin(id: String): Flow<String?>
+    suspend fun retryParcelPayment(id: String, walletMsisdn: String)
+    suspend fun cancelParcel(id: String): Long
+    suspend fun editParcelReceiver(id: String, name: String, msisdn: String)
+    suspend fun confirmParcelPickup(id: String, pin: String)
+    suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>)
+    suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?)
+
+    // ------------------------------------------------ v6.4 delivery confirmation (parcels + orders). kind = "parcel" | "order"
+    suspend fun requestDeliveryCode(kind: String, id: String, lat: Double?, lng: Double?, resend: Boolean = false, smsOnly: Boolean = false): CodeRequestResult
+    suspend fun verifyDeliveryCode(kind: String, id: String, code: String, lat: Double?, lng: Double?): CodeVerifyResult
+    suspend fun receiverUnavailable(kind: String, id: String, lat: Double?, lng: Double?): Long
+    suspend fun respondUnavailable(kind: String, id: String, action: String, name: String? = null, msisdn: String? = null)
+    suspend fun confirmReceipt(kind: String, id: String)
+    suspend fun rateDelivery(kind: String, id: String, stars: Int, comment: String = "")
+    suspend fun reportIssue(kind: String, id: String, type: String, description: String): String
+    suspend fun ackDeliveryCode(kind: String, id: String)
+    suspend fun attachProofOfDelivery(kind: String, id: String, photo: Uri)
+
+    // ------------------------------------------------ v6.4 account + support
+    suspend fun sendSignupOtp(msisdn: String): Int
+    suspend fun verifySignupOtp(msisdn: String, code: String): String
+    suspend fun myQuestions(): List<SecurityQuestion>
+    suspend fun updateProfile(changes: Map<String, Any?>)
+    fun notificationPrefs(): Flow<Map<String, Boolean>>
+    suspend fun saveNotificationPrefs(prefs: Map<String, Boolean>)
+    fun paymentWallets(): Flow<List<String>>
+    suspend fun savePaymentWallets(wallets: List<String>)
+    fun supportTickets(): Flow<List<SupportTicket>>
+    fun ticketMessages(id: String): Flow<List<TicketMessage>>
+    suspend fun createTicket(subject: String, category: String, message: String, orderRef: String): String
+    suspend fun replyTicket(id: String, text: String)
 }
 
 /** Everything the AI pre-fill + review screen sends when posting (PRD v6.1 §4.1). */
@@ -154,3 +201,5 @@ data class PublishRequest(
 )
 
 class BackendException(message: String) : Exception(message)
+/** Shown whenever a request fails for lack of connectivity (screens offer a retry). */
+const val NETWORK_ERROR = "No connection. Check your mobile data or Wi-Fi and try again."

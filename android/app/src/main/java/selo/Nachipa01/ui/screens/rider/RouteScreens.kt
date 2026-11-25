@@ -200,6 +200,7 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
     val order = active.firstOrNull { it.id == next?.orderId } ?: active.first()
     var confirming by remember { mutableStateOf<Order?>(null) }
     var rating by remember { mutableStateOf<Order?>(null) }
+    var pinFor by remember { mutableStateOf<Order?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val fee = active.sumOf { Fees.split(it.goodsNgwee, it.deliveryNgwee, cfg).riderNetNgwee }
@@ -252,20 +253,23 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
                 OutlinedButton({ /* chat with seller lives in Messages */ }, Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(14.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red), colors = ButtonDefaults.outlinedButtonColors(contentColor = Selo.Red, containerColor = Color.White)) {
                     Icon(Icons.Outlined.Chat, null, modifier = Modifier.size(18.dp)); Text(" Seller", fontWeight = FontWeight.Bold) }
-                Button({ busy = true; scope.launch { runCatching { app.backend.markCollected(order.id) }.onFailure { error = it.message }; busy = false } },
+                Button({ if (order.kind == "parcel") pinFor = order else { busy = true; scope.launch { runCatching { app.backend.markCollected(order.id) }.onFailure { error = it.message }; busy = false } } },
                     Modifier.weight(2f).height(52.dp), enabled = !busy, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) {
                     Icon(Icons.Outlined.Inventory2, null); Text("  Mark collected", fontWeight = FontWeight.ExtraBold) }
             } else {
                 OutlinedButton({ call(ctx, order.buyerMsisdn) }, Modifier.weight(1.1f).height(52.dp), shape = RoundedCornerShape(14.dp), contentPadding = PaddingValues(horizontal = 6.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red), colors = ButtonDefaults.outlinedButtonColors(contentColor = Selo.Red, containerColor = Color.White)) {
                     Icon(Icons.Outlined.Call, null, modifier = Modifier.size(18.dp)); Text(" Call buyer", fontWeight = FontWeight.Bold, maxLines = 1, fontSize = 13.sp) }
-                Button({ confirming = order }, Modifier.weight(2f).height(52.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) {
-                    Icon(Icons.Outlined.CheckCircle, null); Text("  Confirm delivery", fontWeight = FontWeight.ExtraBold) }
+                val dest = next?.at; val here = rc.position
+                val inside = dest == null || here == null || Geo.m(here, dest) <= 150
+                Button({ confirming = order }, Modifier.weight(2f).height(52.dp), enabled = inside, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) {
+                    Icon(Icons.Outlined.CheckCircle, null); Text(if (inside) "  Confirm delivery" else "  ${dist(Geo.m(here!!, dest!!).toInt())} to go", fontWeight = FontWeight.ExtraBold) }
             }
         }
     }
-    confirming?.let { o -> ConfirmDeliveryDialog(o, onDismiss = { confirming = null }, onDelivered = { confirming = null; rating = o }) }
+    confirming?.let { o -> ConfirmDeliveryDialog(o, rc.position, onDismiss = { confirming = null }, onDelivered = { confirming = null; rating = o }) }
     rating?.let { o -> RateBuyerDialog(o) { rating = null } }
+    pinFor?.let { o -> PickupPinDialog(o, { pinFor = null }) { pinFor = null } }
 }
 
 @Composable
@@ -300,43 +304,146 @@ fun StopTimeline(plan: PlannedRoute?, all: List<Stop>) {
     }
 }
 
-/** Proof-of-delivery photo + the buyer's in-app code, then "Mark as delivered?" — releases escrow. */
+/**
+ * 🔒 Parcels v2 §9.8 rider flow. Opening it asks the server to send the receiver a 5-digit code (geofence enforced
+ * server-side). The rider never sees the code: they type what the receiver reads out. Verification needs a connection.
+ * On success: "Your Earnings", then an optional proof-of-delivery photo.
+ */
 @Composable
-fun ConfirmDeliveryDialog(o: Order, onDismiss: () -> Unit, onDelivered: () -> Unit, initialPhoto: Uri? = null) {
+fun ConfirmDeliveryDialog(o: Order, position: LatLng?, onDismiss: () -> Unit, onDelivered: () -> Unit) {
     val app = LocalAppState.current
-    val cfg by app.config.collectAsState()
-    var photo by remember { mutableStateOf(initialPhoto) }
+    val scope = rememberCoroutineScope()
+    var req by remember { mutableStateOf<CodeRequestResult?>(null) }
+    var sending by remember { mutableStateOf(true) }
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val take = rememberPhotoCapture { photo = it }
-    val pick = rememberGalleryPick { photo = it }
-    LaunchedEffect(Unit) { if (photo == null && !app.backend.isDemo) take() }
-    val split = Fees.split(o.goodsNgwee, o.deliveryNgwee, cfg)
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Mark as delivered?", fontWeight = FontWeight.ExtraBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)).background(Selo.Surface).clickable { take() }, contentAlignment = Alignment.Center) {
+    var attemptsLeft by remember { mutableStateOf<Int?>(null) }
+    var locked by remember { mutableStateOf(false) }
+    var earnings by remember { mutableStateOf<Long?>(null) }
+    var photo by remember { mutableStateOf<Uri?>(null) }
+    var photoSaved by remember { mutableStateOf(false) }
+    var smsUsed by remember { mutableStateOf(false) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val take = rememberPhotoCapture { photo = it; scope.launch { runCatching { app.backend.attachProofOfDelivery(o.kind, o.id, it) }.onSuccess { photoSaved = true } } }
+    fun offline(t: Throwable) = (t.message ?: "").let { m -> if (m.contains("network", true) || m.contains("unavailable", true) && !m.contains("receiver", true) || t is java.io.IOException) "No connection. Move to an area with signal to verify." else m }
+    fun request(resend: Boolean = false, smsOnly: Boolean = false) = scope.launch {
+        sending = true; error = null
+        runCatching { app.backend.requestDeliveryCode(o.kind, o.id, position?.lat, position?.lng, resend, smsOnly) }
+            .onSuccess { req = it; attemptsLeft = it.attemptsLeft; locked = false; code = ""; if (smsOnly) smsUsed = true }
+            .onFailure { error = offline(it) }
+        sending = false
+    }
+    LaunchedEffect(Unit) { request() }
+    LaunchedEffect(Unit) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
+    val demoInbox = (app.backend as? DemoBackend)?.v64?.demoReceiverInbox?.collectAsState()?.value
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(Color.White).statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (earnings != null) {
+                Spacer(Modifier.height(30.dp))
+                Box(Modifier.size(96.dp).background(Selo.Green, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(56.dp)) }
+                Text("Delivery confirmed", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Your Earnings: ${Fees.formatK(earnings!!)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Selo.Green)
+                Text("Released from escrow to your wallet.", color = Selo.Mute)
+                Box(Modifier.fillMaxWidth().height(160.dp).clip(RoundedCornerShape(12.dp)).background(Selo.Surface).clickable { take() }, contentAlignment = Alignment.Center) {
                     if (photo != null) AsyncImage(photo, "Proof of delivery", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Outlined.PhotoCamera, null, tint = Selo.Red, modifier = Modifier.size(36.dp))
-                        Text("Take a proof-of-delivery photo", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    else Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Outlined.PhotoCamera, null, tint = Selo.Red, modifier = Modifier.size(34.dp))
+                        Text("Add a proof-of-delivery photo (optional)", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                }
+                if (photoSaved) Text("Photo saved to the delivery record.", color = Selo.GreenDark, fontSize = 12.sp)
+                PrimaryButton("Done", color = Selo.Green, onClick = onDelivered)
+                return@Column
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Confirm delivery", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                IconButton(onDismiss) { Icon(Icons.Outlined.Close, "Close") }
+            }
+            Text("${o.buyerName.ifBlank { "Receiver" }} · ${o.dropoff}", color = Selo.Mute, textAlign = TextAlign.Center)
+            when {
+                sending -> { CircularProgressIndicator(color = Selo.Red); Text("Sending the receiver their delivery code…", color = Selo.Mute) }
+                req == null -> { Icon(Icons.Outlined.ErrorOutline, null, tint = Selo.Red, modifier = Modifier.size(48.dp)); Text(error ?: "Couldn't send the code.", textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                    OutlineButton("Try again") { request() } }
+                else -> {
+                    val r = req!!
+                    val left = ((r.expiresAt - now) / 1000).coerceAtLeast(0)
+                    Text("Ask the receiver for their 5-digit delivery code.", fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Text("Sent by ${r.channel.replace("+", " and ")}" + if (r.state == "active") " (still valid)" else "", color = Selo.Mute, fontSize = 12.sp)
+                    CodeBoxes(code, enabled = !locked && left > 0) { code = it; error = null }
+                    Row { Text(if (left > 0) "Expires in %d:%02d".format(left / 60, left % 60) else "Code expired", color = if (left > 0) Selo.Mute else Selo.Red, fontWeight = FontWeight.Bold)
+                        attemptsLeft?.let { Text("  ·  $it attempt${if (it == 1) "" else "s"} left", color = if (it <= 2) Selo.Red else Selo.Mute) } }
+                    ErrorText(error)
+                    if (locked) NoteBox("Too many wrong codes — this code is locked. Request a new one in 2 minutes.", Tone.BRAND)
+                    PrimaryButton("Verify", color = Selo.Green, loading = busy, enabled = code.length == 5 && !locked && left > 0) {
+                        busy = true; error = null
+                        scope.launch {
+                            runCatching { app.backend.verifyDeliveryCode(o.kind, o.id, code, position?.lat, position?.lng) }
+                                .onSuccess { v -> when (v.result) {
+                                    "verified" -> earnings = v.earningsNgwee ?: o.riderEarningsNgwee ?: 0
+                                    "wrong" -> { attemptsLeft = v.attemptsLeft; error = "That code doesn't match. Ask the receiver to read it again."; code = "" }
+                                    "locked" -> { locked = true; attemptsLeft = 0; code = "" }
+                                    "expired" -> error = "The code expired. Tap Resend Code."
+                                    else -> error = "No active code. Tap Resend Code."
+                                } }.onFailure { error = offline(it) }
+                            busy = false
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton({ request(resend = true) }, Modifier.weight(1f), enabled = !sending) { Text("Resend Code", color = Selo.Red) }
+                        OutlinedButton({ request(smsOnly = true) }, Modifier.weight(1f), enabled = !sending && !smsUsed) { Text(if (smsUsed) "SMS sent" else "Resend by SMS", color = Selo.Red) }
+                    }
+                    var unavailableMsg by remember { mutableStateOf<String?>(null) }
+                    TextButton({ scope.launch { runCatching { app.backend.receiverUnavailable(o.kind, o.id, position?.lat, position?.lng) }
+                        .onSuccess { d -> unavailableMsg = "Sender and receiver notified. If nobody responds by ${clock(d)}, the delivery is marked failed and you'll be told what to do with the item." }
+                        .onFailure { unavailableMsg = it.message } } }) { Text("Receiver Unavailable", color = Selo.Mute) }
+                    unavailableMsg?.let { Text(it, color = Selo.AmberDark, fontSize = 12.sp, textAlign = TextAlign.Center) }
+                    demoInbox?.get(o.id)?.let { c ->
+                        Column(Modifier.fillMaxWidth().background(Selo.Ink, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                            Text("DEMO ONLY · the receiver's phone", color = Selo.Amber, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
+                            Text("SMS: Your SeloNaChipa delivery code is $c.", color = Color.White, fontSize = 13.sp)
+                            Text("In the live app the rider never sees this.", color = Color.White.copy(.6f), fontSize = 11.sp)
+                        }
                     }
                 }
-                if (photo != null) Row { TextButton(take) { Text("Retake", color = Selo.Red) }; TextButton(pick) { Text("Choose another", color = Selo.Red) } }
-                else TextButton(pick) { Text("No camera? Choose a photo", color = Selo.Red, fontSize = 12.sp) }
-                SeloField("Buyer's 6-digit delivery code", code, { code = it.filter(Char::isDigit).take(6) }, keyboard = KeyboardType.NumberPassword)
-                Text("Releases ${zmw(split.riderNetNgwee)} to you and ${zmw(split.socialFundNgwee)} to your Social Fund.", color = Selo.Mute, fontSize = 12.sp)
-                ErrorText(error)
             }
-        },
-        confirmButton = {
-            Button({ busy = true; error = null
-                scope.launch { runCatching { app.backend.confirmDeliveryCode(o.id, code, photo) }.onSuccess { onDelivered() }.onFailure { error = it.message }; busy = false } },
-                enabled = !busy && code.length == 6 && (photo != null || app.backend.isDemo), colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) { Text("Mark as delivered") }
-        },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } }, containerColor = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun CodeBoxes(value: String, enabled: Boolean, onChange: (String) -> Unit) {
+    androidx.compose.foundation.text.BasicTextField(value, { v -> onChange(v.filter(Char::isDigit).take(5)) }, enabled = enabled,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+        decorationBox = {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                repeat(5) { i ->
+                    Box(Modifier.size(52.dp, 64.dp).background(if (enabled) Color.White else Selo.Surface, RoundedCornerShape(12.dp))
+                        .border(2.dp, if (i == value.length && enabled) Selo.Red else Selo.Field, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                        Text(value.getOrNull(i)?.toString() ?: "", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    }
+                }
+            }
+        })
+}
+
+/** Parcel jobs: the sender reads their 4-digit Pickup PIN to the rider (§7). */
+@Composable
+fun PickupPinDialog(o: Order, onDismiss: () -> Unit, onDone: () -> Unit) {
+    val app = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    var pin by remember { mutableStateOf("") }; var busy by remember { mutableStateOf(false) }; var err by remember { mutableStateOf<String?>(null) }
+    val demoPin = (app.backend as? DemoBackend)?.rider?.parcelPins?.get(o.id)
+    AlertDialog(onDismiss, containerColor = Color.White, title = { Text("Pickup PIN", fontWeight = FontWeight.ExtraBold) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Ask ${o.sellerName} for the 4-digit Pickup PIN on their parcel screen.")
+            PinInput(pin, { pin = it; err = null }, length = 4)
+            ErrorText(err)
+            demoPin?.let { Text("DEMO ONLY · sender's PIN: $it", color = Selo.AmberDark, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+        } },
+        confirmButton = { Button({ busy = true; scope.launch { runCatching { app.backend.confirmParcelPickup(o.id, pin) }.onSuccess { onDone() }.onFailure { err = it.message }; busy = false } },
+            enabled = pin.length == 4 && !busy, colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) { Text("Confirm pickup") } },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } })
 }
 
 @Composable
@@ -368,6 +475,7 @@ fun NavigationScreen(active: List<Order>, profile: RiderProfile?, rc: RouteContr
     val scope = rememberCoroutineScope()
     var confirming by remember { mutableStateOf<Order?>(null) }
     var rating by remember { mutableStateOf<Order?>(null) }
+    var pinFor by remember { mutableStateOf<Order?>(null) }
     val d = rc.directions; val st = rc.nav
     val step = d?.steps?.getOrNull(st?.stepIndex ?: 0)
     val upcoming = d?.steps?.getOrNull((st?.stepIndex ?: 0) + 1)
@@ -429,19 +537,20 @@ fun NavigationScreen(active: List<Order>, profile: RiderProfile?, rc: RouteContr
                 }
                 if (order != null) {
                     if (s.type == StopType.PICKUP) PrimaryButton("Mark collected", enabled = arrived || app.backend.isDemo) {
-                        scope.launch { runCatching { app.backend.markCollected(order.id) } }
+                        if (order.kind == "parcel") pinFor = order else scope.launch { runCatching { app.backend.markCollected(order.id) } }
                     } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton({ call(ctx, order.buyerMsisdn) }, Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red)) { Icon(Icons.Outlined.Call, null, tint = Selo.Red) }
-                        Button({ confirming = order }, Modifier.weight(3f).height(50.dp), shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) {
+                        Button({ confirming = order }, Modifier.weight(3f).height(50.dp), enabled = arrived || next.at == null, shape = RoundedCornerShape(14.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) {
                             Text("Confirm delivery", fontWeight = FontWeight.ExtraBold) }
                     }
                 }
             }
         }
     }
-    confirming?.let { o -> ConfirmDeliveryDialog(o, onDismiss = { confirming = null }, onDelivered = { confirming = null; rating = o }) }
+    confirming?.let { o -> ConfirmDeliveryDialog(o, rc.position, onDismiss = { confirming = null }, onDelivered = { confirming = null; rating = o }) }
     rating?.let { o -> RateBuyerDialog(o) { rating = null; if (active.size <= 1) onExit() } }
+    pinFor?.let { o -> PickupPinDialog(o, { pinFor = null }) { pinFor = null } }
 }
 
 /* =================================================================== handoff */

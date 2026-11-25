@@ -49,6 +49,10 @@ fun RiderShell(initialTab: String = "home", initialScreen: String? = null, initi
     var online by rememberSaveable { mutableStateOf(initialOnline) }
     var handled by remember { mutableStateOf(setOf<String>()) }
     val rc = rememberRouteController(active, profile?.vehicle ?: "Motorbike")
+    // GPS every 30 s while online or on a delivery: geofence source of truth + live tracking for senders and receivers (§6, §9.1)
+    LaunchedEffect(online, active.isNotEmpty()) {
+        while (online || active.isNotEmpty()) { rc.position?.let { runCatching { app.backend.pingLocation(it.lat, it.lng, null) } }; kotlinx.coroutines.delay(30_000) }
+    }
     val offer = if (online) jobs.firstOrNull { it.id !in handled && active.none { a -> a.id == it.id } } else null
 
     BackHandler(enabled = screen != null || navigating) { if (navigating) navigating = false else screen = null }

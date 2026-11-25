@@ -50,8 +50,9 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     private suspend fun call(name: String, data: Map<String, Any?>): Map<*, *> = try {
         functions.getHttpsCallable(name).call(data).await().getData() as? Map<*, *> ?: emptyMap<String, Any>()
     } catch (e: FirebaseFunctionsException) {
-        throw BackendException(e.message ?: "Something went wrong. Please try again.")
-    }
+        throw BackendException(if (e.code == FirebaseFunctionsException.Code.UNAVAILABLE || e.code == FirebaseFunctionsException.Code.DEADLINE_EXCEEDED || e.cause is java.io.IOException)
+            NETWORK_ERROR else e.message ?: "Something went wrong. Please try again.")
+    } catch (e: java.io.IOException) { throw BackendException(NETWORK_ERROR) }
 
     private fun DocumentSnapshot.toSession(): SessionUser = SessionUser(
         uid = id,
@@ -108,7 +109,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun register(req: RegistrationRequest, onProgress: (String) -> Unit): SessionUser {
         onProgress("Creating your account")
         val res = call("auth_register", mapOf(
-            "role" to req.role.name, "msisdn" to req.msisdn, "pin" to req.pin,
+            "role" to req.role.name, "msisdn" to req.msisdn, "pin" to req.pin, "otpToken" to req.otpToken,
             "questions" to req.questions.map { mapOf("questionId" to it.questionId, "answer" to it.answer) },
             "profile" to req.profile, "payoutWallet" to req.payoutWallet, "referralCode" to req.referralCode,
             "acceptedTermsVersion" to req.acceptedTermsVersion,
@@ -178,6 +179,8 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         buyerName = getString("buyerName") ?: "", buyerMsisdn = getString("buyerMsisdn") ?: "",
         itemsSummary = (get("items") as? List<Map<String, Any?>>)?.joinToString { "${it["qty"]} × ${it["title"]}" } ?: "",
         pickupLat = getDouble("pickupGeo.lat"), pickupLng = getDouble("pickupGeo.lng"), dropLat = getDouble("dropoffGeo.lat"), dropLng = getDouble("dropoffGeo.lng"),
+        codeState = getString("codeSummary.state"), arrivedAt = getTimestamp("arrivedAt")?.toDate()?.time,
+        unavailableDeadline = getTimestamp("unavailable.deadline")?.toDate()?.time, distanceApproximate = getBoolean("distanceApproximate") == true,
     )
 
     override fun listings(category: String?): Flow<List<Listing>> {
@@ -204,13 +207,9 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun checkout(req: CheckoutRequest): String = call("order_create", mapOf(
         "sellerUid" to req.sellerUid, "dropoff" to req.dropoff, "walletMsisdn" to req.walletMsisdn,
         "items" to req.items.map { mapOf("listingId" to it.listingId, "qty" to it.qty) },
+        "dropoffGeo" to req.dropoffPlace?.let { mapOf("lat" to it.lat, "lng" to it.lng) }, "addressId" to req.dropoffPlace?.addressId,
     ))["orderId"] as String
 
-    override suspend fun sendParcel(req: ParcelRequest): String = call("parcel_create", mapOf(
-        "pickup" to req.pickup, "dropoff" to req.dropoff, "recipientName" to req.recipientName,
-        "recipientMsisdn" to req.recipientMsisdn, "contents" to req.contents, "size" to req.size,
-        "insured" to req.insured, "declaredValueNgwee" to req.declaredValueNgwee, "walletMsisdn" to req.walletMsisdn,
-    ))["orderId"] as String
 
     override suspend fun confirmReceipt(orderId: String) { call("order_confirmDelivery", mapOf("orderId" to orderId)) }
 
@@ -279,9 +278,27 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         }.catch { emit(DemoData.riderStats) }
     } ?: emptyFlow()
 
-    override fun availableJobs(): Flow<List<Order>> =
-        db.collection("orders").whereEqualTo("state", "BROADCASTING").whereArrayContains("notifiedRiders", uid() ?: "-")
-            .limit(10).live().map { s -> s.documents.map { it.toOrder() } }.catch { emit(emptyList()) }
+    override fun availableJobs(): Flow<List<Order>> = combine(
+        db.collection("orders").whereEqualTo("state", "BROADCASTING").whereArrayContains("notifiedRiders", uid() ?: "-").limit(10).live()
+            .map { s -> s.documents.map { it.toOrder() } }.catch { emit(emptyList()) },
+        db.collection("parcels").whereEqualTo("status", "AWAITING_RIDER").whereArrayContains("notifiedRiders", uid() ?: "-").limit(10).live()
+            .map { s -> s.documents.map { it.parcelAsJob() } }.catch { emit(emptyList()) }) { a, b -> a + b }
+
+    /** Parcels ride the same rider screens as marketplace orders (kind = "parcel"). Riders only ever see their earnings. */
+    @Suppress("UNCHECKED_CAST")
+    private fun DocumentSnapshot.parcelAsJob(): Order {
+        val p = toParcel(uid())
+        val st = when (p.status) { ParcelStatus.AWAITING_RIDER -> OrderState.BROADCASTING; ParcelStatus.RIDER_ASSIGNED -> OrderState.RIDER_ASSIGNED
+            ParcelStatus.IN_TRANSIT -> OrderState.IN_TRANSIT; ParcelStatus.AWAITING_DELIVERY_CODE -> OrderState.AWAITING_DELIVERY_CODE
+            ParcelStatus.DELIVERED, ParcelStatus.COMPLETED -> OrderState.DELIVERED; else -> OrderState.CANCELLED }
+        val earn = ((get("fees") as? Map<String, Any?>)?.get("riderEarningsNgwee") as? Number)?.toLong()
+        return Order(id, getString("senderUid") ?: "", getString("senderUid") ?: "", p.senderName.ifBlank { "Sender" }, getString("riderUid"), p.riderName,
+            listOf(OrderItem("", p.description.ifBlank { p.category }, 1, 0)), 0, p.deliveryNgwee, p.totalNgwee, st, getString("cityName") ?: "",
+            p.dropoff.address.ifBlank { p.dropoff.label }, p.pickup.address.ifBlank { p.pickup.label }, distanceKm = p.distanceKm, isParcel = true,
+            buyerName = p.receiverName, buyerMsisdn = p.receiverMsisdn, itemsSummary = "${p.description} · ${p.weightBand}",
+            pickupLat = p.pickup.lat, pickupLng = p.pickup.lng, dropLat = p.dropoff.lat, dropLng = p.dropoff.lng, kind = "parcel", codeState = p.codeState,
+            arrivedAt = getTimestamp("arrivedAt")?.toDate()?.time, riderEarningsNgwee = earn, weightBand = p.weightBand, distanceApproximate = p.approximate)
+    }
 
     override suspend fun setOnline(online: Boolean) {
         val u = uid() ?: return
@@ -293,20 +310,19 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         call("rider_setPresence", mapOf("online" to online))
     }
 
-    override suspend fun acceptJob(orderId: String) { call("rider_acceptOrder", mapOf("orderId" to orderId)) }
+    override suspend fun acceptJob(orderId: String) {
+        if (orderId.startsWith("PCL-")) call("rider_acceptParcel", mapOf("parcelId" to orderId)) else call("rider_acceptOrder", mapOf("orderId" to orderId))
+    }
 
     override fun riderActiveJobs(): Flow<List<Order>> = uid()?.let { u ->
-        db.collection("orders").whereEqualTo("riderUid", u).whereIn("state", listOf("RIDER_ASSIGNED", "PICKED_UP", "IN_TRANSIT"))
-            .live().map { s -> s.documents.map { it.toOrder() } }.catch { emit(emptyList()) }
+        combine(db.collection("orders").whereEqualTo("riderUid", u).whereIn("state", listOf("RIDER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "AWAITING_DELIVERY_CODE"))
+            .live().map { s -> s.documents.map { it.toOrder() } }.catch { emit(emptyList()) },
+            db.collection("parcels").whereEqualTo("riderUid", u).whereIn("status", listOf("RIDER_ASSIGNED", "IN_TRANSIT", "AWAITING_DELIVERY_CODE"))
+            .live().map { s -> s.documents.map { it.parcelAsJob() } }.catch { emit(emptyList()) }) { a, b -> a + b }
     } ?: flowOf(emptyList())
 
     override suspend fun markCollected(orderId: String) { call("rider_markCollected", mapOf("orderId" to orderId)) }
 
-    override suspend fun confirmDeliveryCode(orderId: String, code: String, podPhoto: Uri?) {
-        val u = uid() ?: throw BackendException("Please log in again.")
-        val path = podPhoto?.let { p -> storage.reference.child("pod/$orderId/${u}_${System.currentTimeMillis()}.jpg").also { it.putFile(p).await() }.path }
-        call("rider_confirmDelivery", mapOf("orderId" to orderId, "code" to code, "photoPath" to path))
-    }
 
     /* ======================================================= v6.1 discovery */
 
@@ -431,7 +447,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun saveSellerSettings(settings: Map<String, Any?>) {
         val u = uid() ?: return
         db.collection("users").document(u).update(settings.filterKeys { it in setOf("storeName", "photoUrl", "coverUrl", "province", "district", "area",
-            "businessTags", "paymentPrefs", "notificationPrefs") }).await()
+            "businessTags", "paymentPrefs", "notificationPrefs", "geo", "landmark") }).await()
     }
 
     override suspend fun publishListingV2(req: PublishRequest): String = call("listing_publish", mapOf(
@@ -489,7 +505,9 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     } ?: emptyList()
 
     // ---------------- v6.3 rider post-login
-    override suspend fun declineJob(orderId: String) { call("rider_declineOrder", mapOf("orderId" to orderId)) }
+    override suspend fun declineJob(orderId: String) {
+        if (orderId.startsWith("PCL-")) call("rider_declineParcel", mapOf("parcelId" to orderId)) else call("rider_declineOrder", mapOf("orderId" to orderId))
+    }
     override suspend fun rateBuyer(orderId: String, stars: Int) { call("rider_rateBuyer", mapOf("orderId" to orderId, "stars" to stars)) }
 
     override fun riderProfile(): Flow<RiderProfile?> = uid()?.let { u ->
@@ -629,4 +647,163 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             (res["durationS"] as? Number)?.toInt() ?: steps.sumOf { it.durationS }, res["source"] as? String ?: "google")
     }
     override suspend fun mediaUrl(path: String): String? = runCatching { storage.reference.child(path).downloadUrl.await().toString() }.getOrNull()
+
+    /* ======================================================== v6.4 address system */
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>.toPlace(): Place = Place(this["id"] as? String ?: "", this["label"] as? String ?: "", this["address"] as? String ?: "",
+        (this["lat"] as Number).toDouble(), (this["lng"] as Number).toDouble(), this["cityId"] as? String, this["cityName"] as? String, this["neighbourhood"] as? String,
+        this["inServiceArea"] != false, this["approximate"] == true, (this["id"] as? String)?.takeIf { it.startsWith("addr:") })
+    private fun Place.wire() = mapOf("label" to label, "address" to address, "lat" to lat, "lng" to lng, "neighbourhood" to neighbourhood, "addressId" to addressId)
+
+    override suspend fun addressSuggestions(input: String, cityId: String?, nearLat: Double?, nearLng: Double?): List<AddressSuggestion> {
+        @Suppress("UNCHECKED_CAST") val r = call("geo_autocomplete", mapOf("input" to input, "cityId" to cityId,
+            "near" to if (nearLat != null && nearLng != null) mapOf("lat" to nearLat, "lng" to nearLng) else null))["suggestions"] as? List<Map<String, Any?>> ?: emptyList()
+        return r.map { AddressSuggestion(it["id"] as String, it["label"] as? String ?: "", it["secondary"] as? String ?: "", it["source"] as? String ?: "") }
+    }
+    override suspend fun placeDetails(id: String) = call("geo_details", mapOf("id" to id)).toPlace()
+    override suspend fun reverseGeocode(lat: Double, lng: Double) = call("geo_reverse", mapOf("lat" to lat, "lng" to lng)).toPlace()
+    override suspend fun routeDistance(from: Place, to: Place): RouteDistance {
+        val r = call("geo_distance", mapOf("from" to mapOf("lat" to from.lat, "lng" to from.lng), "to" to mapOf("lat" to to.lat, "lng" to to.lng)))
+        return RouteDistance((r["distanceKm"] as Number).toDouble(), (r["durationMin"] as Number).toInt(), r["approximate"] == true, r["sameCity"] != false, r["fromCity"] as? String)
+    }
+    override suspend fun savePlace(p: Place, source: String): String =
+        "addr:" + call("address_save", mapOf("label" to p.label, "address" to p.address, "lat" to p.lat, "lng" to p.lng, "source" to source, "approximate" to p.approximate))["id"] as String
+    override fun savedAddresses(): Flow<List<SavedAddress>> = uid()?.let { u ->
+        db.collection("users").document(u).collection("addresses").live().map { s -> s.documents.map { d ->
+            SavedAddress(d.id, d.getString("nickname") ?: "", Place(d.getString("addressId") ?: d.id, d.getString("label") ?: "", d.getString("address") ?: "",
+                d.getDouble("lat") ?: 0.0, d.getDouble("lng") ?: 0.0, d.getString("cityId"), selo.Nachipa01.domain.Cities.byId(d.getString("cityId"))?.name,
+                null, true, false, d.getString("addressId")), d.getBoolean("isDefault") == true) } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+    override suspend fun saveMyAddress(nickname: String, p: Place, makeDefault: Boolean): String {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val addressId = runCatching { savePlace(p) }.getOrNull()
+        val col = db.collection("users").document(u).collection("addresses")
+        if (makeDefault) col.whereEqualTo("isDefault", true).get().await().documents.forEach { it.reference.update("isDefault", false).await() }
+        return col.add(mapOf("nickname" to nickname.take(40), "label" to p.label, "address" to p.address, "lat" to p.lat, "lng" to p.lng, "cityId" to p.cityId,
+            "addressId" to addressId, "isDefault" to makeDefault, "updatedAt" to FieldValue.serverTimestamp())).await().id
+    }
+    override suspend fun deleteMyAddress(id: String) { uid()?.let { db.collection("users").document(it).collection("addresses").document(id).delete().await() } }
+    override suspend fun orderQuote(items: List<OrderItem>, dropoff: Place): OrderQuoteResult {
+        val r = call("order_quote", mapOf("items" to items.map { mapOf("listingId" to it.listingId, "qty" to it.qty) }, "dropoffGeo" to mapOf("lat" to dropoff.lat, "lng" to dropoff.lng)))
+        fun l(k: String) = (r[k] as? Number)?.toLong() ?: 0
+        @Suppress("UNCHECKED_CAST")
+        return OrderQuoteResult(l("goodsNgwee"), l("deliveryNgwee"), l("serviceFeeNgwee"), l("processingFeeNgwee"), l("totalNgwee"), (r["distanceKm"] as? Number)?.toDouble() ?: 0.0,
+            r["approximate"] == true, (r["etaMin"] as? Number)?.toInt() ?: 0, r["unavailable"] as? List<String> ?: emptyList())
+    }
+
+    /* ======================================================== v6.4 parcels */
+    override suspend fun parcelQuote(pickup: Place, dropoff: Place, insured: Boolean, declaredNgwee: Long): ParcelQuoteResult {
+        val r = call("parcel_quote", mapOf("pickup" to pickup.wire(), "dropoff" to dropoff.wire(), "insured" to insured, "declaredValueNgwee" to declaredNgwee))
+        fun l(k: String) = (r[k] as? Number)?.toLong() ?: 0
+        return ParcelQuoteResult((r["distanceKm"] as Number).toDouble(), r["approximate"] == true, l("deliveryFeeNgwee"), l("serviceFeeNgwee"), l("insuranceNgwee"),
+            l("totalNgwee"), (r["etaMin"] as? Number)?.toInt() ?: 0, r["cityName"] as? String ?: "")
+    }
+    override suspend fun createParcel(r: NewParcel): String = call("parcel_create", mapOf("pickup" to r.pickup.wire(), "dropoff" to r.dropoff.wire(),
+        "weightBand" to r.weightBand, "description" to r.description, "category" to r.category, "handlingNotes" to r.handlingNotes,
+        "receiver" to mapOf("name" to r.receiverName, "msisdn" to r.receiverMsisdn), "deliveryInstructions" to r.deliveryInstructions,
+        "insured" to r.insured, "declaredValueNgwee" to r.declaredValueNgwee, "walletMsisdn" to r.walletMsisdn, "scheduledFor" to r.scheduledFor))["parcelId"] as String
+
+    @Suppress("UNCHECKED_CAST")
+    private fun DocumentSnapshot.toParcel(me: String?): Parcel {
+        fun pl(k: String): Place { val m = get(k) as? Map<String, Any?> ?: emptyMap()
+            return Place(k, m["label"] as? String ?: "", m["address"] as? String ?: "", (m["lat"] as? Number)?.toDouble() ?: 0.0, (m["lng"] as? Number)?.toDouble() ?: 0.0,
+                getString("cityId"), getString("cityName"), m["neighbourhood"] as? String) }
+        val f = get("fees") as? Map<String, Any?> ?: emptyMap(); fun fl(k: String) = (f[k] as? Number)?.toLong() ?: 0
+        val r = (get("codeRecipient") ?: get("receiver")) as? Map<String, Any?> ?: emptyMap()
+        val geo = get("riderGeo") as? Map<String, Any?>
+        val tl = (get("timeline") as? Map<String, Any?>)?.mapNotNull { (k, v) -> (v as? com.google.firebase.Timestamp)?.let { TimelineEvent(k, it.toDate().time) } }?.sortedBy { it.at } ?: emptyList()
+        return Parcel(id, ParcelStatus.from(getString("status")), getString("senderUid") == me, getString("senderName") ?: "", pl("pickup"), pl("dropoff"),
+            getString("weightBand") ?: "", getString("description") ?: "", getString("category") ?: "", r["name"] as? String ?: "", r["msisdn"] as? String ?: "",
+            getString("deliveryInstructions") ?: "", getDouble("distanceKm") ?: 0.0, getBoolean("distanceApproximate") == true, (getLong("etaMin") ?: 0).toInt(),
+            fl("deliveryNgwee"), fl("sendingNgwee") - (getLong("creditAppliedNgwee") ?: 0), fl("insuranceNgwee"), fl("totalNgwee"),
+            getString("riderName"), getString("riderPlate"), (geo?.get("lat") as? Number)?.toDouble(), (geo?.get("lng") as? Number)?.toDouble(),
+            getString("paymentStatus") ?: "PENDING", getString("paymentFailure"), getString("walletMsisdn"), getString("codeSummary.state"), getString("codeSummary.channel"),
+            getTimestamp("unavailable.deadline")?.toDate()?.time, getString("unavailable.response"),
+            getString("trackingToken")?.let { "${BuildConfig.TRACKING_BASE_URL}$it" }, getTimestamp("createdAt")?.toDate()?.time ?: 0,
+            getTimestamp("deliveredAt")?.toDate()?.time, getTimestamp("scheduledFor")?.toDate()?.time, tl, getString("returnStatus"))
+    }
+    override fun myParcels(): Flow<List<Parcel>> = uid()?.let { u ->
+        combine(db.collection("parcels").whereEqualTo("senderUid", u).orderBy("createdAt", Query.Direction.DESCENDING).limit(50).live(),
+            db.collection("parcels").whereEqualTo("receiver.uid", u).orderBy("createdAt", Query.Direction.DESCENDING).limit(50).live()) { a, b ->
+            (a.documents + b.documents).distinctBy { it.id }.map { it.toParcel(u) }.sortedByDescending { it.createdAt }
+        }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+    override fun parcel(id: String): Flow<Parcel?> = db.collection("parcels").document(id).live().map { if (it.exists()) it.toParcel(uid()) else null }.catch { emit(null) }
+    override fun parcelPickupPin(id: String): Flow<String?> = db.collection("parcels").document(id).collection("private").document("pickup").live()
+        .map { it.getString("pin") }.catch { emit(null) }
+    override suspend fun retryParcelPayment(id: String, walletMsisdn: String) { call("parcel_retryPayment", mapOf("parcelId" to id, "walletMsisdn" to walletMsisdn)) }
+    override suspend fun cancelParcel(id: String) = (call("parcel_cancel", mapOf("parcelId" to id))["refundedNgwee"] as? Number)?.toLong() ?: 0
+    override suspend fun editParcelReceiver(id: String, name: String, msisdn: String) { call("parcel_editReceiver", mapOf("parcelId" to id, "name" to name, "msisdn" to msisdn)) }
+    override suspend fun confirmParcelPickup(id: String, pin: String) { call("rider_confirmPickup", mapOf("parcelId" to id, "pin" to pin)) }
+    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>) { call("rider_setAreas", mapOf("cityId" to cityId, "neighbourhoods" to neighbourhoods)) }
+    override suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?) { runCatching { call("rider_ping", mapOf("lat" to lat, "lng" to lng, "accuracy" to accuracy?.toDouble())) } }
+
+    /* ======================================================== v6.4 delivery confirmation */
+    private fun pos(lat: Double?, lng: Double?) = if (lat != null && lng != null) mapOf("lat" to lat, "lng" to lng) else null
+    override suspend fun requestDeliveryCode(kind: String, id: String, lat: Double?, lng: Double?, resend: Boolean, smsOnly: Boolean): CodeRequestResult {
+        val r = call("requestDeliveryCode", mapOf("kind" to kind, "orderId" to id, "position" to pos(lat, lng), "resend" to resend, "smsOnly" to smsOnly))
+        return CodeRequestResult(r["state"] as? String ?: "sent", r["channel"] as? String ?: "", (r["expiresAt"] as? Number)?.toLong() ?: 0,
+            (r["attemptsLeft"] as? Number)?.toInt() ?: 5, (r["codesLeft"] as? Number)?.toInt() ?: 0)
+    }
+    override suspend fun verifyDeliveryCode(kind: String, id: String, code: String, lat: Double?, lng: Double?): CodeVerifyResult {
+        val r = call("verifyDeliveryCode", mapOf("kind" to kind, "orderId" to id, "code" to code, "position" to pos(lat, lng)))
+        return CodeVerifyResult(r["result"] as? String ?: "no_code", (r["attemptsLeft"] as? Number)?.toInt(), (r["riderEarningsNgwee"] as? Number)?.toLong())
+    }
+    override suspend fun receiverUnavailable(kind: String, id: String, lat: Double?, lng: Double?) =
+        (call("receiverUnavailable", mapOf("kind" to kind, "orderId" to id, "position" to pos(lat, lng)))["deadline"] as? Number)?.toLong() ?: 0
+    override suspend fun respondUnavailable(kind: String, id: String, action: String, name: String?, msisdn: String?) {
+        call("senderRespondUnavailable", mapOf("kind" to kind, "orderId" to id, "action" to action, "name" to name, "msisdn" to msisdn))
+    }
+    override suspend fun confirmReceipt(kind: String, id: String) { call("confirmReceipt", mapOf("kind" to kind, "orderId" to id)) }
+    override suspend fun rateDelivery(kind: String, id: String, stars: Int, comment: String) { call("delivery_rate", mapOf("kind" to kind, "orderId" to id, "stars" to stars, "comment" to comment)) }
+    override suspend fun reportIssue(kind: String, id: String, type: String, description: String) =
+        call("delivery_reportIssue", mapOf("kind" to kind, "orderId" to id, "type" to type, "description" to description))["disputeId"] as String
+    override suspend fun ackDeliveryCode(kind: String, id: String) { runCatching { call("deliveryCode_ack", mapOf("kind" to kind, "orderId" to id)) } }
+    override suspend fun attachProofOfDelivery(kind: String, id: String, photo: Uri) {
+        val u = uid() ?: return
+        val ref = storage.reference.child("pod/$id/${u}_${System.currentTimeMillis()}.jpg")
+        ref.putFile(photo).await()
+        call("delivery_attachPod", mapOf("kind" to kind, "orderId" to id, "photoPath" to ref.path))
+    }
+
+    /* ======================================================== v6.4 account + support */
+    override suspend fun sendSignupOtp(msisdn: String) = (call("auth_sendOtp", mapOf("msisdn" to msisdn))["expiresInSec"] as? Number)?.toInt() ?: 600
+    override suspend fun verifySignupOtp(msisdn: String, code: String) = call("auth_verifyOtp", mapOf("msisdn" to msisdn, "code" to code))["otpToken"] as String
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun myQuestions(): List<SecurityQuestion> = (call("auth_myQuestions", emptyMap())["questions"] as? List<Map<String, Any?>> ?: emptyList())
+        .map { SecurityQuestion(it["id"] as String, it["text"] as? String ?: "") }
+    override suspend fun updateProfile(changes: Map<String, Any?>) {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val allowed = changes.filterKeys { it in setOf("fullName", "area", "landmark") }.toMutableMap()
+        (allowed["fullName"] as? String)?.let { if (it.trim().length < 3) throw BackendException("Enter your full name."); allowed["firstName"] = it.trim().substringBefore(" ") }
+        db.collection("users").document(u).update(allowed).await()
+    }
+    @Suppress("UNCHECKED_CAST")
+    override fun notificationPrefs(): Flow<Map<String, Boolean>> = uid()?.let { u ->
+        db.collection("users").document(u).live().map { (it.get("notificationPrefs") as? Map<String, Boolean>) ?: emptyMap() }.catch { emit(emptyMap()) }
+    } ?: flowOf(emptyMap())
+    override suspend fun saveNotificationPrefs(prefs: Map<String, Boolean>) { uid()?.let { db.collection("users").document(it).update("notificationPrefs", prefs).await() } }
+    @Suppress("UNCHECKED_CAST")
+    override fun paymentWallets(): Flow<List<String>> = uid()?.let { u ->
+        db.collection("users").document(u).live().map { ((it.get("paymentPrefs") as? Map<String, Any?>)?.get("wallets") as? List<String>) ?: emptyList() }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+    override suspend fun savePaymentWallets(wallets: List<String>) {
+        val clean = wallets.map { selo.Nachipa01.domain.Validation.normaliseMsisdn(it) ?: throw BackendException("$it isn't an Airtel, MTN or Zamtel number.") }.distinct()
+        uid()?.let { db.collection("users").document(it).update("paymentPrefs.wallets", clean).await() }
+    }
+    override fun supportTickets(): Flow<List<SupportTicket>> = uid()?.let { u ->
+        db.collection("supportTickets").whereEqualTo("uid", u).orderBy("updatedAt", Query.Direction.DESCENDING).limit(30).live().map { s -> s.documents.map {
+            SupportTicket(it.id, it.getString("reference") ?: "", it.getString("subject") ?: "", it.getString("category") ?: "", it.getString("status") ?: "OPEN",
+                it.getString("lastMessage") ?: "", it.getString("lastFrom") == "support", (it.getLong("unreadForUser") ?: 0).toInt(), it.getTimestamp("updatedAt")?.toDate()?.time ?: 0) } }
+            .catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+    override fun ticketMessages(id: String): Flow<List<TicketMessage>> {
+        runCatching { functions.getHttpsCallable("support_markRead").call(mapOf("ticketId" to id)) }
+        return db.collection("supportTickets").document(id).collection("messages").orderBy("at").live().map { s -> s.documents.map {
+            TicketMessage(it.id, it.getString("from") == "support", it.getString("text") ?: "", it.getTimestamp("at")?.toDate()?.time ?: System.currentTimeMillis(), it.getString("agent")) } }
+            .catch { emit(emptyList()) }
+    }
+    override suspend fun createTicket(subject: String, category: String, message: String, orderRef: String) =
+        call("support_createTicket", mapOf("subject" to subject, "category" to category, "message" to message, "orderRef" to orderRef))["ticketId"] as String
+    override suspend fun replyTicket(id: String, text: String) { call("support_reply", mapOf("ticketId" to id, "text" to text)) }
 }

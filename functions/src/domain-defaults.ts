@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG = {
   shareLinkExpiryDays: 3, minAppVersion: 1,
   // v6.2 paid promotions (kwacha) and how often a boost may appear
   boostLocalPerDay: 20, boostRegionalPerDay: 45, boostNationalPerDay: 90, storyPrice24h: 10, boostFrequencyCap: 3, boostSlotsPerPage: 2,
-  unpaidOrderCancelMin: 30,
+  unpaidOrderCancelMin: 30, signupOtpRequired: true,
 };
 export type PlatformConfig = typeof DEFAULT_CONFIG;
 

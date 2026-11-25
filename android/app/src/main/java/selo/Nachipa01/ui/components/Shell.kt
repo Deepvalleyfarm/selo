@@ -32,7 +32,9 @@ import selo.Nachipa01.ui.theme.Selo
 
 /** Home band: logo, greeting, bell. Mirrors the reference wallet-app header. */
 @Composable
-fun HomeBand(title: String, subtitle: String, badge: (@Composable () -> Unit)? = null, bottomPad: Int = 16, onBell: () -> Unit = {}) {
+fun HomeBand(title: String, subtitle: String, badge: (@Composable () -> Unit)? = null, bottomPad: Int = 16, onBell: (() -> Unit)? = null) {
+    val app = selo.Nachipa01.ui.LocalAppState.current
+    val bell = onBell ?: { app.navRequest.value = "account?r=inbox" }
     Row(Modifier.fillMaxWidth().background(Selo.Red).statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = bottomPad.dp),
         verticalAlignment = Alignment.CenterVertically) {
         LogoTile(); Spacer(Modifier.width(12.dp))
@@ -40,7 +42,7 @@ fun HomeBand(title: String, subtitle: String, badge: (@Composable () -> Unit)? =
             Text(title, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
             Text(subtitle, color = Color.White.copy(alpha = .88f), fontSize = 12.sp)
         }
-        if (badge != null) badge() else IconButton(onBell) { Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White) }
+        if (badge != null) badge() else IconButton(bell) { Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White) }
     }
 }
 

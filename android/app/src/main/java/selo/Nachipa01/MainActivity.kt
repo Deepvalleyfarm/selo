@@ -37,6 +37,10 @@ class MainActivity : ComponentActivity() {
             state.rememberedRole.value = prefs.getString("role", null)?.let { r -> runCatching { selo.Nachipa01.data.model.Role.valueOf(r) }.getOrNull() }
             state.pinLockedUntil.value = prefs.getLong("pinLockedUntil", 0L)
         }
+        // cart survives restarts (private storage, ids + quantities only; prices and stock are refreshed on restore)
+        state.persistCart = { v -> prefs.edit { putString("cart", v) } }
+        state.restoreCart(prefs.getString("cart", null))
+        codeLink(intent)?.let { state.navRequest.value = it }
         sharedMedia(intent)?.let { state.capturedMedia.add(it) }
         deepLinkListing(intent)?.let { state.pendingListingId.value = it }
         setContent {
@@ -51,7 +55,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         deepLinkListing(intent)?.let { state.pendingListingId.value = it }
+        codeLink(intent)?.let { state.navRequest.value = it }
     }
+
+    /** Delivery-code notifications open the protected code screen: selo://code/{kind}/{id}. */
+    private fun codeLink(i: Intent?): String? = i?.getStringExtra("deepLink")?.let { Regex("^selo://code/(parcel|order)/([A-Za-z0-9-]+)").find(it) }?.let { "code/${it.groupValues[1]}/${it.groupValues[2]}" }
 
     /** Session start/end events feed session-time KPIs and the daily-minutes guardrail. */
     override fun onStart() {

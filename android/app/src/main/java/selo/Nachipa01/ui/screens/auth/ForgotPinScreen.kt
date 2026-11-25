@@ -88,6 +88,10 @@ fun ForgotPinScreen(onBack: () -> Unit, onDone: () -> Unit) {
                             return@PrimaryButton }
                         go { app.backend.resetPin(token, pin); step = 5 }
                     }
+                    if (error?.contains("expired", true) == true) {
+                        NoteBox("For your security the reset window lasts 10 minutes. Answer your questions again to get a new one.", Tone.WARN)
+                        OutlineButton("Start again") { step = 1; pin = ""; confirm = ""; error = null }
+                    }
                 }
                 else -> {
                     Spacer(Modifier.height(30.dp))

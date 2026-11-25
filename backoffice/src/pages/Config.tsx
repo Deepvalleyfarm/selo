@@ -22,6 +22,13 @@ const GROUPS: Record<string, Def[]> = {
     ["parcelListingFee", "Parcel listing fee", "ZMW", ""], ["paymentProcessingPct", "Payment processing", "%", "surcharge"],
     ["insurancePremiumPct", "Parcel insurance premium", "%", "of declared value"], ["insuranceMaxDeclaredValue", "Max declared value", "ZMW", ""],
   ],
+  "Parcels v2": [
+    ["parcelBaseFee", "Parcel base fee", "ZMW", "delivery fee = base + per km, also the minimum"], ["parcelPerKmRate", "Parcel per km", "ZMW", ""],
+    ["sendingFeeRate", "Sending fee", "%", "of delivery fee, capped at 50%"], ["minSendingFee", "Minimum sending fee", "ZMW", ""],
+    ["parcelPlatformFeePct", "Parcel platform share", "%", "of delivery fee; rider gets the rest minus fund"], ["parcelSocialFundPct", "Parcel Social Fund", "%", "of delivery fee"],
+    ["deliveryGeofenceM", "Delivery geofence", "m", "rider must be this close to request a code"], ["deliveryCodeExpiryMin", "Delivery code expiry", "min", ""],
+    ["deliveryCodeMaxAttempts", "Code attempts", "#", "then the code locks"], ["disputeWindowHours", "Dispute window", "h", "DELIVERED → COMPLETED after this"],
+  ],
   Dispatch: [
     ["broadcastTimeoutMin", "Broadcast timeout", "min", "then full refund"], ["dispatchCountdownSec", "Job card countdown", "s", ""],
     ["maxConcurrentDeliveries", "Max concurrent deliveries", "#", "per rider"], ["autoConfirmHours", "Auto-confirm delivery", "h", "after rider marks delivered"],

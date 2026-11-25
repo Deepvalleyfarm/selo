@@ -275,15 +275,21 @@ private fun SellerSettings(onLogout: () -> Unit) {
     var district by rememberSaveable { mutableStateOf(u?.area ?: "") }
     var tags by remember { mutableStateOf(setOf("Fresh produce")) }
     var momo by rememberSaveable { mutableStateOf(true) }
-    var card by rememberSaveable { mutableStateOf(false) }
+    var shop by remember { mutableStateOf<selo.Nachipa01.data.model.Place?>(null) }
+    var payout by remember { mutableStateOf(false) }
     var nLikes by rememberSaveable { mutableStateOf(true) }
     var nEnq by rememberSaveable { mutableStateOf(true) }
     var nAlgo by rememberSaveable { mutableStateOf(true) }
     var saved by remember { mutableStateOf<String?>(null) }
     var photo by remember { mutableStateOf(false) }
     var cover by remember { mutableStateOf(false) }
-    val pickPhoto = selo.Nachipa01.ui.screens.auth.rememberPhotoCapture { photo = true }
-    val pickCover = selo.Nachipa01.ui.screens.auth.rememberPhotoCapture { cover = true }
+    // photos are uploaded and saved to the business profile straight away
+    fun upload(uri: android.net.Uri, field: String, done: () -> Unit) = scope.launch {
+        runCatching { val path = app.backend.uploadMedia(listOf(uri)) {}.first(); app.backend.saveSellerSettings(mapOf(field to path)) }
+            .onSuccess { done(); saved = if (field == "photoUrl") "Profile photo saved." else "Cover image saved." }.onFailure { saved = it.message }
+    }
+    val pickPhoto = selo.Nachipa01.ui.screens.auth.rememberPhotoCapture { upload(it, "photoUrl") { photo = true } }
+    val pickCover = selo.Nachipa01.ui.screens.auth.rememberPhotoCapture { upload(it, "coverUrl") { cover = true } }
     H("Business profile", 16)
     SeloCard {
         Box(Modifier.fillMaxWidth().height(90.dp).clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(listOf(Selo.RedDeep, Selo.Red))).clickable { pickCover() }, contentAlignment = Alignment.Center) {
@@ -304,7 +310,16 @@ private fun SellerSettings(onLogout: () -> Unit) {
     H("Payments", 16)
     SeloCard {
         SwitchRow("Mobile Money", momo, { momo = it }, sub = "Airtel Money, MTN MoMo, Zamtel Kwacha via Lipila")
-        SwitchRow("Card payments", card, { card = it }, sub = "Visa and Mastercard via Lipila")
+        Row(Modifier.fillMaxWidth().clickable { payout = true }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.AccountBalanceWallet, null, tint = Selo.Red); Text("  Payout wallet", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); Text("Change", color = Selo.Red, fontWeight = FontWeight.Bold)
+        }
+    }
+    H("Shop location", 16)
+    SeloCard {
+        Sub("Riders collect here, and buyers' delivery fees are worked out from this point.")
+        selo.Nachipa01.ui.components.AddressField("Pickup point", shop, { p -> shop = p
+            if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveSellerSettings(mapOf("geo" to mapOf("lat" to p.lat, "lng" to p.lng), "landmark" to p.short)) }
+                .onSuccess { saved = "Shop location saved." }.onFailure { saved = it.message } } }, showSaved = false, icon = Icons.Outlined.Storefront)
     }
     H("Notifications", 16)
     SeloCard {
@@ -322,9 +337,12 @@ private fun SellerSettings(onLogout: () -> Unit) {
     saved?.let { NoteBox(it, Tone.OK) }
     PrimaryButton("Save settings") { scope.launch {
         runCatching { app.backend.saveSellerSettings(mapOf("storeName" to name, "province" to province, "district" to district, "businessTags" to tags.toList(),
-            "paymentPrefs" to mapOf("mobileMoney" to momo, "card" to card), "notificationPrefs" to mapOf("likes" to nLikes, "enquiries" to nEnq, "algorithm" to nAlgo))) }
+            "paymentPrefs" to mapOf("mobileMoney" to momo), "notificationPrefs" to mapOf("likes" to nLikes, "enquiries" to nEnq, "algorithm" to nAlgo))) }
             .onSuccess { saved = "Settings saved." }.onFailure { saved = it.message } } }
+    H("Account & support", 16)
+    selo.Nachipa01.ui.screens.account.AccountSettingsCard(open = { app.navRequest.value = "account?r=$it" })
     OutlineButton("Log out") { scope.launch { app.backend.logout(); onLogout() } }
+    if (payout) selo.Nachipa01.ui.screens.account.PayoutWalletDialog { payout = false }
 }
 
 /* ---------------------------------------------------------------- orders */

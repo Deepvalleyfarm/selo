@@ -22,7 +22,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if me(uid) || admin();
       allow update: if me(uid) && onlyChanges(['fullName', 'firstName', 'area', 'landmark', 'language', 'photoUrl', 'coverUrl', 'notificationPrefs', 'emergencyContact',
-        'leadConsent', 'leadConsentAt', 'ageBand', 'province', 'district', 'storeName', 'businessTags', 'paymentPrefs']);
+        'leadConsent', 'leadConsentAt', 'ageBand', 'province', 'district', 'storeName', 'businessTags', 'paymentPrefs', 'geo'])
+        && (!('geo' in request.resource.data) || (request.resource.data.geo.lat is number && request.resource.data.geo.lng is number));
       match /private/{doc} { allow read, write: if false; }
     }
     match /msisdnIndex/{id} { allow read, write: if false; }
@@ -81,6 +82,22 @@ service cloud.firestore {
     // shared platform address store: anyone signed in can search and reuse; only the server creates/dedupes
     match /addresses/{id} { allow read: if signedIn(); allow write: if false; }
     match /geocodeCache/{id} { allow read, write: if false; }
+    match /otp/{msisdn} { allow read, write: if false; }
+    // saved delivery addresses (a personal shortlist that points at the shared store)
+    match /users/{uid}/addresses/{id} {
+      allow read, delete: if me(uid);
+      allow create, update: if me(uid) && request.resource.data.keys().hasOnly(['nickname', 'label', 'address', 'lat', 'lng', 'cityId', 'addressId', 'isDefault', 'updatedAt'])
+        && request.resource.data.lat is number && request.resource.data.lng is number && request.resource.data.nickname is string && request.resource.data.nickname.size() <= 40;
+    }
+    // support: users create through support_createTicket; they read their own thread; support staff read all
+    match /supportTickets/{id} {
+      allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['support', 'operations']);
+      allow write: if false;
+      match /messages/{m} {
+        allow read: if (signedIn() && get(/databases/$(database)/documents/supportTickets/$(id)).data.uid == request.auth.uid) || adminIn(['support', 'operations']);
+        allow write: if false;
+      }
+    }
     match /escrowLedger/{orderId}/entries/{e} { allow read: if adminIn(['finance', 'analyst']); }
     match /payouts/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support', 'analyst']); }
     match /withdrawals/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support']); }

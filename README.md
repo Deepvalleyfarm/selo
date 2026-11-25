@@ -58,6 +58,9 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
    firebase functions:secrets:set LIPILA_API_KEY
    firebase functions:secrets:set LIPILA_WEBHOOK_SECRET
    firebase functions:secrets:set GEMINI_API_KEY
+   firebase functions:secrets:set MAPS_API_KEY           # Routes, Geocoding, Places, Distance Matrix
+   firebase functions:secrets:set DELIVERY_CODE_SECRET   # 32+ random bytes; HMAC key for delivery codes
+   firebase functions:secrets:set SMS_API_KEY            # Africa's Talking (or your HTTP gateway) key
    ```
 
    Set `LIPILA_BASE_URL`, `LIPILA_CALLBACK_URL` (the deployed `lipila_webhook` URL) and `GEMINI_MODEL` in `functions/.env.<projectId>`.
@@ -159,6 +162,28 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.4 — Parcels v2, delivery codes, addresses, account and support
+
+**Parcels (same city, up to 5 kg, 20 cities)**
+- Fees: delivery = K30 + K4.50/km (K30 minimum); sending fee = 15% of delivery, at least K10 and at most 50% of delivery; the rider gets 89% of the delivery fee, the platform 10% and the Social Fund 1%. Optional insurance at 2% of declared value (minimum K5, up to K5,000).
+- Three-step sender flow (route → receiver → price and pay), payment held in escrow, broadcast to riders in the pickup neighbourhood, 4-digit pickup PIN, public tracking link for the receiver.
+
+**Delivery code (parcels and marketplace orders)**
+- The rider asks for a code only inside a 150 m geofence. The server makes a random 5-digit code, stores only its HMAC, and sends it to the receiver by push (SMS if the push isn't acknowledged in 30 s). The rider never sees it.
+- 15-minute expiry, 5 attempts then lock, 2-minute cooldown, at most 3 codes per delivery; every attempt is logged with GPS; riders with 3 lockouts in 24 h are flagged.
+- A correct code releases escrow in one idempotent transaction (append-only `escrow_ledger`). DELIVERED becomes COMPLETED after the dispute window. Receiver-unavailable and DELIVERY_FAILED flows and admin override (reason + evidence, audited) are included.
+- **Change from 6.3:** sellers are now paid when the buyer's code is verified (`sellerReleaseOn: "code"`), not at pickup. Minimum withdrawal is K20 and withdrawals need the PIN.
+
+**Addresses:** one shared address field everywhere — live autocomplete (saved addresses, the shared platform store, Google Places, then the neighbourhood gazetteer), "Use my location", and "Pick on map" (OpenStreetMap tiles via osmdroid, no key needed). Fees use road distance (Distance Matrix) and fall back to straight line × 1.3, labelled "approximate".
+
+**Account:** Log In / Sign Up tabs with SMS OTP before registration, Forgot PIN with an expiring reset, Change PIN, view/update security questions (re-authentication required, answers hashed), saved addresses, notification settings, and Help & support (FAQ, contact form, threaded replies) for every role.
+
+**Shopping:** Add to cart (with quantity) and Buy on every product card and detail sheet; the cart persists across restarts and flags out-of-stock items; checkout shows the distance-based delivery fee before you pay.
+
+**Back office:** Parcels (detail, ledger, override, refund, change receiver), Escrow ledger with CSV export, Delivery-code monitor, Override log, Support inbox, a "Parcels v2" config group, and the verification record on disputes.
+
+**SMS:** set `SMS_PROVIDER` (`africastalking`, `http` or `log`), `SMS_USERNAME`, `SMS_SENDER_ID` and, for `http`, `SMS_HTTP_URL` in `functions/.env.<projectId>`. With `log` nothing is sent — receivers without the app won't get codes.
+
 ## What is in the box
 
 **Android** (`android/app/src/main/java/selo/Nachipa01`)
@@ -213,7 +238,7 @@ cd functions && npm run test:rules               # Firestore security rules in t
 cd backoffice && npm run build                  # type-check + production bundle
 ```
 
-`android/app/src/test/.../ScreensScreenshotTest.kt` renders 50 screens with Robolectric and Roborazzi:
+`android/app/src/test/.../ScreensScreenshotTest.kt` renders 85 screens with Robolectric and Roborazzi:
 
 ```bash
 ./gradlew testDebugUnitTest -Proborazzi.test.record=true
@@ -225,5 +250,6 @@ The PNGs are written to `app/build/outputs/roborazzi`.
 
 - **Lipila:** confirm the endpoint paths, field names and webhook signature header in `functions/src/lipila.ts` against the signed Lipila contract. They follow the PRD integration notes but have not been tested against the live API.
 - **Gemini:** confirm the model name in `GEMINI_MODEL` and the per-request media size limits.
-- **Google Maps:** routing uses Google Maps navigation intents today. Embedding Maps SDK views and Directions API optimisation needs a Maps API key.
+- **Google Maps:** set `MAPS_API_KEY` for Places autocomplete, road distances and turn-by-turn. Without it the app uses the neighbourhood gazetteer and approximate distances.
+- **SMS gateway:** delivery codes and OTPs need a live SMS provider (`SMS_PROVIDER` + `SMS_API_KEY`) and an approved sender ID.
 - **Store and legal:** add the Terms, Privacy and Data Policy texts, the Play Store listing and the release signing keys (CI reads them from `SELO_KEYSTORE*` environment variables).

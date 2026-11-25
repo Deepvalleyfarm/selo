@@ -25,7 +25,6 @@ import selo.Nachipa01.data.model.Role
 import selo.Nachipa01.data.repo.CheckoutRequest
 import selo.Nachipa01.data.repo.DemoBackend
 import selo.Nachipa01.data.repo.DemoData
-import selo.Nachipa01.data.repo.ParcelRequest
 import selo.Nachipa01.ui.screens.agent.AgentHomeScreen
 import selo.Nachipa01.ui.screens.auth.*
 import selo.Nachipa01.ui.screens.buyer.*
@@ -44,7 +43,7 @@ class ScreensScreenshotTest {
     private fun shot(name: String, role: Role? = null, status: AccountStatus = AccountStatus.ACTIVE, msisdn: String = "+260971234512",
                      advance: Long = 600, prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
         val state = AppState(DemoBackend())
-        if (role != null) state.signedIn(DemoData.demoUser(role, msisdn, status = status))
+        if (role != null) DemoData.demoUser(role, msisdn, status = status).let { state.signedIn(it); (state.backend as DemoBackend).session = it }
         state.rememberedMsisdn.value = "+260971234512"; state.rememberedName.value = "Mwila"
         runBlocking { prep(state) }
         rule.setContent { SeloTheme { CompositionLocalProvider(LocalAppState provides state) { ui() } } }
@@ -61,10 +60,10 @@ class ScreensScreenshotTest {
     @Test fun ag1_agentReg() = shot("AG1-agent-registration") { RegistrationWizard(Role.AGENT, {}, {}) }
     @Test fun rr1_riderReg() = shot("RR1-rider-registration") { RegistrationWizard(Role.RIDER, {}, {}) }
     // Security step for every role (page index of the Security step in each wizard)
-    @Test fun a5_buyerSecurity() = shot("A5-buyer-security") { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 2) }
-    @Test fun sr_sellerSecurity() = shot("SR-seller-security") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 4) }
-    @Test fun ag_agentSecurity() = shot("AG-agent-security") { RegistrationWizard(Role.AGENT, {}, {}, initialPage = 2) }
-    @Test fun rr_riderSecurity() = shot("RR-rider-security") { RegistrationWizard(Role.RIDER, {}, {}, initialPage = 5) }
+    @Test fun a5_buyerSecurity() = shot("A5-buyer-security") { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 3) }
+    @Test fun sr_sellerSecurity() = shot("SR-seller-security") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 5) }
+    @Test fun ag_agentSecurity() = shot("AG-agent-security") { RegistrationWizard(Role.AGENT, {}, {}, initialPage = 3) }
+    @Test fun rr_riderSecurity() = shot("RR-rider-security") { RegistrationWizard(Role.RIDER, {}, {}, initialPage = 6) }
     @Test fun a7_done() = shot("A7-account-created", Role.BUYER) { AccountCreatedScreen {} }
     @Test fun sr6_pending() = shot("SR6-seller-pending", Role.SELLER, AccountStatus.PENDING_KYC) { PendingScreen({}, {}) }
     @Test fun rr6_pending() = shot("RR6-rider-pending", Role.RIDER, AccountStatus.PENDING_VERIFICATION) { PendingScreen({}, {}) }
@@ -77,10 +76,24 @@ class ScreensScreenshotTest {
     @Test fun b4_tracking() = shot("B4-tracking", Role.BUYER, prep = { s ->
         orderId = s.backend.checkout(CheckoutRequest(listOf(OrderItem("l1", "Fresh tomatoes 5 kg", 2, 8_000)), "s1", "Munali", "+260971234512", 6.1))
     }) { TrackingScreen(orderId) {} }
-    @Test fun c1_parcel() = shot("C1-parcel", Role.BUYER) { ParcelScreen({}, {}) }
-    @Test fun c2_parcelTrack() = shot("C2-parcel-tracking", Role.BUYER, prep = { s ->
-        orderId = s.backend.sendParcel(ParcelRequest("Comesa Market", "Woodlands Ext.", "Mwila", "Joseph B.", "+260961234541", "Laptop in box", "Medium", true, 350_000, 7.4, "+260971234512"))
-    }) { ParcelTrackScreen(orderId) {} }
+    // ---------------- v6.4 parcels v2, delivery code, address picker, account/support, login
+    @Test fun c1_parcelsHome() = shot("C1-parcels-home", Role.BUYER, advance = 1_500) { selo.Nachipa01.ui.screens.buyer.ParcelsHome({}, {}, {}) }
+    @Test fun c2_sendStep1() = shot("C2-send-parcel-1-route", Role.BUYER) { selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}) }
+    @Test fun c3_sendStep2() = shot("C3-send-parcel-2-details", Role.BUYER) { selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}, initialStep = 2) }
+    @Test fun c4_sendStep3() = shot("C4-send-parcel-3-pay", Role.BUYER) { selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}, initialStep = 3) }
+    @Test fun c5_parcelAtDoor() = shot("C5-parcel-at-door", Role.BUYER, advance = 1_500) { selo.Nachipa01.ui.screens.buyer.ParcelDetailScreen("PCL-7Q2M4X1", {}, {}) }
+    @Test fun c6_parcelDone() = shot("C6-parcel-completed", Role.BUYER, advance = 1_500) { selo.Nachipa01.ui.screens.buyer.ParcelDetailScreen("PCL-3K8D2Z9", {}, {}) }
+    @Test fun c7_codeScreen() = shot("C7-receiver-delivery-code", Role.BUYER, advance = 1_500, prep = { s -> s.backend.myParcels().first() }) {
+        selo.Nachipa01.ui.screens.buyer.DeliveryCodeScreen("parcel", "PCL-7Q2M4X1") {} }
+    @Test fun c8_mapPicker() = shot("C8-map-pin-picker", Role.BUYER) {
+        selo.Nachipa01.ui.components.MapPicker(selo.Nachipa01.data.model.Place("x", "Munali", "Great East Rd, Munali", -15.3960, 28.3610, "lusaka", "Lusaka", "Munali"), "lusaka", {}, {}) }
+    @Test fun h1_account() = shot("H1-account-settings", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("pin") {} }
+    @Test fun h2_questions() = shot("H2-security-questions", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("questions") {} }
+    @Test fun h3_support() = shot("H3-help-support", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("support") {} }
+    @Test fun h4_contact() = shot("H4-contact-support", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("support/new") {} }
+    @Test fun h5_addresses() = shot("H5-saved-addresses", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("addresses") {} }
+    @Test fun a0_signup() = shot("A0-signup-tab") { WelcomeScreen({}, {}, {}, initialMode = "signup") }
+    @Test fun a4_otp() = shot("A4-buyer-otp") { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 1) }
     @Test fun d0_seller() = shot("D0-seller-dashboard", Role.SELLER) { SellerShell(rememberNavController()) {} }
     @Test fun d1_add() = shot("D1-add-listing", Role.SELLER) { AddListingScreen({}, {}, {}) }
     @Test fun d3_ai() = shot("D3-ai-processing", Role.SELLER) { AiProcessingScreen({}, {}) }
