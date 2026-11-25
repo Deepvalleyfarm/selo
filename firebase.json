@@ -6,24 +6,83 @@
       "indexes": "firebase/firestore.indexes.json"
     }
   ],
-  "storage": { "rules": "firebase/storage.rules" },
-  "database": { "rules": "firebase/database.rules.json" },
+  "storage": {
+    "rules": "firebase/storage.rules"
+  },
+  "database": [
+    {
+      "instance": "mabala-f2d65-default-rtdb",
+      "rules": "firebase/database.rules.json"
+    }
+  ],
   "functions": [
-    { "source": "functions", "codebase": "default", "runtime": "nodejs22", "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"] }
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "nodejs22",
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run build"
+      ]
+    }
   ],
   "hosting": {
     "target": "backoffice",
     "public": "backoffice/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }],
-    "headers": [{ "source": "**", "headers": [
-      { "key": "X-Frame-Options", "value": "DENY" },
-      { "key": "X-Content-Type-Options", "value": "nosniff" },
-      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-    ] }]
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "X-Frame-Options",
+            "value": "DENY"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          }
+        ]
+      }
+    ],
+    "predeploy": [
+      "npm --prefix \"$PROJECT_DIR/backoffice\" run build"
+    ]
   },
   "emulators": {
-    "auth": { "port": 9099 }, "functions": { "port": 5001 }, "firestore": { "port": 8080 },
-    "database": { "port": 9000 }, "storage": { "port": 9199 }, "hosting": { "port": 5000 }, "ui": { "enabled": true }
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "database": {
+      "port": 9000
+    },
+    "storage": {
+      "port": 9199
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true
+    }
   }
 }
