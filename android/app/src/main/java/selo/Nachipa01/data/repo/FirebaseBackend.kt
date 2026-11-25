@@ -38,7 +38,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     }
     private val functions = FirebaseFunctions.getInstance(app, BuildConfig.FUNCTIONS_REGION)
     private val storage = FirebaseStorage.getInstance(app)
-    private val rtdb = FirebaseDatabase.getInstance(app)
+    private val rtdb = FirebaseDatabase.getInstance(app, BuildConfig.RTDB_URL)
 
     private var session: SessionUser? = null
     override fun currentUser() = session

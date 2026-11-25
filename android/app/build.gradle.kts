@@ -27,6 +27,7 @@ android {
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
         buildConfigField("String", "FUNCTIONS_REGION", "\"us-central1\"")
+        buildConfigField("String", "RTDB_URL", "\"https://mabala-f2d65-default-rtdb.firebaseio.com\"")
         buildConfigField("boolean", "HAS_FIREBASE_CONFIG", hasGoogleServices.toString())
     }
 

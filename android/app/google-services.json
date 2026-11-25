@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "237562839144",
+    "project_id": "mabala-f2d65",
+    "storage_bucket": "mabala-f2d65.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237562839144:android:65420767e2f2416470fbdd",
+        "android_client_info": { "package_name": "com.deepvalleyfarmsapp.mabala" }
+      },
+      "oauth_client": [{ "client_id": "237562839144-d2qgogf3h8puvn0ffpot2usa3f0m8fie.apps.googleusercontent.com", "client_type": 3 }],
+      "api_key": [{ "current_key": "AIzaSyDD-OPBcwYEp6eT-vRForW98A6xMYJ3zAI" }],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [{ "client_id": "237562839144-d2qgogf3h8puvn0ffpot2usa3f0m8fie.apps.googleusercontent.com", "client_type": 3 }] } }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:237562839144:android:234228db94a7ab9370fbdd",
+        "android_client_info": { "package_name": "selo.Nachipa01" }
+      },
+      "oauth_client": [{ "client_id": "237562839144-d2qgogf3h8puvn0ffpot2usa3f0m8fie.apps.googleusercontent.com", "client_type": 3 }],
+      "api_key": [{ "current_key": "AIzaSyDD-OPBcwYEp6eT-vRForW98A6xMYJ3zAI" }],
+      "services": { "appinvite_service": { "other_platform_oauth_client": [{ "client_id": "237562839144-d2qgogf3h8puvn0ffpot2usa3f0m8fie.apps.googleusercontent.com", "client_type": 3 }] } }
+    }
+  ],
+  "configuration_version": "1"
+}

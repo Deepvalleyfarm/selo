@@ -26,7 +26,7 @@ ai-studio-611c950c-febe-47c1-afff-35dcb0788339
 
 ## Run it without Firebase (demo mode)
 
-Both clients run with sample data when no Firebase config is present, so you can click through every screen.
+Both clients are now configured for project `mabala-f2d65` (`android/app/google-services.json`, `backoffice/.env.production`). To click through with sample data instead, temporarily remove `google-services.json` (Android) or run `npm run dev` (back office).
 
 ```bash
 cd android && ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
@@ -44,7 +44,7 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
 
 1. **Android app** (already registered, App ID `1:237562839144:android:234228db94a7ab9370fbdd`)
    - Add SHA-1 and SHA-256 fingerprints for the debug, upload and Play App Signing keys (`cd android && ./gradlew signingReport`).
-   - Download `google-services.json` into `android/app/`. The build applies the google-services plugin automatically when the file exists and switches from demo to live mode.
+   - `google-services.json` is committed in `android/app/`. Re-download it after adding SHA fingerprints (needed for App Check and Google sign-in, not for basic use).
    - Enable App Check with Play Integrity.
 2. **Web back office**
    - The Web app config for project `mabala-f2d65` is in `backoffice/.env.production`, so `npm run build` targets Mabala. `npm run dev` still uses demo data unless you create `backoffice/.env.local`.

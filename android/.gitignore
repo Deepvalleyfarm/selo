@@ -5,7 +5,5 @@ local.properties
 *.iml
 captures/
 .kotlin/
-# Firebase config is environment specific; download it from the Firebase console
-app/google-services.json
 *.jks
 *.keystore
