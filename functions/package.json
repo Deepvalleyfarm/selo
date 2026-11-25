@@ -3,12 +3,15 @@
   "private": true,
   "description": "SeloNaChipa Cloud Functions: auth (PIN + security questions), escrow engine, Lipila payments, AI listings, admin APIs",
   "main": "lib/index.js",
-  "engines": { "node": "22" },
+  "engines": {
+    "node": "22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "serve": "npm run build && firebase emulators:start --only functions,firestore,auth,storage,database",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-selo \"vitest run --config rules-test/vitest.config.ts\""
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
@@ -17,6 +20,8 @@
     "firebase-functions": "^7.4.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
     "typescript": "~5.9.3",
     "vitest": "^5.1.1"
   }

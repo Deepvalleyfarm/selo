@@ -3,7 +3,7 @@ import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from
 import { auth, isDemo } from "./firebase";
 
 export type AdminRole = "super_admin" | "operations" | "finance" | "compliance" | "support" | "moderator" | "analyst";
-export interface Admin { uid: string; email: string; role: AdminRole }
+export interface Admin { uid: string; email: string; role: AdminRole; ceo?: boolean }
 
 const Ctx = createContext<{ admin: Admin | null; ready: boolean; login: (e: string, p: string) => Promise<void>; logout: () => void }>(null!);
 export const useSession = () => useContext(Ctx);
@@ -11,7 +11,7 @@ export const useSession = () => useContext(Ctx);
 const IDLE_MS = 8 * 60 * 60 * 1000; // PRD: admin sessions expire after 8 h of inactivity
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [admin, setAdmin] = useState<Admin | null>(isDemo ? { uid: "demo", email: "demo@selonachipa.zm", role: "super_admin" } : null);
+  const [admin, setAdmin] = useState<Admin | null>(isDemo ? { uid: "demo", email: "demo@selonachipa.zm", role: "super_admin", ceo: false } : null);
   const [ready, setReady] = useState(isDemo);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const t = await u.getIdTokenResult();
       const role = t.claims.admin as AdminRole | undefined;
       if (!role) { await signOut(auth!); setAdmin(null); setReady(true); return; }
-      setAdmin({ uid: u.uid, email: u.email ?? "", role }); setReady(true);
+      setAdmin({ uid: u.uid, email: u.email ?? "", role, ceo: t.claims.ceo === true }); setReady(true);
     });
   }, []);
 

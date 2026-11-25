@@ -49,11 +49,20 @@ const demoFns: Record<string, (d: any) => unknown> = {
   admin_moderateListing: (d) => { demoPatch("listings", d.listingId, { status: d.status }); demoAudit("listing.moderate", `listings/${d.listingId}`, null, { status: d.status }); },
   admin_issueResetToken: (d) => ({ resetToken: `${d.uid}.demo-token` }),
   admin_sendNotification: () => { demoAudit("notification.send", "users", null, null); },
+  admin_updateGuardrails: (d) => { const cur = demo.platformConfig.find((r) => r.id === "guardrails")!;
+    if (d.changes.enabled === false) throw new Error("Turning guardrails off needs a CEO-level override.");
+    if (Number(d.changes.sessionCapMinutes ?? 0) > 145) throw new Error("A cap above 145 minutes needs a CEO-level override.");
+    demoAudit("guardrails.update", "platformConfig/guardrails", cur, d.changes); demoPatch("platformConfig", "guardrails", { ...d.changes, updatedBy: "you (demo)", updatedAt: new Date() }); },
+  admin_rollbackAlgorithm: (d) => { const old = demo.algorithmState.find((r) => r.id === d.versionId)!; const cur = demo.algorithmState.find((r) => r.id === "current")!;
+    const version = (cur.version as number) + 1; demo.algorithmState = [{ ...cur, ...old, id: "current", version, reason: `rollback to ${d.versionId}` },
+      { id: `v${String(version).padStart(6, "0")}`, version, reason: `rollback to ${d.versionId}`, createdBy: "you (demo)", createdAt: new Date(), changes: [{ rule: "rollback", detail: `replayed ${d.versionId}` }] },
+      ...demo.algorithmState.filter((r) => r.id !== "current")]; demoAudit("algorithm.rollback", "algorithmState/current", null, { version }); demoChanged(); return { version }; },
+  admin_exportLeads: () => ({ rows: demo.leads, shareable: demo.leads.filter((r) => r.consent) }),
   admin_setRole: (d) => { demoPatch("admins", d.email, { email: d.email, role: d.role }); demoAudit("admin.set_role", "admins", null, d); },
 };
 
 export async function callAdmin<T = any>(name: string, data: Record<string, unknown>): Promise<T> {
-  if (isDemo) { await new Promise((r) => setTimeout(r, 350)); return (demoFns[name]?.(data) ?? { ok: true }) as T; }
+  if (isDemo) { await new Promise((r) => setTimeout(r, 350)); return (demoFns[name]?.(data) ?? { ok: true }) as T; } // demo stand-ins may throw like the real API
   const res = await httpsCallable(fns!, name)(data);
   return res.data as T;
 }

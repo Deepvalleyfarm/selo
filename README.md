@@ -79,6 +79,40 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
 
    The seed adds the 12 security questions, platform config defaults, Lusaka zones, the 5 welcome adverts and categories. After that, manage admins from **Admin users** in the back office.
 
+## v6.1 — discovery upgrade (three pillars)
+
+**Pillar 1 — Infinity Memory** (all in the named Firestore database)
+- **Collision-free keys:** every key is `entity_type + UUIDv7 + shard`, built with jump consistent hashing over 64 shards. Adding a shard never rehashes everything.
+- **Co-location:** listings are sharded by seller and events by user.
+- **Append-only event log:** `behaviourEvents` accepts creates only; security rules block edits and deletes. The `onBehaviourEvent` trigger builds the read models from it, so nothing else writes them:
+  - listing counters and `listingDaily`;
+  - `cohortMetrics`, `sellerAudience` and `adminMetrics`;
+  - `shares`, `searchStats` and `likes`.
+- **Versioned algorithm:** each `algorithmState/vNNNNNN` is written once and never overwritten. `current` is a pointer to the active version, so any version can be replayed or rolled back.
+- **Archive, never purge:** soft-deleted listings move to the cold `archive` collection after 30 days.
+- **Storage tiers:** the PRD names Redis, PostgreSQL and S3 Parquet. Here they map to Firestore (hot and warm) plus the optional Firestore → BigQuery export extension (cold), because all data must stay in the named database.
+
+**Pillar 2 — AI video and photo listings**
+- **Capture:** the seller taps "+" and chooses a 15–60 s portrait video (with countdown and waveform) or up to 4 photos (drag to reorder).
+- **On the phone:** frames are extracted (1 fps for 10 s, then 1 every 5 s) and ML Kit image labelling gives an instant category.
+- **Cloud AI:** Gemini drafts the title and a 3–5 sentence description. The price is a recency-weighted regional median from the last 30 days.
+- **Fallback:** after 8 s (`aiTimeoutSec`) the seller gets an empty manual form with a notice.
+- **Review and post:** every field must be confirmed, then the seller previews the listing as a feed card. Posting sets `pending_review`, which is auto-approved unless the content-policy check flags it.
+
+**Pillar 3 — discovery algorithm** (`functions/src/algorithm.ts`, pure and unit tested)
+- **Retrieval:** 200 candidates per page — 40% cohort, 30% regional trending, 20% posted in the last 24 h, 10% exploration. Listings shown in the last 72 h are excluded.
+- **Ranking:** a weighted score with the PRD default weights, and never the same seller twice in a row.
+- **Hourly:** 50-dimension buyer interest vectors, seller 7-day engagement rate, listing virality.
+- **Every 6 h:** micro-tuning by the three §6.3 rules.
+- **Weekly:** k-means re-clustering into 20 cohorts, an A/B test with 4 variants at 2.5% of traffic each, and flags for weak categories.
+- **Guardrails:** no optimisation after 145 min a day, a break notice at 130 min, and a budget check at more than 13× weekly enquiries. Admins can adjust them; switching them off needs a `ceo: true` claim.
+- **Buyer feed:**
+  - Full-screen vertical feed: videos auto-play muted and pause below 50% visibility; photos auto-advance every 3 s.
+  - Gestures: double-tap to like, long-press to save to a named wishlist, swipe left for "not interested", pull to refresh.
+  - Follow sellers, share in-app or on WhatsApp (deep links `selonachipa://listing/{id}` and `https://mabala-f2d65.web.app/l/{id}` with a web preview).
+  - Search with filters and "people also searched for"; home rails (Because you liked, Popular in your area, You searched for, Deals for you).
+- **Privacy:** sellers see totals only. Admins see engaged buyers. The seller lead export includes only buyers who switched on "Let sellers contact me" (Zambia Data Protection Act 2021).
+
 ## What is in the box
 
 **Android** (`android/app/src/main/java/selo/Nachipa01`)
@@ -129,6 +163,7 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
 ```bash
 cd android && ./gradlew testDebugUnitTest      # domain rules: PIN, MSISDN, escrow split, insurance, commission
 cd functions && npm test                        # auth rules, money rules, state machine, retry schedule, webhook signature
+cd functions && npm run test:rules               # Firestore security rules in the emulator (needs Java)
 cd backoffice && npm run build                  # type-check + production bundle
 ```
 

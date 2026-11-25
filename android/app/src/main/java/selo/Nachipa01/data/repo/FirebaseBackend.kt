@@ -23,6 +23,10 @@ import kotlinx.coroutines.tasks.await
 import selo.Nachipa01.BuildConfig
 import selo.Nachipa01.data.model.*
 import java.util.UUID
+import selo.Nachipa01.data.events.BehaviourEvent
+import selo.Nachipa01.data.events.Keys
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.SetOptions
 
 /**
  * Production backend: Firebase project Mabala, named Firestore database
@@ -233,9 +237,10 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         }.also { onProgress(1f) }
     }
 
-    override suspend fun runAiPipeline(mediaPaths: List<String>, prompt: String?, onStep: (Int) -> Unit): AiDraft {
-        onStep(0)
-        val res = call("listing_runAiPipeline", mapOf("mediaPaths" to mediaPaths, "prompt" to prompt))
+    override suspend fun runAiPipeline(mediaPaths: List<String>, prompt: String?, onStep: (Int) -> Unit, labels: List<Pair<String, Float>>, mediaType: String): AiDraft {
+        onStep(3)
+        val res = call("listing_runAiPipeline", mapOf("framePaths" to mediaPaths, "prompt" to prompt, "mediaType" to mediaType,
+            "onDeviceLabels" to labels.map { mapOf("text" to it.first, "confidence" to it.second.toDouble()) }))
         onStep(5)
         @Suppress("UNCHECKED_CAST")
         return AiDraft(
@@ -245,6 +250,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             priceHighNgwee = (res["priceHighNgwee"] as? Number)?.toLong() ?: 0,
             category = res["category"] as? String ?: "", tags = res["tags"] as? List<String> ?: emptyList(),
             mediaPaths = mediaPaths, comparables = (res["comparables"] as? Number)?.toInt() ?: 0,
+            condition = res["condition"] as? String ?: "Good", priceScope = res["priceScope"] as? String ?: "",
         )
     }
 
@@ -291,4 +297,138 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun confirmDeliveryCode(orderId: String, code: String) {
         call("rider_confirmDelivery", mapOf("orderId" to orderId, "code" to code))
     }
+
+    /* ======================================================= v6.1 discovery */
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>.toListing(): Listing {
+        val st = this["stats"] as? Map<String, Any?> ?: emptyMap()
+        fun n(k: String) = (this[k] as? Number)
+        return Listing(
+            id = this["id"] as String, sellerUid = this["sellerUid"] as? String ?: "", sellerName = this["sellerName"] as? String ?: "",
+            title = this["title"] as? String ?: "", description = this["description"] as? String ?: "", priceNgwee = n("priceNgwee")?.toLong() ?: 0,
+            category = this["category"] as? String ?: "", zone = this["district"] as? String ?: "", thumbUrl = this["thumbUrl"] as? String,
+            videoUrl = this["videoUrl"] as? String, mediaType = this["mediaType"] as? String ?: "photo",
+            photoUrls = (this["photoUrls"] as? List<String>) ?: emptyList(), sellerVerified = this["sellerVerified"] == true,
+            condition = this["condition"] as? String ?: "", availability = this["availability"] as? String ?: "In Stock",
+            province = this["province"] as? String ?: "", district = this["district"] as? String ?: "", tags = (this["tags"] as? List<String>) ?: emptyList(),
+            likes = (st["likes"] as? Number)?.toInt() ?: 0, shares = (st["shares"] as? Number)?.toInt() ?: 0, views = (st["views"] as? Number)?.toInt() ?: 0,
+            discountPct = n("discountPct")?.toDouble() ?: 0.0, discountNgwee = n("discountNgwee")?.toLong() ?: 0,
+            rankSource = this["rankSource"] as? String, publishedAt = n("publishedAt")?.toLong() ?: 0,
+        )
+    }
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>.listings(key: String) = (this[key] as? List<Map<*, *>>)?.map { it.toListing() } ?: emptyList()
+
+    override suspend fun logEvents(events: List<BehaviourEvent>, variant: String?) {
+        val u = uid() ?: return
+        val batch = db.batch()
+        events.forEach { batch.set(db.collection("behaviourEvents").document(Keys.eventKey(u)), it.toMap(u, variant)) }
+        batch.commit().await()
+    }
+
+    override suspend fun feed(sessionId: String?, count: Int): FeedPage {
+        val r = call("feed_next", mapOf("sessionId" to sessionId, "count" to count))
+        @Suppress("UNCHECKED_CAST") val g = r["guard"] as? Map<String, Any?> ?: emptyMap()
+        fun gi(k: String, d: Int) = (g[k] as? Number)?.toInt() ?: d
+        return FeedPage(r["sessionId"] as String, r.listings("items"), r["variant"] as? String ?: "control", (r["cohort"] as? Number)?.toInt() ?: 0,
+            FeedGuard(gi("minutesToday", 0), g["warn"] == true, g["capReached"] == true, g["budgetCheck"] == true, gi("warnAtMinutes", 130), gi("capMinutes", 145)))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun homeRails(): List<Rail> = (call("home_rails", emptyMap())["rails"] as? List<Map<*, *>>)
+        ?.map { Rail(it["id"] as String, it["title"] as String, it.listings("items")) } ?: emptyList()
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun search(query: String, filters: SearchFilters): SearchResult {
+        val r = call("search_listings", mapOf("q" to query, "filters" to mapOf("minNgwee" to filters.minNgwee, "maxNgwee" to filters.maxNgwee,
+            "province" to filters.province, "district" to filters.district, "condition" to filters.condition, "mediaType" to filters.mediaType,
+            "availability" to filters.availability, "category" to filters.category)))
+        return SearchResult(r.listings("results"), (r["alsoSearched"] as? List<String>) ?: emptyList())
+    }
+
+    override suspend fun listing(id: String): Listing? {
+        val d = db.collection("listings").document(id).get().await()
+        if (!d.exists()) return null
+        return (d.data!! + ("id" to d.id) + ("publishedAt" to (d.getTimestamp("publishedAt")?.toDate()?.time ?: 0L))).toListing()
+    }
+
+    override fun likedIds(): Flow<Set<String>> = uid()?.let { u ->
+        db.collection("likes").document(u).collection("items").live().map { s -> s.documents.map { it.id }.toSet() }.catch { emit(emptySet()) }
+    } ?: flowOf(emptySet())
+
+    override fun likedListings(): Flow<List<Listing>> = likedIds().map { ids -> ids.take(30).mapNotNull { runCatching { listing(it) }.getOrNull() } }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun wishlists(): Flow<List<Wishlist>> = uid()?.let { u ->
+        db.collection("wishlists").document(u).collection("lists").live()
+            .map { s -> s.documents.map { Wishlist(it.id, it.getString("name") ?: "", (it.get("itemIds") as? List<String>) ?: emptyList()) } }
+            .catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    override suspend fun createWishlist(name: String) {
+        val u = uid() ?: return
+        db.collection("wishlists").document(u).collection("lists").document(name.lowercase().replace(Regex("[^a-z0-9]+"), "-").take(40))
+            .set(mapOf("name" to name.take(40), "itemIds" to emptyList<String>()), SetOptions.merge()).await()
+    }
+
+    override suspend fun saveToWishlist(listingId: String, wishlistName: String) {
+        val u = uid() ?: return
+        val id = wishlistName.lowercase().replace(Regex("[^a-z0-9]+"), "-").take(40)
+        db.collection("wishlists").document(u).collection("lists").document(id)
+            .set(mapOf("name" to wishlistName.take(40), "itemIds" to FieldValue.arrayUnion(listingId)), SetOptions.merge()).await()
+    }
+
+    override fun following(): Flow<Set<String>> = uid()?.let { u ->
+        db.collection("follows").whereEqualTo("followerUid", u).live().map { s -> s.documents.mapNotNull { it.getString("sellerUid") }.toSet() }.catch { emit(emptySet()) }
+    } ?: flowOf(emptySet())
+
+    override suspend fun setFollow(sellerUid: String, follow: Boolean) {
+        val u = uid() ?: return
+        val ref = db.collection("follows").document("${u}_$sellerUid")
+        if (follow) ref.set(mapOf("followerUid" to u, "sellerUid" to sellerUid, "at" to FieldValue.serverTimestamp())).await() else ref.delete().await()
+    }
+
+    override suspend fun shareToUser(listingId: String, phone: String) { call("share_toUser", mapOf("listingId" to listingId, "phone" to phone)) }
+
+    override suspend fun setLeadConsent(consent: Boolean, ageBand: String?) {
+        val u = uid() ?: return
+        db.collection("users").document(u).update(mapOf("leadConsent" to consent, "leadConsentAt" to FieldValue.serverTimestamp(), "ageBand" to ageBand)).await()
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun sellerDashboard(): SellerDashboard {
+        val r = call("seller_dashboard", emptyMap())
+        fun card(m: Map<*, *>?) = m?.let { SellerListingCard(it["id"] as String, it["title"] as? String ?: "", it["status"] as? String ?: "", it["thumbUrl"] as? String,
+            it["mediaType"] as? String ?: "photo", (it["priceNgwee"] as? Number)?.toLong() ?: 0, (it["views"] as? Number)?.toInt() ?: 0,
+            (it["likes"] as? Number)?.toInt() ?: 0, (it["shares"] as? Number)?.toInt() ?: 0, (it["enquiries"] as? Number)?.toInt() ?: 0,
+            (it["postedAt"] as? Number)?.toLong() ?: 0) }
+        val w = r["week"] as Map<String, Number>; val f = r["funnel"] as Map<String, Number>; val t = r["top"] as Map<String, Map<*, *>?>
+        val a = r["audience"] as Map<String, Map<String, Number>>
+        return SellerDashboard((r["listings"] as List<Map<*, *>>).mapNotNull { card(it) }, w["views"]!!.toInt(), w["lastWeekViews"]!!.toInt(),
+            w["likes"]!!.toInt(), w["shares"]!!.toInt(), w["enquiries"]!!.toInt(),
+            listOf("Views" to f["views"]!!.toInt(), "Taps" to f["taps"]!!.toInt(), "Enquiries" to f["enquiries"]!!.toInt(), "Sales" to f["sales"]!!.toInt()),
+            mapOf("views" to card(t["views"]), "enquiries" to card(t["enquiries"]), "likes" to card(t["likes"])),
+            a["ageBand"]!!.mapValues { it.value.toInt() }, a["province"]!!.mapValues { it.value.toInt() },
+            a["peakHours"]!!.mapKeys { it.key.toInt() }.mapValues { it.value.toInt() })
+    }
+
+    override suspend fun bulkListings(action: String, ids: List<String>?): Int =
+        (call("seller_bulkListings", mapOf("action" to action, "ids" to ids))["updated"] as? Number)?.toInt() ?: 0
+
+    override suspend fun updateListing(id: String, changes: Map<String, Any?>) { call("listing_update", mapOf("listingId" to id, "changes" to changes)) }
+
+    override suspend fun saveSellerSettings(settings: Map<String, Any?>) {
+        val u = uid() ?: return
+        db.collection("users").document(u).update(settings.filterKeys { it in setOf("storeName", "photoUrl", "coverUrl", "province", "district", "area",
+            "businessTags", "paymentPrefs", "notificationPrefs") }).await()
+    }
+
+    override suspend fun publishListingV2(req: PublishRequest): String = call("listing_publish", mapOf(
+        "mediaType" to req.mediaType, "videoPath" to req.videoPath, "photoPaths" to req.photoPaths, "thumbPath" to req.thumbPath,
+        "durationMs" to req.durationMs, "title" to req.title, "description" to req.description, "priceNgwee" to req.priceNgwee,
+        "category" to req.category, "condition" to req.condition, "availability" to req.availability, "province" to req.province,
+        "district" to req.district, "location" to req.location, "tags" to req.tags, "discountPct" to req.discountPct, "aiUsed" to req.aiUsed,
+        "asDraft" to req.asDraft,
+    ))["listingId"] as String
 }

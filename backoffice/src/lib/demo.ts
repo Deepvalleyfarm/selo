@@ -73,6 +73,36 @@ export const demo: Record<string, Row[]> = {
   securityEvents: [{ id: "s1", type: "SECURITY_QUESTION_LOCKOUT", msisdn: "+260971110000", at: ago(45) }],
 };
 
+const W = { watchTimeRatio: 0.30, like: 0.20, share: 0.18, enquiry: 0.15, save: 0.08, notInterested: -0.25, categoryMatch: 0.05, sellerEngagement: 0.04 };
+const cohort = (id: number, w = W, mix = { cohort: 0.4, trending: 0.3, recent: 0.2, exploration: 0.1 }, cat: Record<string, number> = {}) =>
+  ({ cohortId: id, weights: w, mix, categoryShare: cat, typeBoost: { video: 1, photo: 1 }, targetSessionMin: 25 });
+const cohortsNow = { "0": cohort(0, { ...W, watchTimeRatio: 0.34 }, { cohort: 0.39, trending: 0.29, recent: 0.2, exploration: 0.12 }), "1": cohort(1), "2": cohort(2, W, undefined, { Electronics: 0.81 }),
+  "3": cohort(3, { ...W, share: 0.2 }), "4": cohort(4) };
+demo.algorithmState = [
+  { id: "current", version: 14, reason: "micro-tune 2026-11-25_1", cohorts: cohortsNow, centroids: [], variants: [0, 1, 2, 3].map((i) => ({ ...W, like: 0.2 + i * 0.01, share: 0.18 - i * 0.01 })), updatedAt: ago(90) },
+  { id: "v000014", version: 14, reason: "micro-tune 2026-11-25_1", createdBy: "system", createdAt: ago(90), changes: [
+    { rule: "session_below_target", cohort: 0, detail: "avg 19.4 min < target 25: watchTime +0.02, exploration +5%" },
+    { rule: "category_skip_rate", cohort: 2, detail: "electronics skip rate 64% > 60%: retrieval share −10%" }] },
+  { id: "v000013", version: 13, reason: "weekly macro-tune", createdBy: "system", createdAt: ago(60 * 24 * 2), changes: [
+    { rule: "recluster", detail: "18,204 buyers into 20 cohorts" }, { rule: "ab_winner", detail: "variant v2 beat control (sessions 27.1 vs 24.3 min)" },
+    { rule: "weak_categories", detail: "flagged for seller growth campaigns: Building materials, Services" }] },
+  { id: "v000012", version: 12, reason: "micro-tune 2026-11-22_3", createdBy: "system", createdAt: ago(60 * 24 * 3), changes: [
+    { rule: "share_spike", cohort: 3, detail: "video share rate 2.4× baseline: +8% retrieval for 24 h" }] },
+  { id: "v000001", version: 1, reason: "seed: PRD default weights", createdBy: "seed", createdAt: ago(60 * 24 * 40), changes: [] },
+];
+demo.platformConfig.push({ id: "guardrails", enabled: true, sessionCapMinutes: 145, warnAtMinutes: 130, budgetMultiplier: 13, budgetWindowWeeks: 2, updatedBy: "seed", updatedAt: ago(60 * 24 * 40) });
+const day = (d: number, base: number) => ({ id: `met_2026-11-${String(25 - d).padStart(2, "0")}_daily`, type: "daily", date: `2026-11-${String(25 - d).padStart(2, "0")}`,
+  sessions: Math.round(base * 1.0), sessionMs: Math.round(base * (8 + (13 - d) * 0.9) * 60_000), events_listing_view: base * 22, events_like: base * 3, events_share: Math.round(base * 0.9),
+  events_enquiry_open: Math.round(base * 1.1 + (13 - d) * 9), video_listing_view: base * 14, photo_listing_view: base * 8, video_like: Math.round(base * 2.3), photo_like: Math.round(base * 0.7),
+  video_share: Math.round(base * 0.75), photo_share: Math.round(base * 0.15), video_enquiry_open: Math.round(base * 0.8), photo_enquiry_open: Math.round(base * 0.3) });
+demo.adminMetrics = [...Array.from({ length: 14 }, (_, i) => day(i, 900 + (13 - i) * 60)),
+  { id: "met_2026-11-23_weak_categories", type: "weak_categories", date: "2026-11-23", categories: ["Building materials", "Services"], median: 0.11 }];
+demo.leads = [
+  { id: "b1", uid: "u1", name: "Mwila Chanda", msisdn: "+260971234512", area: "Munali", district: "Lusaka", consent: true, likes: 4, saves: 2, enquiries: 1, listings: 3, lastActive: Date.now() - 3_600_000 },
+  { id: "b2", uid: "u8", name: "Kunda Mumba", msisdn: "+260966661234", area: "Kabwata", district: "Lusaka", consent: false, likes: 2, saves: 0, enquiries: 2, listings: 2, lastActive: Date.now() - 86_400_000 },
+  { id: "b3", uid: "u9", name: "Natasha Banda", msisdn: "+260955559876", area: "Chilenje", district: "Lusaka", consent: true, likes: 1, saves: 1, enquiries: 0, listings: 1, lastActive: Date.now() - 2 * 86_400_000 },
+];
+
 const listeners = new Set<() => void>();
 export const demoSubscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
 export const demoChanged = () => listeners.forEach((l) => l());

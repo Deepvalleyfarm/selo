@@ -9,6 +9,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import selo.Nachipa01.data.model.FeedGuard
+import selo.Nachipa01.data.model.FeedPage
+import selo.Nachipa01.data.model.Rail
+import selo.Nachipa01.data.model.SearchFilters
+import selo.Nachipa01.data.model.SearchResult
+import selo.Nachipa01.data.model.SellerDashboard
+import selo.Nachipa01.data.model.SellerListingCard
+import selo.Nachipa01.data.model.Wishlist
 import kotlinx.coroutines.launch
 import selo.Nachipa01.data.model.*
 import selo.Nachipa01.domain.Fees
@@ -25,11 +33,31 @@ object DemoData {
         Advert("ad5", "Chitenge fabric, 6 yards", "Comesa Fashions · 3 colours", 12_000, "Shop now", "fashion", 0xFF86198F, 0xFFDB2777),
     )
 
+    private fun l(id: String, seller: String, sellerName: String, title: String, desc: String, price: Long, cat: String, district: String,
+                  video: Boolean, a: Long, b: Long, likes: Int, views: Int, verified: Boolean = true, cond: String = "New", disc: Double = 0.0,
+                  avail: String = "In Stock", tags: List<String> = emptyList(), province: String = "Lusaka") =
+        Listing(id, seller, sellerName, title, desc, price, cat, district, stock = 10, views = views, saves = likes / 3, mediaType = if (video) "video" else "photo",
+            sellerVerified = verified, condition = cond, availability = avail, province = province, district = district, tags = tags, likes = likes,
+            shares = likes / 5, enquiries = likes / 4, discountPct = disc, colorA = a, colorB = b, durationMs = if (video) 32_000 else 0,
+            photoUrls = if (video) emptyList() else listOf("1", "2", "3"))
+
     val listings = listOf(
-        Listing("l1", "s1", "Mama Bupe's Veg", "Fresh tomatoes 5 kg", "Firm, deep-red tomatoes from Chongwe.", 8_000, "Fresh produce", "Lusaka Central", stock = 14, views = 820, saves = 64),
-        Listing("l2", "s1", "Mama Bupe's Veg", "Rape bundle", "Freshly cut this morning.", 1_000, "Fresh produce", "Lusaka Central", stock = 40, views = 310, saves = 12),
-        Listing("l3", "s2", "Bashi Tembo Electronics", "Smartphone 128 GB", "Dual SIM, 1-year warranty.", 245_000, "Electronics", "Lusaka CBD", stock = 6, views = 2_100, saves = 230),
-        Listing("l4", "s3", "Comesa Fashions", "Chitenge fabric 6 yd", "Wax print, 3 colours.", 12_000, "Fashion", "Comesa", stock = 30, views = 540, saves = 41),
+        l("l1", "s1", "Mama Bupe's Veg", "Fresh Chongwe tomatoes – 5 kg bag", "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Packed at Soweto Market, stall 14.", 8_000, "Fresh produce", "Soweto", true, 0xFFB0281A, 0xFFF2B33D, 820, 4100, tags = listOf("tomatoes", "chongwe")),
+        l("l2", "s1", "Mama Bupe's Veg", "Rape bundle, freshly cut", "Tender rape leaves cut at dawn. Bundle feeds a family of four.", 1_000, "Fresh produce", "Soweto", false, 0xFF1B5E20, 0xFF7CB342, 140, 900),
+        l("l3", "s2", "Bashi Tembo Electronics", "Smartphone 128 GB, dual SIM", "Dual SIM, 6.5\" screen, 5000 mAh battery. One-year shop warranty.", 245_000, "Phones & accessories", "Lusaka CBD", true, 0xFF1A1A2E, 0xFF4B3B8F, 2300, 11000, disc = 8.0, tags = listOf("phone", "smartphone")),
+        l("l4", "s3", "Comesa Fashions", "Chitenge fabric, 6 yards", "Wax print chitenge in three colourways. Ideal for outfits and headwraps.", 12_000, "Fashion", "Comesa", false, 0xFF86198F, 0xFFDB2777, 610, 3200, tags = listOf("chitenge", "fabric")),
+        l("l5", "s4", "Kwacha Grill", "Nshima & grilled chicken combo", "Quarter chicken, nshima and village chicken relish. Delivered hot in 30 minutes.", 7_500, "Fast food", "Kabwata", true, 0xFF9A3412, 0xFFF59E0B, 1450, 6400, disc = 10.0),
+        l("l6", "s5", "SunPower Zambia", "Solar lantern + phone charger kit", "10 W panel, two LED lanterns and USB charging. Ready for load-shedding.", 65_000, "Electronics", "Kitwe", true, 0xFF065F46, 0xFF0D9488, 980, 5200, province = "Copperbelt"),
+        l("l7", "s6", "Chilenje Furniture Works", "Solid mukwa coffee table", "Hand-made mukwa hardwood table, 120 × 60 cm, oil finish.", 180_000, "Furniture", "Chilenje", false, 0xFF5D4037, 0xFFBCAAA4, 220, 1500, avail = "Made to Order"),
+        l("l8", "s7", "Mwila Hardware", "Cement 50 kg (Dangote)", "Grade 42.5 cement. Free delivery within Matero for 20+ bags.", 13_500, "Building materials", "Matero", false, 0xFF37474F, 0xFF90A4AE, 90, 800, avail = "Last Units"),
+        l("l9", "s3", "Comesa Fashions", "Men's linen shirt", "Breathable linen shirt, sizes M–XXL, four colours.", 25_000, "Fashion", "Comesa", true, 0xFF0D47A1, 0xFF64B5F6, 410, 2100, disc = 15.0),
+        l("l10", "s8", "Baby Joy Store", "Baby carrier, ergonomic", "Hip-healthy carrier for 3–36 months. Breathable mesh.", 45_000, "Baby", "Woodlands", false, 0xFFAD1457, 0xFFF8BBD0, 260, 1300),
+        l("l11", "s9", "Mazabuka Sugar Depot", "Sugar 10 kg", "Zambia Sugar white sugar, 10 kg bag.", 22_000, "Groceries", "Kabulonga", false, 0xFF4E342E, 0xFFD7CCC8, 170, 1100),
+        l("l12", "s2", "Bashi Tembo Electronics", "Bluetooth speaker, 20 W", "Waterproof speaker, 12-hour battery, FM radio.", 38_000, "Electronics", "Lusaka CBD", true, 0xFF263238, 0xFF00BCD4, 720, 3300, cond = "Like new"),
+        l("l13", "s10", "Ndola Auto Spares", "Toyota Corolla brake pads", "Front brake pads for Corolla 2008–2018. Fitting available.", 42_000, "Vehicles & parts", "Ndola", false, 0xFF212121, 0xFFFF7043, 120, 700, province = "Copperbelt"),
+        l("l14", "s11", "Glow Beauty Lusaka", "Shea butter body cream", "Natural shea and cocoa butter, 500 ml. Made in Zambia.", 9_500, "Beauty", "Kalingalinga", true, 0xFF6A1B9A, 0xFFFFB74D, 530, 2600),
+        l("l15", "s12", "Chongwe Farm Fresh", "Village chickens (live)", "Free-range village chickens, 1.5–2 kg each.", 15_000, "Agriculture", "Chongwe", true, 0xFF33691E, 0xFFFFCA28, 380, 1900),
+        l("l16", "s1", "Mama Bupe's Veg", "Fresh onions 10 kg", "Red onions from Mkushi. Long-keeping.", 9_000, "Fresh produce", "Soweto", false, 0xFF880E4F, 0xFFFF8A80, 200, 1200, disc = 5.0),
     )
 
     val sellerStats = SellerStats(341_800, 61_500, 3, 24, 2, 988_000, 61)
@@ -157,12 +185,15 @@ class DemoBackend : Backend {
         return uris.mapIndexed { i, _ -> "listing-uploads/demo/$i" }
     }
 
-    override suspend fun runAiPipeline(mediaPaths: List<String>, prompt: String?, onStep: (Int) -> Unit): AiDraft {
-        for (s in 0..4) { onStep(s); delay(900) }
+    /** Set to make the demo AI pipeline fail or hang, to exercise the manual-entry fallback. */
+    var aiDelayMs = 900L
+    override suspend fun runAiPipeline(mediaPaths: List<String>, prompt: String?, onStep: (Int) -> Unit, labels: List<Pair<String, Float>>, mediaType: String): AiDraft {
+        for (s in 3..4) { onStep(s); delay(aiDelayMs) }
         onStep(5)
+        val cat = labels.firstOrNull()?.first?.let { selo.Nachipa01.domain.Taxonomy.fromLabel(it) } ?: "Fresh produce"
         return AiDraft("Fresh Chongwe Tomatoes – 5 kg Bag",
-            "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Sold in 5 kg bags, packed at Soweto Market.",
-            8_500, 7_800, 9_200, "Fresh produce", listOf("tomatoes", "chongwe", "relish"), mediaPaths, 14, 31)
+            "Firm, deep-red tomatoes picked this morning in Chongwe. They are ideal for relish, stews and salads. Each 5 kg bag is hand-sorted, so you only get whole fruit. Collect from Soweto Market or have a rider bring it to you.",
+            8_500, 7_800, 9_200, cat, listOf("tomatoes", "chongwe", "relish", "fresh"), mediaPaths, 14, 31, "New", "Lusaka")
     }
     override suspend fun publishListing(draft: AiDraft, asDraft: Boolean): String { delay(500); return "l-new" }
 
@@ -175,6 +206,123 @@ class DemoBackend : Backend {
     }
     override suspend fun setOnline(online: Boolean) { this.online.value = online }
     private val riderJobs = MutableStateFlow<List<Order>>(emptyList())
+    /* ============================================ v6.1 discovery (in-memory, same rules as the server, simplified) */
+
+    val eventLog = mutableListOf<selo.Nachipa01.data.events.BehaviourEvent>()
+    private val shown = mutableMapOf<String, Long>()
+    private val blocked = mutableSetOf<String>()
+    private val liked = MutableStateFlow<Set<String>>(emptySet())
+    private val lists = MutableStateFlow(listOf(Wishlist("favourites", "Favourites", emptyList()), Wishlist("for-the-house", "For the house", emptyList())))
+    private val follows = MutableStateFlow<Set<String>>(emptySet())
+    private val affinity = mutableMapOf<String, Double>()
+    var minutesTodayOverride: Int? = null
+    private var minutesToday = 0.0
+    private val myListings = MutableStateFlow<List<Listing>>(emptyList())
+
+    override suspend fun logEvents(events: List<selo.Nachipa01.data.events.BehaviourEvent>, variant: String?) {
+        events.forEach { e ->
+            eventLog += e
+            val cat = e.category ?: DemoData.listings.firstOrNull { it.id == e.listingId }?.category ?: return@forEach
+            val w = when (e.type) { "like" -> if (e.undone == true) -1.0 else 1.0; "share" -> 1.2; "enquiry_open" -> 1.1; "save" -> 0.8; "details_open" -> 0.5
+                "video_watch" -> ((e.watchMs ?: 0).toDouble() / (e.totalMs ?: 1).coerceAtLeast(1)) - 0.3; "skip" -> -0.15; "not_interested" -> -1.5; else -> 0.05 }
+            affinity[cat] = (affinity[cat] ?: 0.0) + w
+            if (e.type == "not_interested") e.listingId?.let(blocked::add)
+            if (e.type == "like") e.listingId?.let { id -> liked.value = if (e.undone == true) liked.value - id else liked.value + id }
+            if (e.type == "session_end") minutesToday += (e.durationMs ?: 0) / 60_000.0
+        }
+    }
+
+    private fun all() = myListings.value + DemoData.listings
+    private fun demoScore(l: Listing) = (l.likes + 2.0 * l.shares + 2.0 * l.enquiries) / (l.views + 10) * 3 + (affinity[l.category] ?: 0.0) * 0.6 +
+        (if (l.isVideo) 0.1 else 0.0)
+
+    override suspend fun feed(sessionId: String?, count: Int): FeedPage {
+        delay(250)
+        val now = System.currentTimeMillis()
+        val mins = minutesTodayOverride ?: minutesToday.toInt()
+        val g = FeedGuard(mins, warn = mins >= 130, capReached = mins >= 145, budgetCheck = eventLog.count { it.type == "enquiry_open" } > 13)
+        val pool = all().filter { it.id !in blocked && (shown[it.id]?.let { t -> now - t > 72 * 3_600_000 } ?: true) }
+            .ifEmpty { all().filter { it.id !in blocked } }
+        val ranked = if (g.capReached) pool.sortedByDescending { it.publishedAt } else pool.sortedByDescending(::demoScore)
+        val out = mutableListOf<Listing>()
+        val rest = ranked.toMutableList()
+        while (out.size < count && rest.isNotEmpty()) {
+            val i = rest.indexOfFirst { it.sellerUid != out.lastOrNull()?.sellerUid }.let { if (it < 0) 0 else it }
+            out += rest.removeAt(i)
+        }
+        out.forEach { shown[it.id] = now }
+        return FeedPage(sessionId ?: "ses_demo_${now}", out.map { it.copy(rankSource = if (g.capReached) "unranked_cap" else "demo") }, "control", 0, g)
+    }
+
+    override suspend fun homeRails(): List<Rail> {
+        val rails = mutableListOf<Rail>()
+        liked.value.lastOrNull()?.let { id -> all().firstOrNull { it.id == id } }?.let { ref ->
+            rails += Rail("because_liked", "Because you liked ${ref.title}", all().filter { it.id != ref.id }.sortedByDescending { (if (it.category == ref.category) 2.0 else 0.0) + (affinity[it.category] ?: 0.0) }.take(8))
+        }
+        rails += Rail("popular_area", "Popular in Lusaka", all().filter { it.province == "Lusaka" }.sortedByDescending { it.likes }.take(8))
+        eventLog.lastOrNull { it.type == "search" && it.firstClickListingId == null }?.query?.let { q ->
+            val hits = all().filter { it.title.contains(q, true) || it.tags.any { t -> t.contains(q, true) } }
+            if (hits.isNotEmpty()) rails += Rail("searched_nearby", "You searched for \"$q\" — here are sellers nearby", hits)
+        }
+        rails += Rail("deals", "Deals for you", all().filter { it.hasOffer }.sortedByDescending(::demoScore))
+        return rails
+    }
+
+    override suspend fun search(query: String, filters: SearchFilters): SearchResult {
+        delay(200)
+        val toks = query.lowercase().split(Regex("[^a-z0-9]+")).filter { it.length >= 2 }
+        val res = all().filter { l -> toks.all { t -> "${l.title} ${l.description} ${l.tags.joinToString(" ")} ${l.sellerName}".lowercase().contains(t) } }
+            .filter { l -> (filters.minNgwee == null || l.priceNgwee >= filters.minNgwee) && (filters.maxNgwee == null || l.priceNgwee <= filters.maxNgwee) &&
+                (filters.province == null || l.province == filters.province) && (filters.condition == null || l.condition == filters.condition) &&
+                (filters.mediaType == null || l.mediaType == filters.mediaType) && (filters.availability == null || l.availability == filters.availability) &&
+                (filters.category == null || l.category == filters.category) }
+        val also = mapOf("tom" to listOf("onions", "rape", "potatoes"), "pho" to listOf("speaker", "charger", "earphones"), "chi" to listOf("fabric", "shirt"))
+            .entries.firstOrNull { (k, _) -> toks.firstOrNull()?.startsWith(k) == true }?.value ?: listOf("tomatoes", "phone", "chitenge")
+        return SearchResult(res, also)
+    }
+
+    override suspend fun listing(id: String): Listing? = all().firstOrNull { it.id == id }
+    override fun likedIds(): Flow<Set<String>> = liked
+    override fun likedListings(): Flow<List<Listing>> = liked.map { ids -> all().filter { it.id in ids } }
+    override fun wishlists(): Flow<List<Wishlist>> = lists
+    override suspend fun createWishlist(name: String) { if (lists.value.none { it.name.equals(name, true) }) lists.value = lists.value + Wishlist(name.lowercase(), name, emptyList()) }
+    override suspend fun saveToWishlist(listingId: String, wishlistName: String) {
+        createWishlist(wishlistName)
+        lists.value = lists.value.map { if (it.name.equals(wishlistName, true)) it.copy(itemIds = (it.itemIds + listingId).distinct()) else it }
+    }
+    override fun following(): Flow<Set<String>> = follows
+    override suspend fun setFollow(sellerUid: String, follow: Boolean) { follows.value = if (follow) follows.value + sellerUid else follows.value - sellerUid }
+    override suspend fun shareToUser(listingId: String, phone: String) {
+        delay(300); if (Validation.normaliseMsisdn(phone) == null) throw BackendException("Enter your friend's mobile number.")
+    }
+    override suspend fun setLeadConsent(consent: Boolean, ageBand: String?) { delay(150) }
+
+    override suspend fun sellerDashboard(): SellerDashboard {
+        delay(200)
+        val mine = (myListings.value + DemoData.listings.filter { it.sellerUid == "s1" }).map {
+            SellerListingCard(it.id, it.title, it.status, it.thumbUrl, it.mediaType, it.priceNgwee, it.views, it.likes, it.shares, it.enquiries, System.currentTimeMillis() - 86_400_000L * (it.id.length))
+        }
+        return SellerDashboard(mine, 5_420, 4_310, 1_160, 232, 291,
+            listOf("Views" to 6_200, "Taps" to 1_480, "Enquiries" to 291, "Sales" to 61),
+            mapOf("views" to mine.maxByOrNull { it.views }, "enquiries" to mine.maxByOrNull { it.enquiries }, "likes" to mine.maxByOrNull { it.likes }),
+            mapOf("18–24" to 120, "25–34" to 310, "35–44" to 140, "45+" to 60, "Not given" to 90),
+            mapOf("Lusaka" to 520, "Copperbelt" to 140, "Central" to 60), mapOf(6 to 40, 7 to 95, 8 to 70, 12 to 60, 17 to 110, 18 to 150, 19 to 130, 20 to 80))
+    }
+    override suspend fun bulkListings(action: String, ids: List<String>?): Int { delay(200); return ids?.size ?: 4 }
+    override suspend fun updateListing(id: String, changes: Map<String, Any?>) {
+        delay(150); myListings.value = myListings.value.map { if (it.id == id && changes["status"] is String) it.copy(status = changes["status"] as String) else it }
+    }
+    override suspend fun saveSellerSettings(settings: Map<String, Any?>) { delay(200) }
+    override suspend fun publishListingV2(req: PublishRequest): String {
+        delay(500)
+        val id = "lst_${selo.Nachipa01.data.events.Keys.uuidv7()}_s00"
+        myListings.value = listOf(Listing(id, "s1", "Mama Bupe's Veg", req.title, req.description, req.priceNgwee, req.category, req.district,
+            mediaType = req.mediaType, condition = req.condition, availability = req.availability, province = req.province, district = req.district,
+            tags = req.tags, discountPct = req.discountPct, status = if (req.asDraft) "draft" else "live", publishedAt = System.currentTimeMillis(),
+            photoUrls = req.photoPaths)) + myListings.value
+        return id
+    }
+
     override suspend fun acceptJob(orderId: String) {
         delay(400)
         riderJobs.value = listOf(Order(orderId, "b3", "s1", "Mama Bupe's Veg", "demo-rider", "Chanda M.",

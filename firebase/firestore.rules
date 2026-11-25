@@ -11,7 +11,7 @@ service cloud.firestore {
     function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
 
     // Public, read before login: welcome adverts, live config, question bank, categories
-    match /platformConfig/{id} { allow read: if true; }
+    match /platformConfig/{id} { allow read: if true; }  // includes guardrails (written only by admin_updateGuardrails)
     match /contentBlocks/{id} {
       allow read: if resource.data.active == true || admin();
       allow write: if adminIn(['moderator']) && request.resource.data.updatedBy == request.auth.uid;
@@ -21,7 +21,8 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if me(uid) || admin();
-      allow update: if me(uid) && onlyChanges(['fullName', 'firstName', 'area', 'landmark', 'language', 'photoUrl', 'notificationPrefs', 'emergencyContact']);
+      allow update: if me(uid) && onlyChanges(['fullName', 'firstName', 'area', 'landmark', 'language', 'photoUrl', 'coverUrl', 'notificationPrefs', 'emergencyContact',
+        'leadConsent', 'leadConsentAt', 'ageBand', 'province', 'district', 'storeName', 'businessTags', 'paymentPrefs']);
       match /private/{doc} { allow read, write: if false; }
     }
     match /msisdnIndex/{id} { allow read, write: if false; }
@@ -96,6 +97,39 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.buyerUid == request.auth.uid
         && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.state == 'DELIVERED';
     }
+
+    // ---------------- v6.1 Infinity Memory: append-only behaviour log and personal collections
+    match /behaviourEvents/{id} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+        && request.resource.data.type in ['listing_view', 'video_watch', 'like', 'share', 'enquiry_open', 'save', 'skip', 'not_interested',
+             'search', 'session_start', 'session_end', 'details_open', 'follow']
+        && request.resource.data.ts is number && id.matches('evt_[0-9a-f-]{36}_s[0-9]{2}');
+      allow read: if adminIn(['analyst', 'operations', 'support']);
+      allow update, delete: if false;
+    }
+    match /buyerProfiles/{uid} { allow read: if me(uid) || admin(); allow write: if false; }
+    match /likes/{uid}/items/{listingId} { allow read: if me(uid) || admin(); allow write: if false; }
+    match /wishlists/{uid}/lists/{listId} {
+      allow read, delete: if me(uid);
+      allow create, update: if me(uid) && request.resource.data.name is string && request.resource.data.name.size() <= 40
+        && request.resource.data.itemIds is list && request.resource.data.itemIds.size() <= 500;
+    }
+    match /follows/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.followerUid == request.auth.uid && id == request.auth.uid + '_' + request.resource.data.sellerUid;
+      allow delete: if signedIn() && resource.data.followerUid == request.auth.uid;
+    }
+    match /inbox/{uid}/items/{id} { allow read: if me(uid); allow update: if me(uid) && onlyChanges(['readAt']); }
+    match /listingMedia/{id} { allow read: if true; }
+    match /algorithmState/{id} { allow read: if admin(); }
+    match /cohortMetrics/{id} { allow read: if admin(); }
+    match /feedSessions/{id} { allow read: if (signedIn() && resource.data.buyerId == request.auth.uid) || admin(); }
+    match /shares/{id} { allow read: if admin(); }
+    match /searchStats/{id} { allow read: if signedIn(); }
+    match /listingDaily/{id} { allow read: if (signedIn() && resource.data.sellerUid == request.auth.uid) || admin(); }
+    match /sellerAudience/{id} { allow read: if (signedIn() && resource.data.sellerUid == request.auth.uid) || admin(); }
+    match /adminMetrics/{id} { allow read: if admin(); }
+    match /archive/{id} { allow read: if adminIn(['analyst', 'compliance']); }
 
     // Back office only
     match /kycQueue/{uid} { allow read: if adminIn(['compliance']); }

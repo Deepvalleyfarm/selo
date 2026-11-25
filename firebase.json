@@ -35,6 +35,13 @@
     ],
     "rewrites": [
       {
+        "source": "/l/**",
+        "function": {
+          "functionId": "listing_preview",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

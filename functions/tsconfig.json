@@ -11,5 +11,6 @@
     "sourceMap": true,
     "noUnusedLocals": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["rules-test"]
 }

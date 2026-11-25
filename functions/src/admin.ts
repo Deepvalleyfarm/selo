@@ -173,3 +173,68 @@ export const admin_setRole = onCall(async (req) => {
 export async function broadcastConfigChange(version: number) {
   await getMessaging().send({ topic: "config-updates", data: { type: "CONFIG_UPDATED", version: String(version) } }).catch(() => undefined);
 }
+
+/* ---------------------------------------------------------------- v6.1 discovery admin */
+
+import { DEFAULT_GUARDRAILS } from "./algorithm";
+
+/**
+ * Guardrails are admin-configurable (operations / super admin), but turning them OFF, or raising the session cap
+ * above the PRD's 145 minutes, needs a CEO-level override (custom claim ceo: true).
+ */
+export const admin_updateGuardrails = onCall(async (req) => {
+  const a = requireAdmin(req, "operations");
+  const ceo = req.auth?.token.ceo === true;
+  const c = req.data?.changes ?? {};
+  const ref = db.doc("platformConfig/guardrails");
+  const before = { ...DEFAULT_GUARDRAILS, ...((await ref.get()).data() ?? {}) };
+  const next = { ...before };
+  for (const k of ["sessionCapMinutes", "warnAtMinutes", "budgetMultiplier", "budgetWindowWeeks"] as const) {
+    if (c[k] !== undefined) { const v = Number(c[k]); if (!Number.isFinite(v) || v <= 0) throw new HttpsError("invalid-argument", `${k} must be positive.`); next[k] = v; }
+  }
+  if (c.enabled !== undefined) next.enabled = c.enabled === true;
+  if (!next.enabled && before.enabled && !ceo) throw new HttpsError("permission-denied", "Turning guardrails off needs a CEO-level override.");
+  if (next.sessionCapMinutes > DEFAULT_GUARDRAILS.sessionCapMinutes && !ceo) throw new HttpsError("permission-denied", `A cap above ${DEFAULT_GUARDRAILS.sessionCapMinutes} minutes needs a CEO-level override.`);
+  if (next.warnAtMinutes >= next.sessionCapMinutes) throw new HttpsError("invalid-argument", "The warning must come before the cap.");
+  await ref.set({ ...next, updatedBy: a.email, updatedAt: FieldValue.serverTimestamp() });
+  await audit(a, ceo ? "guardrails.update.ceo" : "guardrails.update", "platformConfig/guardrails", before, next, ip(req));
+  return { ok: true };
+});
+
+/** Replays a prior algorithm version as the new current state (rollback is itself a new version). */
+export const admin_rollbackAlgorithm = onCall(async (req) => {
+  const a = requireAdmin(req, "operations");
+  const v = str(req.data?.versionId, "version");
+  const old = (await db.doc(`algorithmState/${v}`).get()).data();
+  if (!old) throw new HttpsError("not-found", "Version not found.");
+  const { saveAlgoVersion } = await import("./algoJobs");
+  const version = await saveAlgoVersion({ cohorts: old.cohorts, centroids: old.centroids, variants: old.variants }, `rollback to ${v}`, [{ rule: "rollback", detail: `replayed ${v}` }], a.email);
+  await audit(a, "algorithm.rollback", "algorithmState/current", { version: old.version }, { version }, ip(req));
+  return { version };
+});
+
+/**
+ * Buyer leads for a seller. Admins see every engaged buyer for operations; only buyers who consented
+ * to be contacted by sellers (users.leadConsent) are included in the export a seller may receive.
+ */
+export const admin_exportLeads = onCall(async (req) => {
+  const a = requireAdmin(req, "operations", "support");
+  const sellerUid = str(req.data?.sellerUid, "seller");
+  const since = Date.now() - 30 * 86_400_000;
+  const evs = await db.collection("behaviourEvents").where("sellerUid", "==", sellerUid).where("ts", ">=", since).limit(10_000).get();
+  const by = new Map<string, { likes: number; saves: number; enquiries: number; listings: Set<string>; last: number }>();
+  evs.docs.forEach((d) => {
+    const t = d.get("type"); if (!["like", "save", "enquiry_open"].includes(t)) return;
+    const u = d.get("userId"), x = by.get(u) ?? { likes: 0, saves: 0, enquiries: 0, listings: new Set<string>(), last: 0 };
+    if (t === "like") x.likes++; if (t === "save") x.saves++; if (t === "enquiry_open") x.enquiries++;
+    x.listings.add(d.get("listingId")); x.last = Math.max(x.last, d.get("ts")); by.set(u, x);
+  });
+  const rows = [];
+  for (const [uid, x] of by) {
+    const u = (await db.doc(`users/${uid}`).get()).data() ?? {};
+    rows.push({ uid, name: u.fullName ?? "", msisdn: u.msisdn ?? "", area: u.area ?? "", district: u.district ?? "", consent: u.leadConsent === true,
+      likes: x.likes, saves: x.saves, enquiries: x.enquiries, listings: x.listings.size, lastActive: x.last });
+  }
+  await audit(a, "leads.view", `sellers/${sellerUid}`, null, { buyers: rows.length, consented: rows.filter((r) => r.consent).length }, ip(req));
+  return { rows, shareable: rows.filter((r) => r.consent) };
+});

@@ -49,6 +49,8 @@ data class PlatformConfig(
     val maxConcurrentDeliveries: Int = 4,
     val dispatchCountdownSec: Int = 15,
     val version: Long = 0,
+    /** v6.1 listing creation */
+    val aiTimeoutSec: Int = 8, val videoMinSec: Int = 15, val videoMaxSec: Int = 60, val maxPhotos: Int = 4,
 ) {
     companion object {
         fun fromMap(m: Map<String, Any?>): PlatformConfig {
@@ -66,6 +68,7 @@ data class PlatformConfig(
                 d("minWithdrawal", x.minWithdrawal), i("broadcastTimeoutMin", x.broadcastTimeoutMin),
                 i("autoConfirmHours", x.autoConfirmHours), i("maxConcurrentDeliveries", x.maxConcurrentDeliveries),
                 i("dispatchCountdownSec", x.dispatchCountdownSec), (m["version"] as? Number)?.toLong() ?: 0,
+                i("aiTimeoutSec", x.aiTimeoutSec), i("videoMinSec", x.videoMinSec), i("videoMaxSec", x.videoMaxSec), i("maxPhotos", x.maxPhotos),
             )
         }
     }
@@ -83,6 +86,42 @@ data class Listing(
     val description: String, val priceNgwee: Long, val category: String, val zone: String,
     val thumbUrl: String? = null, val videoUrl: String? = null, val stock: Int = 0, val status: String = "live",
     val views: Int = 0, val saves: Int = 0,
+    // v6.1 discovery fields
+    val mediaType: String = if (videoUrl != null) "video" else "photo", val photoUrls: List<String> = emptyList(),
+    val sellerVerified: Boolean = false, val condition: String = "", val availability: String = "In Stock",
+    val province: String = "", val district: String = "", val tags: List<String> = emptyList(),
+    val likes: Int = 0, val shares: Int = 0, val enquiries: Int = 0, val discountPct: Double = 0.0, val discountNgwee: Long = 0,
+    val rankSource: String? = null, val publishedAt: Long = 0, val durationMs: Long = 0,
+    /** Demo only: gradient colours used when a listing has no media yet. */
+    val colorA: Long = 0xFFB0281A, val colorB: Long = 0xFFF2B33D,
+) {
+    val isVideo get() = mediaType == "video"
+    val hasOffer get() = discountPct > 0 || discountNgwee > 0
+    val offerPriceNgwee: Long get() = when {
+        discountNgwee > 0 -> (priceNgwee - discountNgwee).coerceAtLeast(0)
+        discountPct > 0 -> (priceNgwee * (1 - discountPct / 100)).toLong()
+        else -> priceNgwee
+    }
+}
+
+/** One page of the personalised feed plus the guardrail state (PRD v6.1 §6.4). */
+data class FeedGuard(val minutesToday: Int = 0, val warn: Boolean = false, val capReached: Boolean = false, val budgetCheck: Boolean = false,
+                     val warnAtMinutes: Int = 130, val capMinutes: Int = 145)
+data class FeedPage(val sessionId: String, val items: List<Listing>, val variant: String = "control", val cohort: Int = 0, val guard: FeedGuard = FeedGuard())
+data class Rail(val id: String, val title: String, val items: List<Listing>)
+data class SearchFilters(val minNgwee: Long? = null, val maxNgwee: Long? = null, val province: String? = null, val district: String? = null,
+                         val condition: String? = null, val mediaType: String? = null, val availability: String? = null, val category: String? = null) {
+    val active get() = listOfNotNull(minNgwee, maxNgwee, province, district, condition, mediaType, availability, category).size
+}
+data class SearchResult(val results: List<Listing>, val alsoSearched: List<String>)
+data class Wishlist(val id: String, val name: String, val itemIds: List<String>)
+
+data class SellerListingCard(val id: String, val title: String, val status: String, val thumbUrl: String?, val mediaType: String, val priceNgwee: Long,
+                             val views: Int, val likes: Int, val shares: Int, val enquiries: Int, val postedAt: Long)
+data class SellerDashboard(
+    val listings: List<SellerListingCard>, val weekViews: Int, val lastWeekViews: Int, val likes: Int, val shares: Int, val enquiries: Int,
+    val funnel: List<Pair<String, Int>>, val top: Map<String, SellerListingCard?>, val ageBand: Map<String, Int>, val province: Map<String, Int>,
+    val peakHours: Map<Int, Int>,
 )
 
 data class OrderItem(val listingId: String, val title: String, val qty: Int, val unitNgwee: Long)

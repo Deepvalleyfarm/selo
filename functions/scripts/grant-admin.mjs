@@ -4,11 +4,14 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
-const [email, role = "super_admin"] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const ceo = args.includes("--ceo");
+const [email, role = "super_admin"] = args.filter((a) => a !== "--ceo");
 if (!email) { console.error("Usage: node scripts/grant-admin.mjs <email> [role]"); process.exit(1); }
 initializeApp();
 const auth = getAuth();
 const user = await auth.getUserByEmail(email).catch(() => auth.createUser({ email }));
-await auth.setCustomUserClaims(user.uid, { admin: role });
+// --ceo grants the CEO-level override needed to switch off the anti-addiction guardrails.
+await auth.setCustomUserClaims(user.uid, ceo ? { admin: role, ceo: true } : { admin: role });
 await getFirestore("ai-studio-611c950c-febe-47c1-afff-35dcb0788339").doc(`admins/${user.uid}`).set({ email, role, updatedBy: "bootstrap" }, { merge: true });
-console.log(`${email} is now ${role}. Send them a password reset link from the Firebase console and enforce MFA.`);
+console.log(`${email} is now ${role}${ceo ? " with CEO override" : ""}. Send them a password reset link from the Firebase console and enforce MFA.`);

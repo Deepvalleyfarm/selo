@@ -3,6 +3,7 @@ package selo.Nachipa01.ui.screens.buyer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,28 +33,32 @@ import selo.Nachipa01.ui.components.*
 import selo.Nachipa01.ui.theme.Selo
 
 private val buyerTabs = listOf(
-    NavItem("home", Icons.Outlined.Home, "Home"), NavItem("search", Icons.Outlined.Search, "Search"),
-    NavItem("orders", Icons.Outlined.Inventory2, "Orders"), NavItem("account", Icons.Outlined.Person, "Account"),
+    NavItem("discover", Icons.Outlined.PlayCircle, "Discover"), NavItem("home", Icons.Outlined.Home, "Home"),
+    NavItem("search", Icons.Outlined.Search, "Search"), NavItem("account", Icons.Outlined.Person, "Account"),
 )
 private val cartItem = NavItem("cart", Icons.Outlined.ShoppingCart, "Cart")
 
 @Composable
-fun BuyerShell(nav: NavHostController, onLogout: () -> Unit) {
-    var tab by rememberSaveable { mutableStateOf("home") }
+fun BuyerShell(nav: NavHostController, initialTab: String = "discover", onLogout: () -> Unit) {
+    // The full-screen feed is the primary buyer experience (PRD v6.1 §5.1)
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
+    val open: (Listing) -> Unit = { nav.navigate("listing/${it.id}") }
     Scaffold(bottomBar = { SeloBottomBar(buyerTabs, cartItem, tab) { tab = it } }, containerColor = Selo.Surface) { pad ->
         Box(Modifier.padding(bottom = pad.calculateBottomPadding())) {
             when (tab) {
-                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { tab = "search" })
-                "search", "cart" -> ListingFeed(title = if (tab == "cart") "Your cart" else "Search", onBuy = { nav.navigate("checkout/${it.id}") })
+                "discover" -> selo.Nachipa01.ui.screens.discover.DiscoverScreen(onBuy = { nav.navigate("checkout/${it.id}") })
+                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { tab = "search" }, onOrders = { tab = "orders" }, onOpen = open)
+                "search" -> selo.Nachipa01.ui.screens.discover.SearchScreen(onOpen = open)
+                "cart" -> ListingFeed(title = "Your cart", onBuy = { nav.navigate("checkout/${it.id}") })
                 "orders" -> BuyerOrders(onOpen = { o -> nav.navigate(if (o.isParcel) "parcelTrack/${o.id}" else "track/${o.id}") })
-                "account" -> BuyerProfile(onLogout)
+                "account" -> BuyerProfile(onLogout, onOrders = { tab = "orders" }, onOpen = open)
             }
         }
     }
 }
 
 @Composable
-private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit) {
+private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrders: () -> Unit, onOpen: (Listing) -> Unit) {
     val app = LocalAppState.current
     var pill by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -68,7 +73,7 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit) {
         }
         WalletCard("Selo Wallet", app.session.value?.msisdn?.let { selo.Nachipa01.domain.Validation.maskMsisdn(it) } ?: "", 124_050,
             listOf(QuickAction(Icons.Outlined.ShoppingCart, "Cart") { onCategory("cart") }, QuickAction(Icons.Outlined.Inventory2, "Send parcel", onParcel),
-                QuickAction(Icons.Outlined.SwapHoriz, "Statements") {}), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
+                QuickAction(Icons.Outlined.Inventory2, "Orders", onOrders)), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
         PillTabs(listOf("For you", "Nearby", "Deals"), pill) { pill = it }
         val tiles = listOf<Triple<ImageVector, String, String?>>(
             Triple(Icons.Outlined.Eco, "Fresh produce", null), Triple(Icons.Outlined.PhoneAndroid, "Electronics", null),
@@ -80,6 +85,7 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit) {
                 row.forEach { (i, l, b) -> CategoryTile(i, l, b, Modifier.weight(1f)) { if (l == "Insure parcel") onParcel() else onCategory(l) } }
             }
         }
+        selo.Nachipa01.ui.screens.discover.HomeRails(onOpen)
         Box(Modifier.padding(14.dp)) { PromoBanner("Pay safely with Selo Escrow", "Sellers are paid only after your rider collects.") }
     }
 }
@@ -140,7 +146,7 @@ private fun BuyerOrders(onOpen: (Order) -> Unit) {
 }
 
 @Composable
-private fun BuyerProfile(onLogout: () -> Unit) {
+private fun BuyerProfile(onLogout: () -> Unit, onOrders: () -> Unit, onOpen: (Listing) -> Unit) {
     val app = LocalAppState.current
     val u = app.session.value
     val scope = rememberCoroutineScope()
@@ -160,16 +166,29 @@ private fun BuyerProfile(onLogout: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatCard("38", "Orders", Modifier.weight(1f)); StatCard("K 6,420", "Total spent", Modifier.weight(1f)); StatCard("12", "Saved", Modifier.weight(1f))
             }
+            selo.Nachipa01.ui.screens.discover.LikedSavedTabs(onOpen)
+            SectionLabel("Privacy")
+            SeloCard {
+                var consent by rememberSaveable { mutableStateOf(false) }
+                var age by rememberSaveable { mutableStateOf<String?>(null) }
+                SwitchRow("Let sellers contact me", consent, { consent = it; scope.launch { app.backend.setLeadConsent(it, age) } },
+                    sub = "Off by default. When on, sellers of items you like, save or ask about may receive your name and number.")
+                Text("Age range (optional, helps sellers understand their audience)", fontSize = 12.sp, color = Selo.Mute)
+                @OptIn(ExperimentalLayoutApi::class) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    selo.Nachipa01.domain.Taxonomy.AGE_BANDS.forEach { b -> SeloChip(b, age == b) { age = if (age == b) null else b; scope.launch { app.backend.setLeadConsent(consent, age) } } }
+                }
+            }
             SectionLabel("Account settings")
             SeloCard(padding = 4.dp) {
                 listOf(
+                    Triple(Icons.Outlined.Inventory2, "My orders", ""),
                     Triple(Icons.Outlined.Place, "Delivery addresses", "2"), Triple(Icons.Outlined.AccountBalanceWallet, "Payment wallets", "Airtel, MTN"),
                     Triple(Icons.Outlined.Lock, "Change 5-digit PIN", ""), Triple(Icons.Outlined.Shield, "Security questions", "3 set"),
                     Triple(Icons.Outlined.Notifications, "Notifications", ""), Triple(Icons.Outlined.Language, "Language", "English"),
                     Triple(Icons.AutoMirrored.Outlined.HelpOutline, "Help & support", ""),
                 ).forEachIndexed { i, (icon, label, v) ->
                     if (i > 0) HorizontalDivider(color = Selo.Line)
-                    Row(Modifier.fillMaxWidth().clickable {}.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clickable { if (label == "My orders") onOrders() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(icon, null, tint = Selo.Red, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(12.dp))
                         Text(label, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         Text(v, color = Selo.Mute, fontSize = 12.sp); Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = Color(0xFFB5B5BE))

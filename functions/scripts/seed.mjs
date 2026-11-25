@@ -52,5 +52,12 @@ adverts.forEach(([title, seller, priceNgwee, cta, category, colorA, colorB], i) 
     startsAt: null, endsAt: null, updatedBy: "seed" }));
 ["Fresh produce", "Groceries", "Fast food", "Electronics", "Fashion", "Home", "Beauty", "Hardware", "Baby"].forEach((c, i) =>
   batch.set(db.doc(`categories/${c.toLowerCase().replace(/\s+/g, "-")}`), { name: c, order: i, active: true }));
+batch.set(db.doc("platformConfig/guardrails"), { enabled: true, sessionCapMinutes: 145, warnAtMinutes: 130, budgetMultiplier: 13, budgetWindowWeeks: 2, updatedBy: "seed" }, { merge: true });
+batch.set(db.doc("platformConfig/default"), { aiTimeoutSec: 8, videoMinSec: 15, videoMaxSec: 60, maxPhotos: 4 }, { merge: true });
+const W = { watchTimeRatio: 0.30, like: 0.20, share: 0.18, enquiry: 0.15, save: 0.08, notInterested: -0.25, categoryMatch: 0.05, sellerEngagement: 0.04 };
+const cohort0 = { cohortId: 0, weights: W, mix: { cohort: 0.4, trending: 0.3, recent: 0.2, exploration: 0.1 }, categoryShare: {}, typeBoost: { video: 1, photo: 1 }, targetSessionMin: 25 };
+const algo = { version: 1, cohorts: { "0": cohort0 }, centroids: [], variants: [W, W, W, W], reason: "seed: PRD default weights" };
+batch.set(db.doc("algorithmState/v000001"), { ...algo, changes: [], createdBy: "seed", createdAt: FieldValue.serverTimestamp() });
+batch.set(db.doc("algorithmState/current"), { ...algo, updatedAt: FieldValue.serverTimestamp() });
 await batch.commit();
-console.log("Seeded question bank, platform config, zones, adverts and categories.");
+console.log("Seeded question bank, platform config, guardrails, algorithm v1, zones, adverts and categories.");

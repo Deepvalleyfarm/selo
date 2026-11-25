@@ -23,6 +23,7 @@ object R {
     const val TRACK = "track/{orderId}"; const val PARCEL = "parcel"; const val PARCEL_TRACK = "parcelTrack/{orderId}"
     const val SELLER = "seller"; const val ADD_LISTING = "addListing"; const val CAMERA = "camera"; const val AI = "ai"
     const val REVIEW = "review"; const val RIDER = "rider"; const val AGENT = "agent"
+    const val PHOTOS = "photos"; const val PREVIEW = "previewListing"; const val LISTING = "listing/{id}"
 }
 
 /** The one place that decides which portal a role may enter (PRD Part 8: never the wrong portal). */
@@ -45,6 +46,11 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         app.backend.restoreSession()?.let { app.signedIn(it); nav.goHome(it) }
     }
     val signedIn: (SessionUser) -> Unit = { u -> app.signedIn(u); onSignedIn(u) }
+    // selonachipa://listing/{id} and https://…/l/{id} open the listing once a session exists
+    val pending = app.pendingListingId.value
+    LaunchedEffect(pending, app.session.value) {
+        if (pending != null && app.session.value != null) { app.pendingListingId.value = null; nav.navigate("listing/$pending") }
+    }
 
     NavHost(nav, startDestination = R.WELCOME) {
         composable(R.WELCOME) {
@@ -76,11 +82,16 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.PARCEL_TRACK) { e -> ParcelTrackScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }) }
 
         composable(R.SELLER) { SellerShell(nav = nav, onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }) }
-        composable(R.ADD_LISTING) { AddListingScreen(onClose = { nav.popBackStack() }, onCamera = { nav.navigate(R.CAMERA) }, onProcess = { nav.navigate(R.AI) }) }
+        composable(R.ADD_LISTING) { AddListingScreen(onClose = { nav.popBackStack() }, onCamera = { nav.navigate(R.CAMERA) }, onProcess = { nav.navigate(R.AI) },
+            onPhotos = { nav.navigate(R.PHOTOS) }) }
+        composable(R.PHOTOS) { PhotoPickScreen(onBack = { nav.popBackStack() }, onDone = { nav.navigate(R.AI) }) }
+        composable(R.PREVIEW) { PreviewListingScreen(onBack = { nav.popBackStack() }, onPosted = { app.session.value?.let { nav.goHome(it) } }) }
+        composable(R.LISTING) { e -> selo.Nachipa01.ui.screens.discover.ListingDeepLinkScreen(e.arguments?.getString("id") ?: "",
+            onBuy = { nav.navigate("checkout/${it.id}") }, onBack = { if (!nav.popBackStack()) app.session.value?.let { nav.goHome(it) } }) }
         composable(R.CAMERA) { CameraScreen(onBack = { nav.popBackStack() }, onDone = { nav.navigate(R.AI) { popUpTo(R.ADD_LISTING) } }) }
         composable(R.AI) { AiProcessingScreen(onReady = { nav.navigate(R.REVIEW) { popUpTo(R.ADD_LISTING) } }, onFail = { nav.popBackStack() }) }
         composable(R.REVIEW) { ReviewListingScreen(onBack = { nav.popBackStack() }, onDone = {
-            app.resetListingFlow(); app.session.value?.let { nav.goHome(it) } }) }
+            app.resetListingFlow(); app.session.value?.let { nav.goHome(it) } }, onPreview = { nav.navigate(R.PREVIEW) }) }
 
         composable(R.RIDER) { RiderShell(onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }) }
         composable(R.AGENT) { AgentHomeScreen(onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }, onAddListing = { nav.navigate(R.ADD_LISTING) }) }

@@ -23,8 +23,8 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "6.0.1"
+        versionCode = 3
+        versionName = "6.1.0"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
@@ -95,6 +95,13 @@ dependencies {
     implementation("androidx.camera:camera-view:$camerax")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
+
+    // v6.1 discovery feed: video playback, on-device labelling, image loading
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
+    implementation("com.google.mlkit:image-labeling:17.0.9")
+    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
 
     // Firebase BoM from the Firebase console; versions come from the BoM
     implementation(platform("com.google.firebase:firebase-bom:35.2.0"))

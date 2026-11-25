@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
             state.rememberedName.value = prefs.getString("firstName", null)
         }
         sharedMedia(intent)?.let { state.capturedMedia.add(it) }
+        deepLinkListing(intent)?.let { state.pendingListingId.value = it }
         setContent {
             SeloTheme {
                 CompositionLocalProvider(LocalAppState provides state) {
@@ -42,6 +43,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        deepLinkListing(intent)?.let { state.pendingListingId.value = it }
+    }
+
+    /** Session start/end events feed session-time KPIs and the daily-minutes guardrail. */
+    override fun onStart() {
+        super.onStart()
+        if (state.session.value != null) state.tracker.sessionStart(android.os.Build.MODEL, BuildConfig.VERSION_NAME)
+    }
+    override fun onStop() { state.tracker.sessionEnd(); super.onStop() }
+
+    /** selonachipa://listing/{id} or https://mabala-f2d65.web.app/l/{id} */
+    private fun deepLinkListing(i: Intent?): String? {
+        val d = i?.data ?: return null
+        val id = when {
+            d.scheme == "selonachipa" && d.host == "listing" -> d.pathSegments.firstOrNull()
+            d.scheme == "https" && d.pathSegments.firstOrNull() == "l" -> d.pathSegments.getOrNull(1)
+            else -> null
+        }
+        return id?.takeIf { Regex("[\\w-]{2,80}").matches(it) }
     }
 
     private fun sharedMedia(i: Intent?): Uri? {
