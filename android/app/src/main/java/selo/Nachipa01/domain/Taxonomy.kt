@@ -8,6 +8,19 @@ object Taxonomy {
     val AVAILABILITY = listOf("In Stock", "Made to Order", "Last Units")
     val PROVINCES = listOf("Lusaka", "Copperbelt", "Central", "Eastern", "Luapula", "Muchinga", "Northern", "North-Western", "Southern", "Western")
     val AGE_BANDS = listOf("18–24", "25–34", "35–44", "45–54", "55+")
+    /** Main districts per province, used for Local boost targeting. */
+    val DISTRICTS = mapOf(
+        "Lusaka" to listOf("Lusaka", "Chilanga", "Chongwe", "Kafue", "Rufunsa", "Luangwa"),
+        "Copperbelt" to listOf("Ndola", "Kitwe", "Chingola", "Mufulira", "Luanshya", "Kalulushi", "Chililabombwe"),
+        "Central" to listOf("Kabwe", "Kapiri Mposhi", "Mkushi", "Serenje", "Mumbwa", "Chibombo"),
+        "Eastern" to listOf("Chipata", "Petauke", "Katete", "Lundazi", "Chadiza"),
+        "Luapula" to listOf("Mansa", "Kawambwa", "Nchelenge", "Samfya"),
+        "Muchinga" to listOf("Chinsali", "Mpika", "Nakonde", "Isoka"),
+        "Northern" to listOf("Kasama", "Mbala", "Mpulungu", "Luwingu"),
+        "North-Western" to listOf("Solwezi", "Kasempa", "Mwinilunga", "Zambezi"),
+        "Southern" to listOf("Livingstone", "Choma", "Mazabuka", "Monze", "Kalomo"),
+        "Western" to listOf("Mongu", "Senanga", "Kaoma", "Sesheke"),
+    )
 
     private val labelMap = listOf(
         listOf("vegetable", "fruit", "tomato", "food", "produce", "plant", "leaf", "flower") to "Fresh produce",

@@ -140,6 +140,27 @@ export const admin_moderateListing = onCall(async (req) => {
   return { ok: true };
 });
 
+/** v6.2: stop a Boost or Feed Story (policy breach or seller request), optionally refunding the unused days. */
+export const admin_endPromotion = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+  const a = requireAdmin(req, "moderator", "finance", "operations");
+  const id = str(req.data?.promoId, "promotion");
+  const reason = str(req.data?.reason, "reason", 200);
+  const p = (await db.doc(`promotions/${id}`).get()).data();
+  if (!p || p.status !== "ACTIVE") throw new HttpsError("failed-precondition", "Only live promotions can be ended.");
+  const now = Date.now(), start = p.startsAt?.toMillis?.() ?? now, end = p.endsAt?.toMillis?.() ?? now;
+  const unused = req.data?.refund ? Math.max(0, Math.floor((p.priceNgwee * (end - now)) / Math.max(1, end - start))) : 0;
+  await db.doc(`promotions/${id}`).update({ status: "ENDED", endedAt: FieldValue.serverTimestamp(), endedBy: a.email, endReason: reason, refundNgwee: unused });
+  await db.doc(`listings/${p.listingId}`).set({ [p.type === "story" ? "storyPromoId" : "boostPromoId"]: null }, { merge: true });
+  if (unused > 0) {
+    await disburse(`SELO-REF-PRM-${id}`, "promo_refund", p.sellerUid, unused, p.walletMsisdn);
+    await db.doc(`platformRevenue/rev_refund_${id}`).set({ source: p.type === "story" ? "feed_story" : "boost", promoId: id, sellerUid: p.sellerUid,
+      amountNgwee: -unused, refund: true, at: FieldValue.serverTimestamp() });
+  }
+  await notify(p.sellerUid, "Promotion stopped", `${p.listingTitle}: ${reason}${unused ? ` K${(unused / 100).toFixed(2)} is on its way back to you.` : ""}`, "PROMO_ENDED");
+  await audit(a, "promotion.end", `promotions/${id}`, { status: "ACTIVE" }, { status: "ENDED", reason, refundNgwee: unused }, ip(req));
+  return { ok: true, refundNgwee: unused };
+});
+
 export const admin_sendNotification = onCall(async (req) => {
   const a = requireAdmin(req, "operations", "moderator");
   const title = str(req.data?.title, "title", 80), body = str(req.data?.body, "message", 300);

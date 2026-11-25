@@ -102,7 +102,7 @@ service cloud.firestore {
     match /behaviourEvents/{id} {
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid
         && request.resource.data.type in ['listing_view', 'video_watch', 'like', 'share', 'enquiry_open', 'save', 'skip', 'not_interested',
-             'search', 'session_start', 'session_end', 'details_open', 'follow']
+             'search', 'session_start', 'session_end', 'details_open', 'follow', 'add_to_cart']
         && request.resource.data.ts is number && id.matches('evt_[0-9a-f-]{36}_s[0-9]{2}');
       allow read: if adminIn(['analyst', 'operations', 'support']);
       allow update, delete: if false;
@@ -129,6 +129,9 @@ service cloud.firestore {
     match /listingDaily/{id} { allow read: if (signedIn() && resource.data.sellerUid == request.auth.uid) || admin(); }
     match /sellerAudience/{id} { allow read: if (signedIn() && resource.data.sellerUid == request.auth.uid) || admin(); }
     match /adminMetrics/{id} { allow read: if admin(); }
+    // v6.2 paid promotions: written only by Cloud Functions after a confirmed mobile money payment
+    match /promotions/{id} { allow read: if (signedIn() && resource.data.sellerUid == request.auth.uid) || adminIn(['finance', 'operations', 'moderator', 'analyst']); allow write: if false; }
+    match /platformRevenue/{id} { allow read: if adminIn(['finance', 'analyst']); allow write: if false; }
     match /archive/{id} { allow read: if adminIn(['analyst', 'compliance']); }
 
     // Back office only

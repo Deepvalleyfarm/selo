@@ -9,7 +9,7 @@ Zambia's smart marketplace: buy, sell, deliver, earn. This repository holds the 
 | `functions/` | Backend: PIN + security-question auth, escrow engine, Lipila payments, AI listings, admin APIs, scheduled jobs | Cloud Functions for Firebase (Node 22, TypeScript) |
 | `firebase/` | Firestore, Storage and Realtime Database security rules, Firestore indexes | |
 
-The specification is PRD v6.0 (Unified Android + Back Office edition) and the matching mock-ups.
+The specification is PRD v6.0 (Unified Android + Back Office edition) with the v6.1 discovery and v6.2 promotions upgrades, and the matching mock-ups.
 
 ## How the app and back office stay in sync
 
@@ -113,6 +113,21 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Search with filters and "people also searched for"; home rails (Because you liked, Popular in your area, You searched for, Deals for you).
 - **Privacy:** sellers see totals only. Admins see engaged buyers. The seller lead export includes only buyers who switched on "Let sellers contact me" (Zambia Data Protection Act 2021).
 
+## v6.2 — Boost, Feed Story and smarter mobile money payments
+
+**Paid reach (platform revenue)**
+- **Boost** (Local K20/day, Regional K45/day, National K90/day; 1, 3, 7 or 14 days) puts a live listing into matching buyers' feeds at slots 2 and 6 and at the top of matching searches, labelled *Sponsored*, at most 3 times per buyer per day.
+- **Feed Story** (K10 for 24 h) shows the listing in the Stories row on buyer Home; followed sellers come first.
+- **Targeting:** districts (Local) or provinces (Regional), age bands, interest categories, people who searched for the product in the last 7 days, and followers. The seller sees an estimated audience before paying.
+- **Payment:** Airtel Money, MTN Money or Zamtel Money via Lipila (`SELO-BST-` / `SELO-STY-` references). Nothing is shown to buyers until the webhook confirms the payment. A failed payment can be retried with another number; a duplicate payment is refunded automatically.
+- **Results:** reach, opens, likes and enquiries per promotion (from the behaviour log) on the seller home. Admins see revenue per day and per operator, every promotion, and can end one with a pro-rata refund (**Boosts & revenue** page). All prices are in **Configuration → Promotions**.
+
+**Buyer payments**
+- The registered number is the default payment method, shown with its operator logo (a Zamtel-registered buyer pays with Zamtel Money by default).
+- **Pay with another number** detects the operator as you type: 097/077 Airtel Money, 096/076 MTN Money, 095/075 Zamtel Money, with the operator logo. Other prefixes are rejected.
+- The amount is always calculated: selected items (cart or Buy now, one seller per order) + delivery + platform fee + transaction fee (`paymentProcessingPct`).
+- If the prompt fails (for example insufficient funds), the order stays open with the reason. The buyer retries with another number (`order_retryPayment`, reference `SELO-COL-{id}-R{n}`), and unpaid orders close after 30 minutes.
+
 ## What is in the box
 
 **Android** (`android/app/src/main/java/selo/Nachipa01`)
@@ -167,7 +182,7 @@ cd functions && npm run test:rules               # Firestore security rules in t
 cd backoffice && npm run build                  # type-check + production bundle
 ```
 
-`android/app/src/test/.../ScreensScreenshotTest.kt` renders 22 screens with Robolectric and Roborazzi:
+`android/app/src/test/.../ScreensScreenshotTest.kt` renders 50 screens with Robolectric and Roborazzi:
 
 ```bash
 ./gradlew testDebugUnitTest -Proborazzi.test.record=true

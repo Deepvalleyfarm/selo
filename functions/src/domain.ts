@@ -22,6 +22,23 @@ export function normaliseMsisdn(raw: unknown): string | null {
   return `+260${n}`;
 }
 
+/** Operator from the number prefix: 097/077 Airtel Money, 096/076 MTN Money, 095/075 Zamtel Money. */
+export function operatorLabel(e164: string) {
+  return { airtel: "Airtel Money", mtn: "MTN Money", zamtel: "Zamtel Money" }[network(e164)];
+}
+export const maskMsisdn = (e164: string) => { const d = e164.replace("+260", "0"); return `${d.slice(0, 4)} ••• ${d.slice(-3)}`; };
+
+/** Buyer-facing reason for a failed collection, from the gateway status/message. */
+export function collectionFailureReason(status: string, message: string | undefined, msisdn: string) {
+  const t = `${status} ${message ?? ""}`.toLowerCase();
+  const on = `${operatorLabel(msisdn)} ${maskMsisdn(msisdn)}`;
+  if (/insufficient|balance|funds/.test(t)) return `Insufficient funds on ${on}.`;
+  if (/timeout|expired|timed out/.test(t)) return `The prompt on ${on} timed out.`;
+  if (/cancel|reject|declin/.test(t)) return `The payment was declined on ${on}.`;
+  if (/pin/.test(t)) return `Wrong PIN entered on ${on}.`;
+  return `The payment on ${on} didn't go through.`;
+}
+
 export function network(e164: string): "airtel" | "mtn" | "zamtel" {
   const p = e164.replace("+260", "").slice(0, 2);
   return p === "96" || p === "76" ? "mtn" : p === "95" || p === "75" ? "zamtel" : "airtel";
@@ -34,7 +51,7 @@ export const kwachaToNgwee = (k: number) => Math.round(k * 100);
 export interface FeeConfig {
   flatPlatformFeeKwacha: number; buyerServiceFeePct: number; riderPlatformFeePct: number; socialFundPct: number;
   deliveryFeePerKm: number; deliveryBaseFee: number; insurancePremiumPct: number; insuranceMaxDeclaredValue: number;
-  agentPlatformCutPct: number;
+  agentPlatformCutPct: number; paymentProcessingPct?: number;
 }
 
 export function deliveryFee(distanceKm: number, c: FeeConfig) {
@@ -46,8 +63,10 @@ export function quote(goodsNgwee: number, distanceKm: number, c: FeeConfig, decl
   const service = Math.round((goodsNgwee * c.buyerServiceFeePct) / 100);
   const capped = Math.min(declaredValueNgwee, kwachaToNgwee(c.insuranceMaxDeclaredValue));
   const premium = Math.round((capped * c.insurancePremiumPct) / 100);
-  return { goodsNgwee, deliveryNgwee: delivery, serviceFeeNgwee: service, insurancePremiumNgwee: premium,
-    totalNgwee: goodsNgwee + delivery + service + premium };
+  // transaction (payment processing) fee on everything else the buyer pays
+  const processing = Math.round(((goodsNgwee + delivery + service + premium) * (c.paymentProcessingPct ?? 0)) / 100);
+  return { goodsNgwee, deliveryNgwee: delivery, serviceFeeNgwee: service, insurancePremiumNgwee: premium, processingFeeNgwee: processing,
+    totalNgwee: goodsNgwee + delivery + service + premium + processing };
 }
 
 /** Seller leg released at PICKED_UP, rider leg at DELIVERED (Escrow Engine spec). */

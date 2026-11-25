@@ -1,3 +1,4 @@
+import { OpMark, opOf } from "./Promotions";
 import { useState } from "react";
 import { collection, onSnapshot, orderBy, query, limit } from "firebase/firestore";
 import { useEffect } from "react";
@@ -23,6 +24,8 @@ export default function Orders() {
       { h: "ID", r: (o) => <span className="mono">{o.id}</span> },
       { h: "Buyer", r: (o) => o.buyerName }, { h: "Seller", r: (o) => o.sellerName }, { h: "Rider", r: (o) => o.riderName ?? "—" },
       { h: "Zone", r: (o) => o.zoneName }, { h: "Total", r: (o) => k(o.totalNgwee) },
+      { h: "Payment", r: (o) => <span className="opcell" title={o.paymentFailure ?? ""}><OpMark op={opOf(o.walletMsisdn)} />
+        {o.paymentStatus === "FAILED" ? <Pill tone="red">failed</Pill> : o.state === "INITIATED" ? <Pill tone="warn">awaiting</Pill> : <Pill tone="ok">paid</Pill>}</span> },
       { h: "State", r: (o) => <><StatePill s={o.state} /> {o.isInsured && <Pill tone="ok">INSURED</Pill>}</> }, { h: "Created", r: (o) => when(o.createdAt) }]} /></Panel>
     {open && <OrderDrawer o={open} onClose={() => setOpen(null)} />}
   </Page>;

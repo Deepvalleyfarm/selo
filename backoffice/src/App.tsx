@@ -5,6 +5,7 @@ import Admins from "./pages/Admins";
 import Algorithm from "./pages/Algorithm";
 import Engagement from "./pages/Engagement";
 import Leads from "./pages/Leads";
+import Promotions from "./pages/Promotions";
 import Audit from "./pages/Audit";
 import Config from "./pages/Config";
 import Content from "./pages/Content";
@@ -33,7 +34,7 @@ function Gate() {
       <Route path="payouts" element={<Payouts />} /><Route path="disputes" element={<Disputes />} /><Route path="social-fund" element={<SocialFund />} />
       <Route path="listings" element={<Listings />} /><Route path="content" element={<Content />} /><Route path="notify" element={<Notify />} />
       <Route path="config" element={<Config />} /><Route path="reports" element={<Reports />} /><Route path="audit" element={<Audit />} />
-      <Route path="admins" element={<Admins />} />
+      <Route path="admins" element={<Admins />} /><Route path="promotions" element={<Promotions />} />
       <Route path="algorithm" element={<Algorithm />} /><Route path="engagement" element={<Engagement />} /><Route path="leads" element={<Leads />} /><Route path="*" element={<Overview />} />
     </Route>
   </Routes>;

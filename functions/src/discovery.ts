@@ -11,6 +11,9 @@ import {
   rank, retrieve, searchTokens, type BehaviourEvent, type CandidateListing, type CohortState, type Guardrails, type Weights,
 } from "./algorithm";
 import { normaliseMsisdn } from "./domain";
+import { loadConfig } from "./config";
+import { injectBoosts } from "./promo-rules";
+import { markSeen, promosFor } from "./promotions";
 import { notify, requireUser, str } from "./util";
 
 /* ----------------------------------------------------------------- shared helpers */
@@ -85,6 +88,18 @@ export const onBehaviourEvent = onDocumentCreated({ document: "behaviourEvents/{
     save: "saves", not_interested: "notInterested", details_open: "taps", skip: "skips" };
   const k = statKey[ev.type];
   const sign = ev.undone ? -1 : 1;
+
+  // v6.2 promotion results the seller paid for
+  if (ev.promoId && /^[A-Za-z0-9]{10,40}$/.test(ev.promoId)) {
+    const pk: Partial<Record<BehaviourEvent["type"], string>> = { listing_view: "impressions", details_open: "clicks", like: "likes", enquiry_open: "enquiries", add_to_cart: "clicks" };
+    const key = pk[ev.type];
+    if (key && !ev.undone) batch.set(db.doc(`promotions/${ev.promoId}`), { stats: { [key]: inc() } }, { merge: true });
+  }
+  // category interest (0..1 after normalising) used to target Boosts and Stories
+  const catWeight: Partial<Record<BehaviourEvent["type"], number>> = { listing_view: 1, details_open: 2, like: 3, save: 3, share: 3, enquiry_open: 4, add_to_cart: 5, not_interested: -3 };
+  if (ev.category && catWeight[ev.type] && !ev.undone) {
+    batch.set(db.doc(`buyerProfiles/${ev.userId}`), { catScore: { [ev.category]: inc(catWeight[ev.type]!) } }, { merge: true });
+  }
 
   if (ev.listingId) {
     const lRef = db.doc(`listings/${ev.listingId}`);
@@ -194,13 +209,22 @@ export const feed_next = onCall(async (req) => {
       .map((l) => ({ listing: l, score: 0, source: "repeat" }));
   }
   const byId = new Map(pool.map((d) => [d.id, d]));
-  const items = picked.map((p) => publicListing(byId.get(p.listing.id)!, { rankSource: p.source, rankScore: Math.round(p.score * 1000) / 1000 }));
+  const organic = picked.map((p) => publicListing(byId.get(p.listing.id)!, { rankSource: p.source, rankScore: Math.round(p.score * 1000) / 1000 }));
+
+  // v6.2 paid Boosts: matching buyers only, at slots 2 and 6, labelled Sponsored, capped per buyer per day
+  const cfg = await loadConfig();
+  const pageIds = new Set(picked.map((p) => p.listing.id));
+  const boosts = (await promosFor(uid, prof, "boost", byId, cfg.boostFrequencyCap))
+    .filter((b) => !pageIds.has(b.doc.id) && !blockedListings.has(b.doc.id) && !blockedSellers.has(b.promo.sellerUid)).slice(0, cfg.boostSlotsPerPage);
+  const items = injectBoosts(organic, boosts.map((b) => publicListing(b.doc, { rankSource: "boost", promoId: b.promo.id })), cfg.boostSlotsPerPage);
+  await markSeen(uid, boosts.map((b) => b.promo.id));
 
   for (const p of picked) shownAt[p.listing.id] = now;
   await Promise.all([
     db.doc(`buyerProfiles/${uid}`).set({ shownAt, abVariant: variant, cohort }, { merge: true }),
     db.doc(`feedSessions/${sessionId}`).set({ buyerId: uid, cohort, variant, algoVersion: algo.version, guardrailOptimise: g.optimise,
-      items: FieldValue.arrayUnion(...picked.map((p) => ({ id: p.listing.id, source: p.source, score: Math.round(p.score * 1000) / 1000, at: now }))),
+      items: FieldValue.arrayUnion(...picked.map((p) => ({ id: p.listing.id, source: p.source, score: Math.round(p.score * 1000) / 1000, at: now })),
+        ...boosts.map((b) => ({ id: b.doc.id, source: "boost", promoId: b.promo.id, score: 0, at: now }))),
       startedAt: FieldValue.serverTimestamp() }, { merge: true }),
   ]);
   return { sessionId, items, variant, cohort, algoVersion: algo.version,
@@ -246,7 +270,7 @@ export const home_rails = onCall(async (req) => {
 /* ----------------------------------------------------------------------- search */
 
 export const search_listings = onCall(async (req) => {
-  requireUser(req);
+  const { uid } = requireUser(req);
   const q = String(req.data?.q ?? "").slice(0, 80);
   const f = (req.data?.filters ?? {}) as { minNgwee?: number; maxNgwee?: number; province?: string; district?: string; condition?: string;
     mediaType?: string; availability?: string; category?: string };
@@ -263,7 +287,16 @@ export const search_listings = onCall(async (req) => {
       && (!f.availability || x.availability === f.availability) && (!f.category || x.category === f.category);
   };
   const rel = (d: DocumentSnapshot) => toks.filter((t) => String(d.get("title") ?? "").toLowerCase().includes(t)).length * 2 + (d.get("stats.likes") ?? 0) / 100;
-  const results = docs.filter(ok).sort((a, b) => rel(b) - rel(a)).slice(0, 60).map((d) => publicListing(d));
+  const matching = docs.filter(ok).sort((a, b) => rel(b) - rel(a)).slice(0, 60);
+  // v6.2: an active Boost on a matching listing is shown first (max 2), marked Sponsored
+  const byId = new Map(matching.map((d) => [d.id, d]));
+  const prof = (await db.doc(`buyerProfiles/${uid}`).get()).data() ?? {};
+  const cfg = await loadConfig();
+  const boosted = (await promosFor(uid, { ...prof, recentSearches: [...(prof.recentSearches ?? []), q] }, "boost", byId, cfg.boostFrequencyCap)).slice(0, 2);
+  const boostedIds = new Set(boosted.map((b) => b.doc.id));
+  const results = [...boosted.map((b) => publicListing(b.doc, { promoId: b.promo.id, rankSource: "boost" })),
+    ...matching.filter((d) => !boostedIds.has(d.id)).map((d) => publicListing(d))];
+  await markSeen(uid, boosted.map((b) => b.promo.id));
   let alsoSearched: string[] = [];
   if (toks[0]) {
     const related = ((await db.doc(`searchStats/${toks[0]}`).get()).get("related") ?? {}) as Record<string, number>;

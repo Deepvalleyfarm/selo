@@ -74,10 +74,11 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
                         WalletCard("Earnings", "Paid out at rider pickup", stats.earningsNgwee, listOf(
                             QuickAction(Icons.AutoMirrored.Outlined.Logout, "Withdraw") {}, QuickAction(Icons.Outlined.Add, "New listing") { app.resetListingFlow(); nav.navigate("addListing") },
                             QuickAction(Icons.Outlined.Inventory2, "Orders (${stats.toPack})") { tab = "orders" }))
+                        MyPromotions(onOpen = { nav.navigate("promotion/${it.id}") })
                         dash?.let { Performance(it) } ?: Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Selo.Red) }
                         SellerOrderList(orders.take(2), scope, app)
                     }
-                    "listings" -> dash?.let { ListingManager(it) { reload++ } }
+                    "listings" -> dash?.let { ListingManager(it, onPromote = { id, t -> nav.navigate("promote/$id/$t") }) { reload++ } }
                     "orders" -> SellerOrderList(orders, scope, app)
                     "more" -> SellerSettings(onLogout)
                 }
@@ -183,7 +184,7 @@ private fun ListingRow(c: SellerListingCard, trailing: @Composable (() -> Unit)?
 /* ---------------------------------------------------------------- listing manager */
 
 @Composable
-private fun ListingManager(d: SellerDashboard, onChanged: () -> Unit) {
+private fun ListingManager(d: SellerDashboard, onPromote: (String, String) -> Unit, onChanged: () -> Unit) {
     val app = LocalAppState.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -219,8 +220,14 @@ private fun ListingManager(d: SellerDashboard, onChanged: () -> Unit) {
                 if (c.status == "live") QuickLink("Pause") { act("pause", listOf(c.id), "Paused") }
                 if (c.status == "paused") QuickLink("Resume") { act("resume", listOf(c.id), "Live again") }
                 if (c.status in listOf("live", "paused")) QuickLink("Mark sold") { act("sold", listOf(c.id), "Marked as sold") }
-                QuickLink("Boost · soon", enabled = false) {}
                 QuickLink("Delete") { confirmDelete = c }
+            }
+            if (c.status == "live") Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button({ onPromote(c.id, "boost") }, Modifier.weight(1f).height(40.dp), shape = RoundedCornerShape(50), contentPadding = PaddingValues(horizontal = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) {
+                    Icon(Icons.Outlined.RocketLaunch, null, Modifier.size(16.dp)); Text("  Boost", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp) }
+                OutlinedButton({ onPromote(c.id, "story") }, Modifier.weight(1f).height(40.dp), shape = RoundedCornerShape(50), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Icon(Icons.Outlined.AutoStories, null, Modifier.size(16.dp), tint = Selo.Purple); Text("  Feed Story", color = Selo.Purple, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp) }
             }
         }
     }

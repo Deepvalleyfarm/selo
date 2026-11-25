@@ -173,6 +173,8 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         isParcel = getBoolean("isParcel") ?: false, insuranceId = getString("insuranceId"),
         declaredValueNgwee = getLong("declaredValueNgwee") ?: 0, lipilaRef = getString("lipilaCollectionRef"),
         timeline = (get("timeline") as? Map<String, Any?>)?.mapValues { it.value.toString() } ?: emptyMap(),
+        paymentStatus = getString("paymentStatus") ?: "PENDING", paymentFailure = getString("paymentFailure"), walletMsisdn = getString("walletMsisdn"),
+        serviceFeeNgwee = getLong("serviceFeeNgwee") ?: 0, processingFeeNgwee = getLong("processingFeeNgwee") ?: 0,
     )
 
     override fun listings(category: String?): Flow<List<Listing>> {
@@ -314,7 +316,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             province = this["province"] as? String ?: "", district = this["district"] as? String ?: "", tags = (this["tags"] as? List<String>) ?: emptyList(),
             likes = (st["likes"] as? Number)?.toInt() ?: 0, shares = (st["shares"] as? Number)?.toInt() ?: 0, views = (st["views"] as? Number)?.toInt() ?: 0,
             discountPct = n("discountPct")?.toDouble() ?: 0.0, discountNgwee = n("discountNgwee")?.toLong() ?: 0,
-            rankSource = this["rankSource"] as? String, publishedAt = n("publishedAt")?.toLong() ?: 0,
+            rankSource = this["rankSource"] as? String, publishedAt = n("publishedAt")?.toLong() ?: 0, promoId = this["promoId"] as? String,
         )
     }
     @Suppress("UNCHECKED_CAST")
@@ -431,4 +433,50 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         "district" to req.district, "location" to req.location, "tags" to req.tags, "discountPct" to req.discountPct, "aiUsed" to req.aiUsed,
         "asDraft" to req.asDraft,
     ))["listingId"] as String
+
+    /* ======================================================= v6.2 payments + promotions */
+
+    override suspend fun retryPayment(orderId: String, walletMsisdn: String) {
+        call("order_retryPayment", mapOf("orderId" to orderId, "walletMsisdn" to walletMsisdn))
+    }
+
+    private fun Targeting.toMap() = mapOf("ageBands" to ageBands, "provinces" to provinces, "districts" to districts, "interests" to interests,
+        "searchIntent" to searchIntent, "followers" to followers)
+
+    override suspend fun estimateAudience(t: Targeting, reach: BoostReach): Int =
+        (call("promo_estimate", mapOf("targeting" to t.toMap(), "reach" to reach.name))["audience"] as? Number)?.toInt() ?: 0
+
+    override suspend fun createPromotion(type: String, listingId: String, reach: BoostReach, days: Int, t: Targeting, walletMsisdn: String): String =
+        call("promo_create", mapOf("type" to type, "listingId" to listingId, "reach" to reach.name, "days" to days, "targeting" to t.toMap(),
+            "walletMsisdn" to walletMsisdn))["promoId"] as String
+
+    override suspend fun retryPromotionPayment(promoId: String, walletMsisdn: String) {
+        call("promo_retryPayment", mapOf("promoId" to promoId, "walletMsisdn" to walletMsisdn))
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun DocumentSnapshot.toPromotion(): Promotion {
+        val t = get("targeting") as? Map<String, Any?> ?: emptyMap()
+        val st = get("stats") as? Map<String, Number> ?: emptyMap()
+        return Promotion(id, getString("type") ?: "boost", getString("listingId") ?: "", getString("listingTitle") ?: "", getString("status") ?: "",
+            getLong("priceNgwee") ?: 0, (getLong("days") ?: 1).toInt(), getString("reach") ?: "LOCAL",
+            Targeting((t["ageBands"] as? List<String>) ?: emptyList(), (t["provinces"] as? List<String>) ?: emptyList(), (t["districts"] as? List<String>) ?: emptyList(),
+                (t["interests"] as? List<String>) ?: emptyList(), t["searchIntent"] != false, t["followers"] != false),
+            getTimestamp("startsAt")?.toDate()?.time ?: 0, getTimestamp("endsAt")?.toDate()?.time ?: 0,
+            st["impressions"]?.toInt() ?: 0, st["clicks"]?.toInt() ?: 0, st["likes"]?.toInt() ?: 0, st["enquiries"]?.toInt() ?: 0,
+            getString("failureReason"), getString("walletMsisdn"), (getLong("estimatedReach") ?: 0).toInt())
+    }
+
+    override fun promotion(id: String): Flow<Promotion?> =
+        db.collection("promotions").document(id).live().map { if (it.exists()) it.toPromotion() else null }
+
+    override fun myPromotions(): Flow<List<Promotion>> = uid()?.let { u ->
+        db.collection("promotions").whereEqualTo("sellerUid", u).orderBy("createdAt", Query.Direction.DESCENDING).limit(50).live()
+            .map { s -> s.documents.map { it.toPromotion() } }.catch { emit(emptyList()) }
+    } ?: flowOf(emptyList())
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun stories(): List<Story> = (call("stories_list", emptyMap())["stories"] as? List<Map<*, *>>)?.map {
+        Story(it["promoId"] as String, (it["listing"] as Map<*, *>).toListing(), it["sellerName"] as? String ?: "", it["followed"] == true)
+    } ?: emptyList()
 }

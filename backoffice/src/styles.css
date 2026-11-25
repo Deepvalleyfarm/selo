@@ -100,3 +100,25 @@ tr.click { cursor: pointer; } tr.click:hover td { background: #faf9fb; }
 .map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .err { color: var(--brand); font-weight: 600; font-size: 12px; }
 @media (max-width: 760px) { .app { grid-template-columns: 1fr; } .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; } .grp { display: none; } }
+
+/* ---- v6.2 Boosts & revenue */
+:root { --rev-story: #7c3aed; --rev-fees: #0d9488; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.stack { display: flex; align-items: flex-end; gap: 6px; height: 170px; padding-top: 6px; }
+.stack .sb { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; min-width: 0; }
+.stack .col { width: 100%; max-width: 26px; display: flex; flex-direction: column; border-radius: 4px 4px 0 0; overflow: hidden; min-height: 2px; background: #f1eff4; }
+.stack .col i { display: block; min-height: 0; }
+.stack span { font-size: 10px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11.5px; color: var(--mute); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.oprows { display: grid; gap: 14px; padding: 4px 0; }
+.oprow { display: grid; grid-template-columns: 112px 1fr 96px; align-items: center; gap: 12px; }
+.oprow b { text-align: right; font-variant-numeric: tabular-nums; }
+.oprow .t { height: 12px; background: #f1eff4; border-radius: 6px; overflow: hidden; } .oprow .t i { display: block; height: 100%; border-radius: 6px; }
+.oplogo { height: 40px; width: 112px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
+.opmark { display: inline-block; border-radius: 6px; border: 1px solid var(--line); background: #fff; object-fit: cover; vertical-align: middle; flex: none; }
+.opcell { display: inline-flex; align-items: center; gap: 8px; }
+.mute { color: var(--mute); font-size: 11.5px; }
+.endpromo { display: grid; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.chk { display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+@media (max-width: 600px) { .oprow { grid-template-columns: 84px 1fr 80px; } .oplogo { width: 84px; height: 34px; } }

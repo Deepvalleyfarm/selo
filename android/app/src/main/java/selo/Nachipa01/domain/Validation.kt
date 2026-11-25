@@ -36,12 +36,7 @@ object Validation {
         return if (n.length == 9) "0${n.take(2)} ••• ••${n.takeLast(2)}" else e164
     }
 
-    fun network(e164: String): String = when (e164.removePrefix("+260").take(2)) {
-        "97", "77" -> "Airtel Money"
-        "96", "76" -> "MTN MoMo"
-        "95", "75" -> "Zamtel Kwacha"
-        else -> "Mobile money"
-    }
+    fun network(e164: String): String = Operator.detect(e164)?.label ?: "Mobile money"
 
     /** Lowercase, trim and collapse internal whitespace before hashing (server side). */
     fun normaliseAnswer(answer: String): String =

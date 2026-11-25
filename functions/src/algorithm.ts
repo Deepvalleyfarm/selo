@@ -44,14 +44,16 @@ export function compositeKey(entity: EntityType, shardBy: string, id = uuidv7())
 /* ======================================================================= Behaviour events */
 
 export const EVENT_TYPES = ["listing_view", "video_watch", "like", "share", "enquiry_open", "save", "skip", "not_interested",
-  "search", "session_start", "session_end", "details_open", "follow"] as const;
+  "search", "session_start", "session_end", "details_open", "follow", "add_to_cart"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 export interface BehaviourEvent {
   type: EventType; userId: string; ts: number; listingId?: string; sellerUid?: string; category?: string;
   watchMs?: number; totalMs?: number; replayed?: boolean; undone?: boolean; channel?: "inapp" | "whatsapp";
   skipSpeed?: "fast" | "normal"; wishlistId?: string; query?: string; resultsCount?: number; firstClickListingId?: string | null;
-  source?: "feed" | "search" | "share" | "rail"; mediaType?: "video" | "photo"; durationMs?: number; variant?: string;
+  source?: "feed" | "search" | "share" | "rail" | "boost" | "story"; mediaType?: "video" | "photo"; durationMs?: number; variant?: string;
+  /** Set when the impression came from a paid Boost or Feed Story. */
+  promoId?: string;
 }
 
 /** Validates a client-sent event; returns a message or null. Keeps the append-only log clean. */

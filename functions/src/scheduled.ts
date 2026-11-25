@@ -85,3 +85,30 @@ export const onContentWrite = onDocumentWritten({ document: "contentBlocks/{id}"
   await db.collection("auditLogs").add({ actorUid: e.data?.after?.get("updatedBy") ?? null, action: "content.write", target: `contentBlocks/${e.params.id}`,
     before: e.data?.before?.data() ?? null, after: e.data?.after?.data() ?? null, at: Timestamp.now() });
 });
+
+/** v6.2: orders whose payment never completed are closed after unpaidOrderCancelMin (default 30 min). */
+export const scheduled_cancelUnpaid = onSchedule({ schedule: "every 10 minutes" }, async () => {
+  const cfg = await loadConfig();
+  const cutoff = Timestamp.fromMillis(Date.now() - (cfg.unpaidOrderCancelMin ?? 30) * 60_000);
+  const stale = await db.collection("orders").where("state", "==", "INITIATED").where("createdAt", "<", cutoff).limit(200).get();
+  for (const o of stale.docs) {
+    await o.ref.update({ state: "CANCELLED", "timeline.CANCELLED": Timestamp.now(), cancelReason: "Payment not completed", paymentStatus: o.get("paymentStatus") === "PAID" ? "PAID" : "FAILED" });
+    await notify(o.get("buyerUid"), "Order closed", `Order ${o.id} was closed because the payment wasn't completed. Nothing was charged.`, "ORDER_CANCELLED");
+  }
+});
+
+/** v6.2: Boosts and Feed Stories end on time; unpaid promotions are dropped after a day. */
+export const scheduled_endPromotions = onSchedule({ schedule: "every 15 minutes" }, async () => {
+  const now = Timestamp.now();
+  const ended = await db.collection("promotions").where("status", "==", "ACTIVE").where("endsAt", "<=", now).limit(300).get();
+  for (const p of ended.docs) {
+    await p.ref.update({ status: "ENDED", endedAt: now });
+    await db.doc(`listings/${p.get("listingId")}`).set({ [p.get("type") === "story" ? "storyPromoId" : "boostPromoId"]: null }, { merge: true });
+    const s = p.get("stats") ?? {};
+    await notify(p.get("sellerUid"), p.get("type") === "story" ? "Feed Story ended" : "Boost ended",
+      `${p.get("listingTitle")}: reached ${s.impressions ?? 0} buyers, ${s.clicks ?? 0} opened it, ${s.enquiries ?? 0} enquiries.`, "PROMO_ENDED");
+  }
+  const stale = await db.collection("promotions").where("status", "in", ["PENDING_PAYMENT", "PAYMENT_FAILED"])
+    .where("createdAt", "<", Timestamp.fromMillis(Date.now() - 86_400_000)).limit(300).get();
+  for (const p of stale.docs) await p.ref.update({ status: "EXPIRED" });
+});

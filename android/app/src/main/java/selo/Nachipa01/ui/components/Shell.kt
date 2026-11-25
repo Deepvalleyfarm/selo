@@ -124,7 +124,7 @@ data class NavItem(val route: String, val icon: ImageVector, val label: String)
 
 /** Five-slot bottom bar with the role's main action raised in the centre. */
 @Composable
-fun SeloBottomBar(items: List<NavItem>, center: NavItem, current: String, onSelect: (String) -> Unit) {
+fun SeloBottomBar(items: List<NavItem>, center: NavItem, current: String, centerBadge: Int = 0, onSelect: (String) -> Unit) {
     Box(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
             .background(Color.White, RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)).navigationBarsPadding()
@@ -144,6 +144,9 @@ fun SeloBottomBar(items: List<NavItem>, center: NavItem, current: String, onSele
             contentAlignment = Alignment.Center) {
             Icon(center.icon, center.label, tint = Color.White, modifier = Modifier.size(26.dp))
         }
+        if (centerBadge > 0) Text("$centerBadge", color = Selo.Red, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.align(Alignment.TopCenter).offset(x = 22.dp, y = (-28).dp).background(Color.White, CircleShape)
+                .border(1.5.dp, Selo.Red, CircleShape).padding(horizontal = 6.dp, vertical = 1.dp))
     }
 }
 

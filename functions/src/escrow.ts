@@ -4,7 +4,8 @@ import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import { getDatabase } from "firebase-admin/database";
 import { LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, PlatformConfig, db, loadConfig } from "./config";
-import { canTransition, haversineKm, insuranceId, milestoneReached, nextRetryMinutes, normaliseMsisdn, OrderState, quote, split } from "./domain";
+import { canTransition, collectionFailureReason, haversineKm, insuranceId, milestoneReached, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
+import { onPromoCollection } from "./promotions";
 import { lipila, verifyLipilaSignature } from "./lipila";
 import { notify, requireUser, str } from "./util";
 
@@ -15,9 +16,9 @@ const shortId = (p: string) => `${p}-${randomInt(10_000, 99_999)}${randomInt(10,
 
 function feeSnapshot(c: PlatformConfig) {
   const { flatPlatformFeeKwacha, buyerServiceFeePct, riderPlatformFeePct, socialFundPct, deliveryFeePerKm, deliveryBaseFee,
-    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries } = c;
+    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct } = c;
   return { flatPlatformFeeKwacha, buyerServiceFeePct, riderPlatformFeePct, socialFundPct, deliveryFeePerKm, deliveryBaseFee,
-    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries };
+    insurancePremiumPct, insuranceMaxDeclaredValue, agentPlatformCutPct, socialFundMilestoneDeliveries, paymentProcessingPct };
 }
 
 function move(tx: Transaction, id: string, from: OrderState, to: OrderState, extra: Record<string, unknown> = {}) {
@@ -25,11 +26,13 @@ function move(tx: Transaction, id: string, from: OrderState, to: OrderState, ext
   tx.update(orderRef(id), { state: to, [`timeline.${to}`]: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), ...extra });
 }
 
-async function createCollection(orderId: string, totalNgwee: number, msisdn: string, narration: string) {
-  const ref = `SELO-COL-${orderId}`;
-  const res = await lipila.collect(ref, totalNgwee, msisdn, narration);
-  await orderRef(orderId).update({ lipilaCollectionRef: ref, collectionRequestStatus: res.ok ? "SENT" : `FAILED_${res.status}` });
-  if (!res.ok) throw new HttpsError("unavailable", "Payment could not be started. Check your mobile money balance and try again.");
+/** Sends the mobile money prompt. Attempt 0 uses SELO-COL-{id}; retries with another number use SELO-COL-{id}-R{n}. */
+async function createCollection(orderId: string, totalNgwee: number, msisdn: string, narration: string, attempt = 0) {
+  const ref = `SELO-COL-${orderId}${attempt > 0 ? `-R${attempt}` : ""}`;
+  const res = await lipila.collect(ref, totalNgwee, msisdn, narration).catch(() => ({ ok: false, status: 0 }));
+  await orderRef(orderId).update({ lipilaCollectionRef: ref, lipilaRef: ref, collectionRequestStatus: res.ok ? "SENT" : `FAILED_${res.status}`,
+    walletMsisdn: msisdn, [`attemptWallets.${ref}`]: msisdn, collectionAttempt: attempt, paymentStatus: res.ok ? "PENDING" : "FAILED",
+    paymentFailure: res.ok ? null : `${operatorLabel(msisdn)} couldn't start the payment. Try again or pay with another number.` });
 }
 
 async function issueDeliveryCode(orderId: string, buyerUid: string) {
@@ -63,7 +66,7 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =>
   await orderRef(id).set({
     buyerUid: uid, buyerName: buyer.fullName ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
     agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee, deliveryNgwee: q.deliveryNgwee,
-    serviceFeeNgwee: q.serviceFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, pickup: seller.landmark ?? seller.area ?? "",
+    serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
     pickupGeo: seller.geo ?? null, dropoff, dropoffGeo: buyer.geo ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
     state: "INITIATED", feeSnapshot: feeSnapshot(cfg), isParcel: false, riderUid: null, notifiedRiders: [],
     sellerPayoutStatus: "HELD", riderPayoutStatus: "HELD", timeline: { INITIATED: FieldValue.serverTimestamp() },
@@ -71,6 +74,22 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =>
   });
   await createCollection(id, q.totalNgwee, wallet, `SeloNaChipa order ${id}`);
   return { orderId: id, totalNgwee: q.totalNgwee };
+});
+
+/** Default number had no funds (or was declined): pay the same order, same amount, from another number. */
+export const order_retryPayment = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+  const { uid } = requireUser(req, "BUYER", "SELLER");
+  const id = String(req.data?.orderId ?? "");
+  const wallet = normaliseMsisdn(req.data?.walletMsisdn);
+  if (!wallet) throw new HttpsError("invalid-argument", "Enter an Airtel Money, MTN Money or Zamtel Money number.");
+  const o = (await orderRef(id).get()).data();
+  if (!o || o.buyerUid !== uid) throw new HttpsError("not-found", "Order not found.");
+  if (o.state !== "INITIATED") throw new HttpsError("failed-precondition", "This order is already paid.");
+  if (o.paymentStatus !== "FAILED") throw new HttpsError("failed-precondition", "We're still waiting for the last payment prompt.");
+  const attempt = (o.collectionAttempt ?? 0) + 1;
+  if (attempt > 5) throw new HttpsError("resource-exhausted", "Too many attempts. Please place the order again.");
+  await createCollection(id, o.totalNgwee, wallet, `SeloNaChipa order ${id}`, attempt);
+  return { ok: true };
 });
 
 export const parcel_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
@@ -125,14 +144,15 @@ export const lipila_webhook = onRequest({ secrets: [LIPILA_WEBHOOK_SECRET, LIPIL
   if (!verifyLipilaSignature(req.rawBody, req.get("x-lipila-signature") ?? undefined, LIPILA_WEBHOOK_SECRET.value())) {
     res.status(401).send("bad signature"); return;
   }
-  const { referenceId, status } = req.body as { referenceId: string; status: string };
+  const { referenceId, status, message } = req.body as { referenceId: string; status: string; message?: string };
   const ok = /^(success|successful|completed)$/i.test(String(status));
   const seen = db.doc(`lipilaEvents/${referenceId}_${status}`);
   if ((await seen.get()).exists) { res.send("duplicate"); return; }
   await seen.set({ body: req.body, at: FieldValue.serverTimestamp() });
 
   try {
-    if (referenceId.startsWith("SELO-COL-")) await onCollection(referenceId.replace("SELO-COL-", ""), ok);
+    if (referenceId.startsWith("SELO-COL-")) await onCollection(referenceId, ok, String(status), message);
+    else if (referenceId.startsWith("SELO-BST-") || referenceId.startsWith("SELO-STY-")) await onPromoCollection(referenceId, ok, String(status), message);
     else if (referenceId.startsWith("SELO-REG-")) await db.doc(`registrationFees/${referenceId}`).update({ status: ok ? "PAID" : "FAILED" });
     else await onDisbursement(referenceId, ok);
     res.send("ok");
@@ -142,17 +162,33 @@ export const lipila_webhook = onRequest({ secrets: [LIPILA_WEBHOOK_SECRET, LIPIL
   }
 });
 
-async function onCollection(orderId: string, ok: boolean) {
+async function onCollection(reference: string, ok: boolean, status: string, message?: string) {
+  const orderId = reference.replace(/^SELO-COL-/, "").replace(/-R\d+$/, "");
   const o = (await orderRef(orderId).get()).data();
-  if (!o || o.state !== "INITIATED") return;
+  if (!o) return;
+  const current = (o.lipilaCollectionRef ?? `SELO-COL-${orderId}`) === reference;
   if (!ok) {
-    await db.runTransaction(async (tx) => move(tx, orderId, "INITIATED", "CANCELLED", { cancelReason: "Payment not completed" }));
-    await notify(o.buyerUid, "Payment not completed", "Your mobile money payment didn't go through. Try again.", "PAYMENT_FAILED");
+    // Keep the order open: the buyer can pay from another number (order_retryPayment). Unpaid orders expire after unpaidOrderCancelMin.
+    if (o.state === "INITIATED" && current) {
+      const reason = collectionFailureReason(status, message, o.walletMsisdn);
+      await orderRef(orderId).update({ paymentStatus: "FAILED", paymentFailure: reason, updatedAt: FieldValue.serverTimestamp() });
+      await notify(o.buyerUid, "Payment didn't go through", `${reason} Open the order to pay with another number.`, "PAYMENT_FAILED", `selo://orders/${orderId}`);
+    }
+    return;
+  }
+  if (o.state !== "INITIATED") {
+    // An earlier attempt was approved after a later one already paid: return the duplicate.
+    // An approval for an expired/cancelled order is returned too.
+    if (o.paidRef !== reference) await disburse(`SELO-REF-${reference}`, "duplicate_refund", o.buyerUid, o.totalNgwee,
+      o.attemptWallets?.[reference] ?? o.walletMsisdn, orderId);
     return;
   }
   await db.runTransaction(async (tx) => {
-    move(tx, orderId, "INITIATED", "ESCROW_LOCKED", { escrowLockedAt: FieldValue.serverTimestamp() });
-    tx.set(ledger(orderId).doc(), { type: "credit", leg: "collection", party: "escrow", amountNgwee: o.totalNgwee, lipilaRef: `SELO-COL-${orderId}`, at: FieldValue.serverTimestamp() });
+    move(tx, orderId, "INITIATED", "ESCROW_LOCKED", { escrowLockedAt: FieldValue.serverTimestamp(), paymentStatus: "PAID", paymentFailure: null, paidRef: reference });
+    tx.set(ledger(orderId).doc(), { type: "credit", leg: "collection", party: "escrow", amountNgwee: o.totalNgwee, lipilaRef: reference, at: FieldValue.serverTimestamp() });
+    if ((o.serviceFeeNgwee ?? 0) + (o.processingFeeNgwee ?? 0) > 0) tx.set(db.doc(`platformRevenue/rev_${reference}`), { source: "order_fees", orderId,
+      amountNgwee: (o.serviceFeeNgwee ?? 0) + (o.processingFeeNgwee ?? 0), serviceFeeNgwee: o.serviceFeeNgwee ?? 0, processingFeeNgwee: o.processingFeeNgwee ?? 0,
+      operator: operatorLabel(o.walletMsisdn), lipilaRef: reference, at: FieldValue.serverTimestamp() });
   });
   await notify(o.buyerUid, "Payment successful", "Funds secured in escrow.", "PAYMENT_CONFIRMED", `selo://orders/${orderId}`);
   if (!o.isParcel) await notify(o.sellerUid, "New order", `${o.items.map((i: { title: string; qty: number }) => `${i.title} × ${i.qty}`).join(", ")} · escrow held`, "NEW_ORDER", `selo://seller/orders/${orderId}`);

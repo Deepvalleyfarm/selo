@@ -51,6 +51,9 @@ data class PlatformConfig(
     val version: Long = 0,
     /** v6.1 listing creation */
     val aiTimeoutSec: Int = 8, val videoMinSec: Int = 15, val videoMaxSec: Int = 60, val maxPhotos: Int = 4,
+    /** v6.2 paid promotions (platform revenue) */
+    val boostLocalPerDay: Double = 20.0, val boostRegionalPerDay: Double = 45.0, val boostNationalPerDay: Double = 90.0, val storyPrice24h: Double = 10.0,
+    val boostFrequencyCap: Int = 3, val boostSlotsPerPage: Int = 2,
 ) {
     companion object {
         fun fromMap(m: Map<String, Any?>): PlatformConfig {
@@ -69,6 +72,8 @@ data class PlatformConfig(
                 i("autoConfirmHours", x.autoConfirmHours), i("maxConcurrentDeliveries", x.maxConcurrentDeliveries),
                 i("dispatchCountdownSec", x.dispatchCountdownSec), (m["version"] as? Number)?.toLong() ?: 0,
                 i("aiTimeoutSec", x.aiTimeoutSec), i("videoMinSec", x.videoMinSec), i("videoMaxSec", x.videoMaxSec), i("maxPhotos", x.maxPhotos),
+                d("boostLocalPerDay", x.boostLocalPerDay), d("boostRegionalPerDay", x.boostRegionalPerDay), d("boostNationalPerDay", x.boostNationalPerDay),
+                d("storyPrice24h", x.storyPrice24h), i("boostFrequencyCap", x.boostFrequencyCap), i("boostSlotsPerPage", x.boostSlotsPerPage),
             )
         }
     }
@@ -92,6 +97,8 @@ data class Listing(
     val province: String = "", val district: String = "", val tags: List<String> = emptyList(),
     val likes: Int = 0, val shares: Int = 0, val enquiries: Int = 0, val discountPct: Double = 0.0, val discountNgwee: Long = 0,
     val rankSource: String? = null, val publishedAt: Long = 0, val durationMs: Long = 0,
+    /** Set when this card is a paid Boost placement (shown with a "Sponsored" label). */
+    val promoId: String? = null,
     /** Demo only: gradient colours used when a listing has no media yet. */
     val colorA: Long = 0xFFB0281A, val colorB: Long = 0xFFF2B33D,
 ) {
@@ -134,6 +141,9 @@ data class Order(
     val deliveryCode: String? = null, val distanceKm: Double = 0.0, val isParcel: Boolean = false,
     val insuranceId: String? = null, val declaredValueNgwee: Long = 0, val lipilaRef: String? = null,
     val timeline: Map<String, String> = emptyMap(),
+    /** Latest mobile-money collection attempt: PENDING, PAID or FAILED (with a reason the buyer can act on). */
+    val paymentStatus: String = "PENDING", val paymentFailure: String? = null, val walletMsisdn: String? = null,
+    val serviceFeeNgwee: Long = 0, val processingFeeNgwee: Long = 0,
 )
 
 data class RiderStats(
@@ -150,3 +160,27 @@ data class SellerStats(
 data class SecurityQuestion(val id: String, val text: String)
 
 data class Zone(val id: String, val name: String, val city: String)
+
+/** Cart line; one seller per cart (one rider pickup). */
+data class CartItem(val listing: Listing, val qty: Int)
+
+/** Who a Boost or Feed Story is shown to. Empty lists mean "anyone". */
+data class Targeting(
+    val ageBands: List<String> = emptyList(), val provinces: List<String> = emptyList(), val districts: List<String> = emptyList(),
+    val interests: List<String> = emptyList(), val searchIntent: Boolean = true, val followers: Boolean = true,
+)
+
+enum class BoostReach(val label: String, val blurb: String) {
+    LOCAL("Local", "Your district and nearby"), REGIONAL("Regional", "Whole provinces you choose"), NATIONAL("National", "All of Zambia")
+}
+
+/** A paid Boost or Feed Story (PRD v6.2). Status: PENDING_PAYMENT → ACTIVE → ENDED, or PAYMENT_FAILED (retry with another number). */
+data class Promotion(
+    val id: String, val type: String, val listingId: String, val listingTitle: String, val status: String, val priceNgwee: Long,
+    val days: Int, val reach: String, val targeting: Targeting, val startsAt: Long = 0, val endsAt: Long = 0,
+    val impressions: Int = 0, val clicks: Int = 0, val likes: Int = 0, val enquiries: Int = 0,
+    val failureReason: String? = null, val walletMsisdn: String? = null, val estimatedReach: Int = 0,
+)
+
+/** A 24-hour Feed Story shown in the stories row. */
+data class Story(val promoId: String, val listing: Listing, val sellerName: String, val followed: Boolean)

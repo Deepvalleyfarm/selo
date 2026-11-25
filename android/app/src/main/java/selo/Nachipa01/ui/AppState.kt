@@ -56,6 +56,22 @@ class AppState(val backend: Backend) : ViewModel() {
     val aiFallback = mutableStateOf<String?>(null)
     val onDeviceCategory = mutableStateOf<String?>(null)
     val listingForm = mutableStateOf<ListingForm?>(null)
+
+    // ---------------- v6.2 cart (one seller per order, so escrow and delivery stay one leg)
+    val cart = mutableStateListOf<selo.Nachipa01.data.model.CartItem>()
+    val cartCount get() = cart.sumOf { it.qty }
+    /** Adds one unit. Returns a notice when the cart held another seller's items and was replaced. */
+    fun addToCart(l: selo.Nachipa01.data.model.Listing): String? {
+        val notice = if (cart.isNotEmpty() && cart.first().listing.sellerUid != l.sellerUid) { cart.clear(); "Your cart now holds items from ${l.sellerName} only. One seller per order keeps delivery in one trip." } else null
+        val i = cart.indexOfFirst { it.listing.id == l.id }
+        val max = l.stock.coerceAtLeast(1)
+        if (i >= 0) cart[i] = cart[i].copy(qty = (cart[i].qty + 1).coerceAtMost(max)) else cart.add(selo.Nachipa01.data.model.CartItem(l, 1))
+        return notice
+    }
+    fun setQty(listingId: String, qty: Int) {
+        val i = cart.indexOfFirst { it.listing.id == listingId }; if (i < 0) return
+        if (qty <= 0) cart.removeAt(i) else cart[i] = cart[i].copy(qty = qty.coerceAtMost(cart[i].listing.stock.coerceAtLeast(1)))
+    }
 }
 
 val LocalAppState = compositionLocalOf<AppState> { error("AppState not provided") }

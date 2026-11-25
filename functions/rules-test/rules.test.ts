@@ -60,3 +60,20 @@ describe("algorithm and metrics", () => {
     await assertFails(updateDoc(doc(as("u1"), "users/u1"), { role: "SELLER" }));
   });
 });
+
+describe("paid promotions (v6.2)", () => {
+  it("only the server writes promotions; a seller reads their own, finance reads all", async () => {
+    await env.withSecurityRulesDisabled(async (c) => { await setDoc(doc(c.firestore(), "promotions/p1"), { sellerUid: "s1", status: "ACTIVE", priceNgwee: 6000 }); });
+    await assertFails(setDoc(doc(as("s1", { role: "SELLER" }), "promotions/p2"), { sellerUid: "s1", status: "ACTIVE" }));
+    await assertFails(updateDoc(doc(as("s1", { role: "SELLER" }), "promotions/p1"), { status: "ACTIVE", priceNgwee: 0 }));
+    await assertSucceeds(getDoc(doc(as("s1", { role: "SELLER" }), "promotions/p1")));
+    await assertFails(getDoc(doc(as("s2", { role: "SELLER" }), "promotions/p1")));
+    await assertSucceeds(getDoc(doc(as("f1", { admin: "finance" }), "promotions/p1")));
+  });
+  it("platform revenue is visible to finance only", async () => {
+    await assertFails(getDoc(doc(as("s1", { role: "SELLER" }), "platformRevenue/r1")));
+    await assertSucceeds(getDoc(doc(as("f1", { admin: "finance" }), "platformRevenue/r1")));
+  });
+  it("add_to_cart events are accepted", () =>
+    assertSucceeds(setDoc(doc(as("u1"), "behaviourEvents", evtId.replace("abcde", "abc11")), { type: "add_to_cart", userId: "u1", ts: 1, listingId: "l1", promoId: "p1" })));
+});

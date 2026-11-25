@@ -8,7 +8,8 @@ export const demo: Record<string, Row[]> = {
     insurancePremiumPct: 2, insuranceMaxDeclaredValue: 20000, agentPlatformCutPct: 5, sellerRegistrationFee: 10, riderWithdrawalFee: 15,
     minWithdrawal: 50, broadcastTimeoutMin: 5, autoConfirmHours: 48, maxConcurrentDeliveries: 4, dispatchCountdownSec: 15,
     pinMaxAttempts: 5, pinLockMinutes: 30, sqMaxAttempts: 5, sqLockMinutes: 30, referralSharePct: 20, referralFlatBonusKwacha: 0,
-    shareLinkExpiryDays: 3, minAppVersion: 1, version: 42, updatedBy: "chileshe@selonachipa.zm", updatedAt: ago(60 * 24 * 12) }],
+    shareLinkExpiryDays: 3, minAppVersion: 1, boostLocalPerDay: 20, boostRegionalPerDay: 45, boostNationalPerDay: 90, storyPrice24h: 10,
+    boostFrequencyCap: 3, boostSlotsPerPage: 2, unpaidOrderCancelMin: 30, version: 42, updatedBy: "chileshe@selonachipa.zm", updatedAt: ago(60 * 24 * 12) }],
   users: [
     { id: "u1", role: "BUYER", fullName: "Mwila Chanda", msisdn: "+260971234512", accountStatus: "ACTIVE", kycStatus: "NOT_REQUIRED", area: "Munali", district: "Lusaka", createdAt: ago(9000) },
     { id: "u2", role: "SELLER", fullName: "Bupe Mwanza", storeName: "Mama Bupe's Veg", msisdn: "+260977654334", accountStatus: "ACTIVE", kycStatus: "VERIFIED", area: "Soweto Market", district: "Lusaka", createdAt: ago(40000) },
@@ -102,6 +103,33 @@ demo.leads = [
   { id: "b2", uid: "u8", name: "Kunda Mumba", msisdn: "+260966661234", area: "Kabwata", district: "Lusaka", consent: false, likes: 2, saves: 0, enquiries: 2, listings: 2, lastActive: Date.now() - 86_400_000 },
   { id: "b3", uid: "u9", name: "Natasha Banda", msisdn: "+260955559876", area: "Chilenje", district: "Lusaka", consent: true, likes: 1, saves: 1, enquiries: 0, listings: 1, lastActive: Date.now() - 2 * 86_400_000 },
 ];
+
+// v6.2 paid promotions and platform revenue
+const tg = (x: Record<string, unknown>) => ({ ageBands: [], provinces: [], districts: [], interests: [], searchIntent: true, followers: true, ...x });
+demo.promotions = [
+  { id: "p7Qm2LxA9cRt", type: "boost", listingId: "l3", listingTitle: "Smartphone 128 GB", sellerName: "Tembo Electronics", reach: "REGIONAL", days: 7, priceNgwee: 31_500,
+    walletMsisdn: "+260977412233", status: "ACTIVE", targeting: tg({ provinces: ["Lusaka", "Copperbelt"], ageBands: ["18–24", "25–34"], interests: ["Phones & accessories", "Electronics"] }),
+    estimatedReach: 14_200, stats: { impressions: 9_840, clicks: 612, likes: 301, enquiries: 88 }, createdAt: ago(60 * 26), startsAt: ago(60 * 26), endsAt: new Date(Date.now() + 5 * 86_400_000), paidRef: "SELO-BST-p7Qm2LxA9cRt" },
+  { id: "s3Hk8VbN1wQe", type: "story", listingId: "l1", listingTitle: "Fresh tomatoes 5 kg", sellerName: "Mama Bupe's Veg", reach: "LOCAL", days: 1, priceNgwee: 1_000,
+    walletMsisdn: "+260955301122", status: "ACTIVE", targeting: tg({ provinces: ["Lusaka"], districts: ["Lusaka", "Chilanga"], interests: ["Fresh produce"] }),
+    estimatedReach: 2_300, stats: { impressions: 1_480, clicks: 212, likes: 97, enquiries: 31 }, createdAt: ago(300), startsAt: ago(300), endsAt: new Date(Date.now() + 19 * 3_600_000), paidRef: "SELO-STY-s3Hk8VbN1wQe" },
+  { id: "q2Wf6TyU4pLs", type: "boost", listingId: "l1", listingTitle: "Fresh tomatoes 5 kg", sellerName: "Mama Bupe's Veg", reach: "LOCAL", days: 3, priceNgwee: 6_000,
+    walletMsisdn: "+260966778899", status: "PAYMENT_FAILED", failureReason: "Insufficient funds on MTN Money 0966 ••• 899.", targeting: tg({ districts: ["Lusaka"] }),
+    estimatedReach: 1_900, stats: { impressions: 0, clicks: 0, likes: 0, enquiries: 0 }, createdAt: ago(40), collectionRef: "SELO-BST-q2Wf6TyU4pLs" },
+  { id: "e9Rr5DsF3gHj", type: "boost", listingId: "l3", listingTitle: "Smartphone 128 GB", sellerName: "Tembo Electronics", reach: "NATIONAL", days: 3, priceNgwee: 27_000,
+    walletMsisdn: "+260977412233", status: "ENDED", targeting: tg({}), estimatedReach: 41_000, stats: { impressions: 30_112, clicks: 1_402, likes: 690, enquiries: 141 },
+    createdAt: ago(60 * 24 * 9), startsAt: ago(60 * 24 * 9), endsAt: ago(60 * 24 * 6), paidRef: "SELO-BST-e9Rr5DsF3gHj" },
+];
+const ops = ["Airtel Money", "MTN Money", "Zamtel Money"];
+demo.platformRevenue = Array.from({ length: 14 }, (_, d) => [
+  ...Array.from({ length: 2 + (d % 4) }, (_, i) => ({ id: `rb_${d}_${i}`, source: "boost", amountNgwee: [6_000, 13_500, 31_500, 9_000][(d + i) % 4], operator: ops[(d + i) % 3], at: ago(60 * 24 * d + 30 + i * 70) })),
+  ...Array.from({ length: 1 + (d % 3) }, (_, i) => ({ id: `rs_${d}_${i}`, source: "feed_story", amountNgwee: 1_000, operator: ops[(d + i + 1) % 3], at: ago(60 * 24 * d + 50 + i * 90) })),
+  { id: `rf_${d}`, source: "order_fees", amountNgwee: 2_400 + (d * 517) % 3_000, operator: ops[d % 3], at: ago(60 * 24 * d + 120) },
+]).flat();
+demo.orders[1] = { ...demo.orders[1], paymentStatus: "PAID", walletMsisdn: "+260955301122" };
+demo.orders.unshift({ id: "SNC-4823390", state: "INITIATED", buyerName: "Chipo N.", sellerName: "Tembo Electronics", totalNgwee: 252_470, goodsNgwee: 245_000,
+  deliveryNgwee: 4_000, processingFeeNgwee: 2_470, zoneName: "Kalingalinga", isParcel: false, createdAt: ago(4), paymentStatus: "FAILED",
+  paymentFailure: "Insufficient funds on Zamtel Money 0955 ••• 210.", walletMsisdn: "+260955120210" });
 
 const listeners = new Set<() => void>();
 export const demoSubscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };

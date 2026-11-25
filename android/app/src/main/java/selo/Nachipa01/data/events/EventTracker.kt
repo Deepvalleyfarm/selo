@@ -50,6 +50,8 @@ data class BehaviourEvent(
     val replayed: Boolean? = null, val undone: Boolean? = null, val channel: String? = null, val skipSpeed: String? = null,
     val wishlistId: String? = null, val query: String? = null, val resultsCount: Int? = null, val firstClickListingId: String? = null,
     val durationMs: Long? = null, val device: String? = null, val appVersion: String? = null, val ts: Long = System.currentTimeMillis(),
+    /** Set when the view came from a paid Boost or Feed Story, so the seller's promotion stats count it. */
+    val promoId: String? = null,
 ) {
     fun toMap(userId: String, variant: String?): Map<String, Any> = buildMap {
         put("type", type); put("userId", userId); put("ts", ts)
@@ -59,7 +61,7 @@ data class BehaviourEvent(
         channel?.let { put("channel", it) }; skipSpeed?.let { put("skipSpeed", it) }; wishlistId?.let { put("wishlistId", it) }
         query?.let { put("query", it) }; resultsCount?.let { put("resultsCount", it) }; firstClickListingId?.let { put("firstClickListingId", it) }
         durationMs?.let { put("durationMs", it) }; device?.let { put("device", it) }; appVersion?.let { put("appVersion", it) }
-        variant?.let { put("variant", it) }
+        variant?.let { put("variant", it) }; promoId?.let { put("promoId", it) }
     }
 }
 

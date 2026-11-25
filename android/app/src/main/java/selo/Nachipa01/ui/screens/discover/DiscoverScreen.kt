@@ -87,9 +87,9 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
         val prev = items.firstOrNull { it.id == shownId }
         val dwell = System.currentTimeMillis() - shownAt
         if (prev != null && !engaged && dwell < 3_000) app.track(BehaviourEvent("skip", prev.id, prev.sellerUid, prev.category, prev.mediaType,
-            skipSpeed = if (dwell < 1_000) "fast" else "normal"))
+            skipSpeed = if (dwell < 1_000) "fast" else "normal", promoId = prev.promoId))
         shownId = l.id; shownAt = System.currentTimeMillis(); engaged = false
-        app.track(BehaviourEvent("listing_view", l.id, l.sellerUid, l.category, l.mediaType, source = if (l.id == startWith?.id) source else "feed"))
+        app.track(BehaviourEvent("listing_view", l.id, l.sellerUid, l.category, l.mediaType, source = if (l.id == startWith?.id) source else if (l.promoId != null) "boost" else "feed", promoId = l.promoId))
         if (pager.settledPage >= items.size - 3) load(reset = false)
     }
 
@@ -97,7 +97,7 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
         engaged = true
         val m = extra.toMap()
         app.track(BehaviourEvent(type, l.id, l.sellerUid, l.category, l.mediaType, undone = m["undone"] as Boolean?, channel = m["channel"] as String?,
-            wishlistId = m["wishlistId"] as String?))
+            wishlistId = m["wishlistId"] as String?, promoId = l.promoId))
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -112,13 +112,13 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
                     onEnquire = { ev("enquiry_open", l); sheet = "enquire" to l },
                     onDetails = { ev("details_open", l); sheet = "details" to l },
                     onNotInterested = {
-                        app.track(BehaviourEvent("not_interested", l.id, l.sellerUid, l.category, l.mediaType)); engaged = true
+                        app.track(BehaviourEvent("not_interested", l.id, l.sellerUid, l.category, l.mediaType, promoId = l.promoId)); engaged = true
                         snack = "Got it — you'll see less like this."
                         scope.launch { val idx = items.indexOf(l); if (idx >= 0) { items.removeAt(idx); if (items.size - idx < 3) load(false) } }
                     },
                     onFollow = { scope.launch { val f = l.sellerUid !in following; app.backend.setFollow(l.sellerUid, f)
                         if (f) app.track(BehaviourEvent("follow", l.id, l.sellerUid)); snack = if (f) "Following ${l.sellerName}. We'll tell you when they post." else "Unfollowed ${l.sellerName}." } },
-                    onWatched = { w, t, r -> if (w > 300) app.track(BehaviourEvent("video_watch", l.id, l.sellerUid, l.category, "video", watchMs = w, totalMs = t, replayed = r)) },
+                    onWatched = { w, t, r -> if (w > 300) app.track(BehaviourEvent("video_watch", l.id, l.sellerUid, l.category, "video", watchMs = w, totalMs = t, replayed = r, promoId = l.promoId)) },
                 ))
             }
         }
@@ -143,7 +143,8 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
         ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = Color.White) {
             Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (kind) {
-                    "details" -> DetailsSheet(l, onBuy = { sheet = null; onBuy(l) }, onEnquire = { ev("enquiry_open", l); sheet = "enquire" to l })
+                    "details" -> DetailsSheet(l, onBuy = { sheet = null; onBuy(l) }, onAddToCart = { ev("add_to_cart", l); sheet = null
+                        snack = app.addToCart(l) ?: "Added to cart · ${app.cartCount} item${if (app.cartCount == 1) "" else "s"}" }, onEnquire = { ev("enquiry_open", l); sheet = "enquire" to l })
                     "share" -> ShareSheet(l, onShared = { ch -> ev("share", l, "channel" to ch); sheet = null; snack = if (ch == "inapp") "Sent." else null })
                     "save" -> SaveSheet(l, lists.map { it.name }) { name -> scope.launch { app.backend.saveToWishlist(l.id, name); ev("save", l, "wishlistId" to name); sheet = null; snack = "Saved to $name." } }
                     "enquire" -> EnquireSheet(l)
@@ -168,7 +169,7 @@ fun DiscoverScreen(onBuy: (Listing) -> Unit, startWith: Listing? = null, source:
 }
 
 @Composable
-private fun DetailsSheet(l: Listing, onBuy: () -> Unit, onEnquire: () -> Unit) {
+private fun DetailsSheet(l: Listing, onBuy: () -> Unit, onAddToCart: () -> Unit, onEnquire: () -> Unit) {
     H(l.title, 18)
     Row(verticalAlignment = Alignment.Bottom) {
         Text(Fees.formatK(l.offerPriceNgwee), color = Selo.Red, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
@@ -183,8 +184,9 @@ private fun DetailsSheet(l: Listing, onBuy: () -> Unit, onEnquire: () -> Unit) {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlineButton("Enquire", Modifier.weight(1f), onClick = onEnquire)
-        PrimaryButton("Buy now", Modifier.weight(1.3f), onClick = onBuy)
+        OutlineButton("Add to cart", Modifier.weight(1f), onClick = onAddToCart)
     }
+    PrimaryButton("Buy now", onClick = onBuy)
     NoteBox("Pay safely with Selo Escrow: the seller is paid only after a rider collects your order.", Tone.OK, Icons.Outlined.Shield)
 }
 
@@ -214,10 +216,6 @@ private fun ShareSheet(l: Listing, onShared: (String) -> Unit) {
         onShared("whatsapp")
     }, Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(50), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) {
         Icon(Icons.Outlined.Chat, null); Text("  Share on WhatsApp", fontWeight = FontWeight.ExtraBold)
-    }
-    Row(Modifier.fillMaxWidth().background(Color(0xFFF1F1F4), RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Outlined.AutoStories, null, tint = Selo.Mute); Text("  Share to your feed story", color = Selo.Mute, modifier = Modifier.weight(1f))
-        StatusChip("Coming soon", Tone.GREY)
     }
     Sub("WhatsApp gets the title, price and a link with the product photo. The link opens SeloNaChipa, or the download page if the app isn't installed.")
 }

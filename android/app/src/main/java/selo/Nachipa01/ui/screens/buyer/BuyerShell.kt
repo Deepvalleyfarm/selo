@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -43,13 +44,13 @@ fun BuyerShell(nav: NavHostController, initialTab: String = "discover", onLogout
     // The full-screen feed is the primary buyer experience (PRD v6.1 §5.1)
     var tab by rememberSaveable { mutableStateOf(initialTab) }
     val open: (Listing) -> Unit = { nav.navigate("listing/${it.id}") }
-    Scaffold(bottomBar = { SeloBottomBar(buyerTabs, cartItem, tab) { tab = it } }, containerColor = Selo.Surface) { pad ->
+    Scaffold(bottomBar = { SeloBottomBar(buyerTabs, cartItem, tab, centerBadge = LocalAppState.current.cartCount) { tab = it } }, containerColor = Selo.Surface) { pad ->
         Box(Modifier.padding(bottom = pad.calculateBottomPadding())) {
             when (tab) {
                 "discover" -> selo.Nachipa01.ui.screens.discover.DiscoverScreen(onBuy = { nav.navigate("checkout/${it.id}") })
                 "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { tab = "search" }, onOrders = { tab = "orders" }, onOpen = open)
                 "search" -> selo.Nachipa01.ui.screens.discover.SearchScreen(onOpen = open)
-                "cart" -> ListingFeed(title = "Your cart", onBuy = { nav.navigate("checkout/${it.id}") })
+                "cart" -> CartScreen(onCheckout = { nav.navigate("checkout/cart") }, onBrowse = { tab = "discover" })
                 "orders" -> BuyerOrders(onOpen = { o -> nav.navigate(if (o.isParcel) "parcelTrack/${o.id}" else "track/${o.id}") })
                 "account" -> BuyerProfile(onLogout, onOrders = { tab = "orders" }, onOpen = open)
             }
@@ -74,6 +75,7 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrde
         WalletCard("Selo Wallet", app.session.value?.msisdn?.let { selo.Nachipa01.domain.Validation.maskMsisdn(it) } ?: "", 124_050,
             listOf(QuickAction(Icons.Outlined.ShoppingCart, "Cart") { onCategory("cart") }, QuickAction(Icons.Outlined.Inventory2, "Send parcel", onParcel),
                 QuickAction(Icons.Outlined.Inventory2, "Orders", onOrders)), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
+        selo.Nachipa01.ui.screens.discover.StoriesRow(onOpen)
         PillTabs(listOf("For you", "Nearby", "Deals"), pill) { pill = it }
         val tiles = listOf<Triple<ImageVector, String, String?>>(
             Triple(Icons.Outlined.Eco, "Fresh produce", null), Triple(Icons.Outlined.PhoneAndroid, "Electronics", null),
@@ -90,40 +92,58 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrde
     }
 }
 
-@Composable
-private fun ListingFeed(title: String, onBuy: (Listing) -> Unit) {
-    val app = LocalAppState.current
-    val listings by app.backend.listings().collectAsState(emptyList())
-    var q by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize()) {
-        SeloHeader(title, "Live listings near you")
-        FormColumn {
-            SeloField("Search listings near you…", q, { q = it }, trailing = Icons.Outlined.Search)
-            listings.filter { q.isBlank() || it.title.contains(q, true) || it.category.contains(q, true) }.forEach { l ->
-                SeloCard {
-                    Box(Modifier.fillMaxWidth().height(140.dp).background(Selo.RedTint, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.PlayCircle, "Play advert", tint = Selo.Red, modifier = Modifier.size(44.dp))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(l.title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(Fees.formatK(l.priceNgwee), color = Selo.Red, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    Text("${l.sellerName} · ${l.zone}", color = Selo.Mute, fontSize = 12.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlineButton("Message", Modifier.weight(1f)) {}
-                        PrimaryButton("Buy now", Modifier.weight(1f)) { onBuy(l) }
-                    }
-                }
-            }
-        }
-    }
-}
-
 fun stateLabel(s: OrderState) = when (s) {
     OrderState.INITIATED -> "Awaiting payment" to Tone.GREY; OrderState.ESCROW_LOCKED, OrderState.BROADCASTING -> "Finding rider" to Tone.WARN
     OrderState.RIDER_ASSIGNED -> "Rider assigned" to Tone.INFO; OrderState.PICKED_UP, OrderState.IN_TRANSIT -> "En route" to Tone.FUND
     OrderState.DELIVERED -> "Delivered" to Tone.OK; OrderState.REFUNDED -> "Refunded" to Tone.GREY
     OrderState.CANCELLED -> "Cancelled" to Tone.GREY; OrderState.PAYOUT_PENDING_RETRY -> "Delivered" to Tone.OK
+}
+
+/** Cart (PRD v6.2): items from one seller; the total is worked out at checkout with delivery and fees. */
+@Composable
+private fun CartScreen(onCheckout: () -> Unit, onBrowse: () -> Unit) {
+    val app = LocalAppState.current
+    val cfg by app.config.collectAsState()
+    Column(Modifier.fillMaxSize()) {
+        SeloHeader("Your cart", if (app.cart.isEmpty()) "Nothing added yet" else "From ${app.cart.first().listing.sellerName}")
+        FormColumn {
+            if (app.cart.isEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Outlined.ShoppingCart, null, tint = Selo.Grey, modifier = Modifier.size(56.dp))
+                    Text("Your cart is empty", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    Sub("Open a listing's details in Discover and tap Add to cart.")
+                    OutlineButton("Browse listings", onClick = onBrowse)
+                }
+                return@FormColumn
+            }
+            app.cart.toList().forEach { ci ->
+                SeloCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(54.dp).background(Selo.RedTint, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                            if (ci.listing.thumbUrl != null) coil3.compose.AsyncImage(ci.listing.thumbUrl, null, Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                            else Icon(Icons.Outlined.Inventory2, null, tint = Selo.Red)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(ci.listing.title, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            Text(Fees.formatK(ci.listing.priceNgwee * ci.qty), color = Selo.Red, fontWeight = FontWeight.ExtraBold)
+                        }
+                        TextButton({ app.setQty(ci.listing.id, ci.qty - 1) }) { Text(if (ci.qty == 1) "✕" else "−", color = Selo.Red, fontSize = 18.sp) }
+                        Text("${ci.qty}", fontWeight = FontWeight.Bold)
+                        TextButton({ app.setQty(ci.listing.id, ci.qty + 1) }, enabled = ci.qty < ci.listing.stock.coerceAtLeast(1)) { Text("+", color = Selo.Red, fontSize = 18.sp) }
+                    }
+                }
+            }
+            val goods = app.cart.sumOf { it.listing.priceNgwee * it.qty }
+            SeloCard {
+                KvRow("Items (${app.cartCount})", Fees.formatK(goods))
+                KvRow("Delivery, platform and transaction fees", "at checkout")
+            }
+            PrimaryButton("Checkout · ${Fees.formatK(goods)} + fees", color = Selo.Green, onClick = onCheckout)
+            if (cfg.paymentProcessingPct > 0 || cfg.buyerServiceFeePct > 0) Sub("Your registered mobile money number pays by default. You can switch numbers at checkout.")
+        }
+    }
 }
 
 @Composable

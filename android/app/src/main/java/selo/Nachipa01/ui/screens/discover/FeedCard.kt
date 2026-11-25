@@ -109,6 +109,8 @@ fun FeedCard(l: Listing, active: Boolean, liked: Boolean, saved: Boolean, follow
             }
             if (l.isVideo) Icon(if (muted) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp, if (muted) "Tap to unmute" else "Tap to mute", tint = Color.White, modifier = Modifier.size(20.dp))
             Spacer(Modifier.weight(1f))
+            if (l.promoId != null) Text("Sponsored", color = Selo.Ink, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp,
+                modifier = Modifier.padding(end = 6.dp).background(Color.White.copy(.92f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
             if (l.hasOffer) Text(if (l.discountPct > 0) "−${l.discountPct.toInt()}%" else "OFFER", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp,
                 modifier = Modifier.padding(end = 6.dp).background(Selo.Coral, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
             Text(l.category, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp,

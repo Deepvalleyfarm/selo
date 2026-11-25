@@ -26,7 +26,7 @@ data class AiDraft(
     val condition: String = "Good", val priceScope: String = "", val aiUsed: Boolean = true,
 )
 
-data class CheckoutRequest(val items: List<OrderItem>, val sellerUid: String, val dropoff: String, val walletMsisdn: String, val distanceKm: Double)
+data class CheckoutRequest(val items: List<OrderItem>, val sellerUid: String, val dropoff: String, val walletMsisdn: String, val distanceKm: Double, val sellerName: String = "")
 
 data class ParcelRequest(
     val pickup: String, val dropoff: String, val sender: String, val recipientName: String, val recipientMsisdn: String,
@@ -99,6 +99,17 @@ interface Backend {
     suspend fun updateListing(id: String, changes: Map<String, Any?>)
     suspend fun saveSellerSettings(settings: Map<String, Any?>)
     suspend fun publishListingV2(req: PublishRequest): String
+
+    // ------------------------------------------------ v6.2 payments + paid promotions
+    /** Starts a new mobile-money prompt for an unpaid order on a different (or the same) number. */
+    suspend fun retryPayment(orderId: String, walletMsisdn: String)
+    suspend fun estimateAudience(t: Targeting, reach: BoostReach): Int
+    /** Creates a Boost or Feed Story and sends the payment prompt; the promotion goes ACTIVE when the payment is confirmed. */
+    suspend fun createPromotion(type: String, listingId: String, reach: BoostReach, days: Int, t: Targeting, walletMsisdn: String): String
+    suspend fun retryPromotionPayment(promoId: String, walletMsisdn: String)
+    fun promotion(id: String): Flow<Promotion?>
+    fun myPromotions(): Flow<List<Promotion>>
+    suspend fun stories(): List<Story>
 }
 
 /** Everything the AI pre-fill + review screen sends when posting (PRD v6.1 §4.1). */

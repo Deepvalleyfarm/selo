@@ -30,6 +30,12 @@ const GROUPS: Record<string, Def[]> = {
     ["sqMaxAttempts", "Security-question attempts", "#", "in 30 min"], ["sqLockMinutes", "Security-question lock", "min", ""],
     ["shareLinkExpiryDays", "Share link expiry", "days", ""], ["minAppVersion", "Minimum app version", "#", "older builds must update"],
   ],
+  Promotions: [
+    ["boostLocalPerDay", "Boost · Local", "ZMW", "per day, seller's district and nearby"], ["boostRegionalPerDay", "Boost · Regional", "ZMW", "per day, chosen provinces"],
+    ["boostNationalPerDay", "Boost · National", "ZMW", "per day, all of Zambia"], ["storyPrice24h", "Feed Story", "ZMW", "per 24 hours"],
+    ["boostFrequencyCap", "Boost frequency cap", "#", "times per buyer per day"], ["boostSlotsPerPage", "Boost slots per feed page", "#", "at positions 2 and 6"],
+    ["unpaidOrderCancelMin", "Unpaid order expiry", "min", "buyer can retry with another number until then"],
+  ]
 };
 
 export default function Config() {

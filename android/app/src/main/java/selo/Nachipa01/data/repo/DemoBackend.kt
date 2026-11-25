@@ -17,6 +17,10 @@ import selo.Nachipa01.data.model.SearchResult
 import selo.Nachipa01.data.model.SellerDashboard
 import selo.Nachipa01.data.model.SellerListingCard
 import selo.Nachipa01.data.model.Wishlist
+import selo.Nachipa01.data.model.BoostReach
+import selo.Nachipa01.data.model.Promotion
+import selo.Nachipa01.data.model.Story
+import selo.Nachipa01.data.model.Targeting
 import kotlinx.coroutines.launch
 import selo.Nachipa01.data.model.*
 import selo.Nachipa01.domain.Fees
@@ -86,7 +90,8 @@ class DemoBackend : Backend {
 
     override fun currentUser() = session
     override suspend fun restoreSession(): SessionUser? = null
-    override fun config(): Flow<PlatformConfig> = flowOf(PlatformConfig())
+    /** Demo shows a 1% transaction fee so the fee line is visible; production starts at 0% and is set in the back office. */
+    override fun config(): Flow<PlatformConfig> = flowOf(PlatformConfig(paymentProcessingPct = 1.0))
     override fun adverts(): Flow<List<Advert>> = flowOf(DemoData.adverts)
     override suspend fun questionBank() = DemoData.questions
 
@@ -141,21 +146,82 @@ class DemoBackend : Backend {
         orders.value[id]?.let { put(it.copy(state = state, riderName = riderName ?: it.riderName, timeline = it.timeline + (state.name to "now"))) }
     }
 
+    /** Demo balances: the registered number holds K1,240.50 (as on the wallet card); other numbers have plenty; numbers ending 00 are empty. */
+    private fun balance(msisdn: String) = when { msisdn.endsWith("00") -> 0L; msisdn == session?.msisdn -> 124_050L; else -> 5_000_000L }
+
     private fun simulate(id: String) = scope.launch {
-        delay(2500); advance(id, OrderState.ESCROW_LOCKED)
+        delay(2500)
+        val o = orders.value[id] ?: return@launch
+        val w = o.walletMsisdn ?: session?.msisdn ?: ""
+        if (o.totalNgwee > balance(w)) {
+            put(o.copy(paymentStatus = "FAILED", paymentFailure = "Insufficient funds on ${Validation.network(w)} ${Validation.maskMsisdn(w)}")); return@launch
+        }
+        put(o.copy(paymentStatus = "PAID")); advance(id, OrderState.ESCROW_LOCKED)
         delay(3000); advance(id, OrderState.RIDER_ASSIGNED, "Chanda M.")
         delay(4000); advance(id, OrderState.PICKED_UP)
         delay(3000); advance(id, OrderState.IN_TRANSIT)
     }
 
     override suspend fun checkout(req: CheckoutRequest): String {
-        val goods = req.items.sumOf { it.unitNgwee * it.qty }
-        val delivery = Fees.deliveryFee(req.distanceKm, PlatformConfig())
+        val q = Fees.quote(req.items.sumOf { it.unitNgwee * it.qty }, req.distanceKm, PlatformConfig(paymentProcessingPct = 1.0))
         val id = "SNC-${(48_200..48_999).random()}"
-        put(Order(id, "demo-buyer", req.sellerUid, "Mama Bupe's Veg", null, null, req.items, goods, delivery, goods + delivery,
+        put(Order(id, "demo-buyer", req.sellerUid, req.sellerName.ifBlank { "Mama Bupe's Veg" }, null, null, req.items, q.goodsNgwee, q.deliveryNgwee, q.totalNgwee,
             OrderState.INITIATED, "Lusaka Central", req.dropoff, "Soweto Market, stall 14",
-            deliveryCode = "%06d".format((100_000..999_999).random()), distanceKm = req.distanceKm, lipilaRef = "SELO-COL-$id"))
+            deliveryCode = "%06d".format((100_000..999_999).random()), distanceKm = req.distanceKm, lipilaRef = "SELO-COL-$id",
+            walletMsisdn = req.walletMsisdn, serviceFeeNgwee = q.serviceFeeNgwee, processingFeeNgwee = q.processingFeeNgwee))
         simulate(id); return id
+    }
+
+    private var attempt = 1
+    override suspend fun retryPayment(orderId: String, walletMsisdn: String) {
+        delay(300)
+        val o = orders.value[orderId] ?: throw BackendException("Order not found.")
+        if (o.state != OrderState.INITIATED) throw BackendException("This order is already paid.")
+        attempt++
+        put(o.copy(walletMsisdn = walletMsisdn, paymentStatus = "PENDING", paymentFailure = null, lipilaRef = "SELO-COL-$orderId-R$attempt"))
+        simulate(orderId)
+    }
+
+    // ---------------- paid promotions (demo)
+    private val promos = MutableStateFlow<List<Promotion>>(emptyList())
+    private fun promoPrice(type: String, reach: BoostReach, days: Int) = Fees.promoPriceNgwee(type, reach, days, PlatformConfig())
+
+    override suspend fun estimateAudience(t: Targeting, reach: BoostReach): Int {
+        delay(150)
+        val base = when (reach) { BoostReach.LOCAL -> 1_800; BoostReach.REGIONAL -> 9_000 * maxOf(1, t.provinces.size); BoostReach.NATIONAL -> 42_000 }
+        val age = if (t.ageBands.isEmpty()) 1.0 else t.ageBands.size / 5.0 + 0.1
+        val interest = if (t.interests.isEmpty()) 1.0 else minOf(1.0, 0.25 * t.interests.size + if (t.searchIntent) 0.1 else 0.0)
+        return (base * age * interest).toInt()
+    }
+
+    override suspend fun createPromotion(type: String, listingId: String, reach: BoostReach, days: Int, t: Targeting, walletMsisdn: String): String {
+        delay(300)
+        val l = all().firstOrNull { it.id == listingId }
+        val id = "prm_${selo.Nachipa01.data.events.Keys.uuidv7()}_s00"
+        val p = Promotion(id, type, listingId, l?.title ?: "", "PENDING_PAYMENT", promoPrice(type, reach, days), if (type == "story") 1 else days, reach.name, t,
+            walletMsisdn = walletMsisdn, estimatedReach = estimateAudience(t, reach))
+        promos.value = listOf(p) + promos.value
+        settlePromo(id); return id
+    }
+
+    private fun settlePromo(id: String) = scope.launch {
+        delay(2000)
+        promos.value = promos.value.map { p -> if (p.id != id) p else if (p.priceNgwee > balance(p.walletMsisdn ?: ""))
+            p.copy(status = "PAYMENT_FAILED", failureReason = "Insufficient funds on ${Validation.network(p.walletMsisdn ?: "")} ${Validation.maskMsisdn(p.walletMsisdn ?: "")}")
+        else { val now = System.currentTimeMillis(); p.copy(status = "ACTIVE", startsAt = now, endsAt = now + p.days * 86_400_000L, failureReason = null) } }
+    }
+
+    override suspend fun retryPromotionPayment(promoId: String, walletMsisdn: String) {
+        delay(300)
+        promos.value = promos.value.map { if (it.id == promoId) it.copy(status = "PENDING_PAYMENT", walletMsisdn = walletMsisdn, failureReason = null) else it }
+        settlePromo(promoId)
+    }
+    override fun promotion(id: String): Flow<Promotion?> = promos.map { l -> l.firstOrNull { it.id == id } }
+    override fun myPromotions(): Flow<List<Promotion>> = promos
+    override suspend fun stories(): List<Story> {
+        val mine = promos.value.filter { it.type == "story" && it.status == "ACTIVE" }.mapNotNull { p -> all().firstOrNull { it.id == p.listingId }?.let { Story(p.id, it, it.sellerName, false) } }
+        val seeded = listOf("l5", "l3", "l9", "l14", "l6").mapNotNull { id -> all().firstOrNull { it.id == id } }.map { Story("story_${it.id}", it, it.sellerName, it.sellerUid in follows.value) }
+        return (mine + seeded).sortedByDescending { it.followed }
     }
 
     override suspend fun sendParcel(req: ParcelRequest): String {
@@ -251,7 +317,11 @@ class DemoBackend : Backend {
             out += rest.removeAt(i)
         }
         out.forEach { shown[it.id] = now }
-        return FeedPage(sessionId ?: "ses_demo_${now}", out.map { it.copy(rankSource = if (g.capReached) "unranked_cap" else "demo") }, "control", 0, g)
+        // paid Boosts take slots 2 and 6 (PRD v6.2), labelled Sponsored
+        promos.value.filter { it.type == "boost" && it.status == "ACTIVE" && it.endsAt > now }.take(2).forEachIndexed { i, p ->
+            all().firstOrNull { it.id == p.listingId }?.let { l -> out.removeAll { it.id == l.id }; out.add(minOf(out.size, if (i == 0) 1 else 5), l.copy(promoId = p.id, rankSource = "boost")) }
+        }
+        return FeedPage(sessionId ?: "ses_demo_${now}", out.map { it.copy(rankSource = it.rankSource ?: if (g.capReached) "unranked_cap" else "demo") }, "control", 0, g)
     }
 
     override suspend fun homeRails(): List<Rail> {

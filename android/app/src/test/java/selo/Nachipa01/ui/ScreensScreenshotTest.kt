@@ -1,5 +1,11 @@
 package selo.Nachipa01.ui
 
+import androidx.compose.runtime.*
+import kotlinx.coroutines.flow.first
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -35,9 +41,10 @@ import selo.Nachipa01.ui.components.verticalScrollable
 class ScreensScreenshotTest {
     @get:Rule val rule = createComposeRule()
 
-    private fun shot(name: String, role: Role? = null, status: AccountStatus = AccountStatus.ACTIVE, prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
+    private fun shot(name: String, role: Role? = null, status: AccountStatus = AccountStatus.ACTIVE, msisdn: String = "+260971234512",
+                     prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
         val state = AppState(DemoBackend())
-        if (role != null) state.signedIn(DemoData.demoUser(role, status = status))
+        if (role != null) state.signedIn(DemoData.demoUser(role, msisdn, status = status))
         state.rememberedMsisdn.value = "+260971234512"; state.rememberedName.value = "Mwila"
         runBlocking { prep(state) }
         rule.setContent { SeloTheme { CompositionLocalProvider(LocalAppState provides state) { ui() } } }
@@ -107,4 +114,53 @@ class ScreensScreenshotTest {
     @Test fun s3_sellerSettings() = shot("S3-seller-settings", Role.SELLER) { SellerShell(rememberNavController(), "more") {} }
     @Test fun e1_rider() = shot("E1-rider-home", Role.RIDER) { RiderShell {} }
     @Test fun ag4_agent() = shot("AG4-agent-pending", Role.AGENT, AccountStatus.PENDING_KYC) { AgentHomeScreen({}, {}) }
+
+    // ---------------- v6.2 payments: default registered number, another number with operator detection, cart, retry
+    private fun picker(name: String, registered: String, other: String?) = shot(name, Role.BUYER, msisdn = registered) {
+        val c = selo.Nachipa01.ui.payments.rememberPaymentChoice(registered).also { if (other != null) { it.useDefault = false; it.other = other } }
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(selo.Nachipa01.ui.theme.Selo.Surface).padding(16.dp)) {
+            selo.Nachipa01.ui.payments.PaymentMethodPicker(c)
+        }
+    }
+    @Test fun p1_defaultZamtel() = picker("P1-pay-default-zamtel", "+260955123456", null)
+    @Test fun p2_otherAirtel() = picker("P2-pay-other-airtel-0977", "+260955123456", "0977 123 456")
+    @Test fun p3_otherMtn() = picker("P3-pay-other-mtn-0966", "+260955123456", "0966 55")
+    @Test fun p4_otherZamtel() = picker("P4-pay-other-zamtel-0955", "+260971234512", "0955 987 654")
+    @Test fun p5_otherUnsupported() = picker("P5-pay-other-unsupported", "+260971234512", "0211 25")
+    @Test fun b2b_cartCheckout() = shot("B2b-cart-checkout-zamtel", Role.BUYER, msisdn = "+260955123456", prep = { s ->
+        val all = s.backend.listings().first(); val l = all.first { it.id == "l1" }
+        s.addToCart(l); s.addToCart(l); all.firstOrNull { it.sellerUid == l.sellerUid && it.id != l.id }?.let { s.addToCart(it) }
+    }) { CheckoutScreen("cart", {}, {}) }
+    @Test fun b2c_cartTab() = shot("B2c-cart", Role.BUYER, prep = { s ->
+        val l = s.backend.listings().first().first { it.id == "l1" }; s.addToCart(l); s.addToCart(l)
+    }) { BuyerShell(rememberNavController(), "cart") {} }
+    @Test fun b3b_paymentFailed() = shot("B3b-payment-failed-retry", Role.BUYER, msisdn = "+260955123400", prep = { s ->
+        orderId = s.backend.checkout(CheckoutRequest(listOf(OrderItem("l1", "Fresh tomatoes 5 kg", 2, 8_000)), "s1", "Munali", "+260955123400", 6.1))
+        kotlinx.coroutines.delay(2_800)
+    }) { EscrowLockedScreen(orderId) {} }
+
+    // ---------------- v6.2 Boost and Feed Story
+    @Test fun g1_boost() = shot("G1-boost", Role.SELLER) { selo.Nachipa01.ui.screens.seller.PromoteScreen("l1", "boost", {}, {}) }
+    @Test fun g2_story() = shot("G2-feed-story", Role.SELLER) { selo.Nachipa01.ui.screens.seller.PromoteScreen("l1", "story", {}, {}) }
+    private var promoId = ""
+    @Test fun g3_boostLive() = shot("G3-boost-live", Role.SELLER, prep = { s ->
+        promoId = s.backend.createPromotion("boost", "l1", selo.Nachipa01.data.model.BoostReach.REGIONAL, 7,
+            selo.Nachipa01.data.model.Targeting(provinces = listOf("Lusaka", "Copperbelt"), interests = listOf("Fresh produce")), "+260966123456")
+        kotlinx.coroutines.delay(2_300)
+    }) { selo.Nachipa01.ui.screens.seller.PromotionStatusScreen(promoId) {} }
+    @Test fun g4_boostFailed() = shot("G4-boost-payment-failed", Role.SELLER, prep = { s ->
+        promoId = s.backend.createPromotion("boost", "l1", selo.Nachipa01.data.model.BoostReach.LOCAL, 3,
+            selo.Nachipa01.data.model.Targeting(districts = listOf("Lusaka")), "+260977000100")
+        kotlinx.coroutines.delay(2_300)
+    }) { selo.Nachipa01.ui.screens.seller.PromotionStatusScreen(promoId) {} }
+    @Test fun g5_sellerHomePromos() = shot("G5-seller-home-promotions", Role.SELLER, prep = { s ->
+        s.backend.createPromotion("story", "l1", selo.Nachipa01.data.model.BoostReach.LOCAL, 1, selo.Nachipa01.data.model.Targeting(), "+260955123456")
+        kotlinx.coroutines.delay(2_300)
+    }) { SellerShell(rememberNavController(), "home") {} }
+    @Test fun g6_story() = shot("G6-story-viewer", Role.BUYER) {
+        var stories by remember { mutableStateOf<List<selo.Nachipa01.data.model.Story>>(emptyList()) }
+        val app = LocalAppState.current
+        LaunchedEffect(Unit) { stories = app.backend.stories() }
+        if (stories.isNotEmpty()) selo.Nachipa01.ui.screens.discover.StoryViewer(stories, 0, {}, {})
+    }
 }

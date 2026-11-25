@@ -19,7 +19,7 @@ import selo.Nachipa01.ui.screens.seller.*
 object R {
     const val WELCOME = "welcome"; const val ROLE = "role"; const val REGISTER = "register/{role}"
     const val REG_DONE = "regDone"; const val FORGOT = "forgot"; const val PENDING = "pending"
-    const val BUYER = "buyer"; const val CHECKOUT = "checkout/{listingId}"; const val ESCROW = "escrow/{orderId}"
+    const val BUYER = "buyer"; const val CHECKOUT = "checkout/{listingId}"; const val PROMOTE = "promote/{listingId}/{type}"; const val PROMOTION = "promotion/{promoId}"; const val ESCROW = "escrow/{orderId}"
     const val TRACK = "track/{orderId}"; const val PARCEL = "parcel"; const val PARCEL_TRACK = "parcelTrack/{orderId}"
     const val SELLER = "seller"; const val ADD_LISTING = "addListing"; const val CAMERA = "camera"; const val AI = "ai"
     const val REVIEW = "review"; const val RIDER = "rider"; const val AGENT = "agent"
@@ -81,6 +81,9 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.PARCEL) { ParcelScreen(onBack = { nav.popBackStack() }, onBooked = { id -> nav.navigate("parcelTrack/$id") { popUpTo(R.BUYER) } }) }
         composable(R.PARCEL_TRACK) { e -> ParcelTrackScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }) }
 
+        composable(R.PROMOTE) { e -> selo.Nachipa01.ui.screens.seller.PromoteScreen(e.arguments?.getString("listingId") ?: "", e.arguments?.getString("type") ?: "boost",
+            onBack = { nav.popBackStack() }, onStarted = { id -> nav.navigate("promotion/$id") { popUpTo(R.SELLER) } }) }
+        composable(R.PROMOTION) { e -> selo.Nachipa01.ui.screens.seller.PromotionStatusScreen(e.arguments?.getString("promoId") ?: "", onDone = { nav.popBackStack() }) }
         composable(R.SELLER) { SellerShell(nav = nav, onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }) }
         composable(R.ADD_LISTING) { AddListingScreen(onClose = { nav.popBackStack() }, onCamera = { nav.navigate(R.CAMERA) }, onProcess = { nav.navigate(R.AI) },
             onPhotos = { nav.navigate(R.PHOTOS) }) }

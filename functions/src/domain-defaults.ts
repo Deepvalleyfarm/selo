@@ -7,6 +7,9 @@ export const DEFAULT_CONFIG = {
   autoConfirmHours: 48, maxConcurrentDeliveries: 4, dispatchCountdownSec: 15, pinMaxAttempts: 5,
   pinLockMinutes: 30, sqMaxAttempts: 5, sqLockMinutes: 30, referralSharePct: 20, referralFlatBonusKwacha: 0,
   shareLinkExpiryDays: 3, minAppVersion: 1,
+  // v6.2 paid promotions (kwacha) and how often a boost may appear
+  boostLocalPerDay: 20, boostRegionalPerDay: 45, boostNationalPerDay: 90, storyPrice24h: 10, boostFrequencyCap: 3, boostSlotsPerPage: 2,
+  unpaidOrderCancelMin: 30,
 };
 export type PlatformConfig = typeof DEFAULT_CONFIG;
 

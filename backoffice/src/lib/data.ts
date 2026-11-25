@@ -37,6 +37,9 @@ export function useDoc(path: string): Row | null {
 
 /** Demo-mode stand-ins for the admin callables, so every button works without a backend. */
 const demoFns: Record<string, (d: any) => unknown> = {
+  admin_endPromotion: (d) => { const p = demo.promotions.find((x) => x.id === d.promoId); if (!p) throw new Error("Promotion not found.");
+    demoPatch("promotions", d.promoId, { status: "ENDED", endReason: d.reason }); demoAudit("promotion.end", `promotions/${d.promoId}`, { status: "ACTIVE" }, { status: "ENDED", reason: d.reason });
+    return { ok: true }; },
   admin_updateConfig: (d) => { const cur = demo.platformConfig[0]; demoAudit("config.update", "platformConfig/default",
     Object.fromEntries(Object.keys(d.changes).map((k) => [k, cur[k]])), d.changes);
     demoPatch("platformConfig", "default", { ...d.changes, version: (cur.version as number) + 1, updatedBy: "you (demo)", updatedAt: new Date() }); },
