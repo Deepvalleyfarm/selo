@@ -1,9 +1,9 @@
 {
   "projects": {
-    "default": "REPLACE_WITH_MABALA_PROJECT_ID",
+    "default": "mabala-f2d65",
     "staging": "REPLACE_WITH_STAGING_PROJECT_ID"
   },
   "targets": {
-    "REPLACE_WITH_MABALA_PROJECT_ID": { "hosting": { "backoffice": ["REPLACE_WITH_HOSTING_SITE_ID"] } }
+    "mabala-f2d65": { "hosting": { "backoffice": ["mabala-f2d65"] } }
   }
 }

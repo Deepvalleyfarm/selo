@@ -47,10 +47,9 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
    - Download `google-services.json` into `android/app/`. The build applies the google-services plugin automatically when the file exists and switches from demo to live mode.
    - Enable App Check with Play Integrity.
 2. **Web back office**
-   - Register a Web app in the same project, then copy `backoffice/.env.example` to `backoffice/.env` and fill it in.
+   - The Web app config for project `mabala-f2d65` is in `backoffice/.env.production`, so `npm run build` targets Mabala. `npm run dev` still uses demo data unless you create `backoffice/.env.local`.
    - Optional: add a reCAPTCHA Enterprise key for App Check.
 3. **Project settings**
-   - Put the Mabala project ID into `.firebaserc`.
    - Turn on Email/Password sign-in with multi-factor authentication for admins.
    - Enable Realtime Database and Storage.
 4. **Secrets and parameters**

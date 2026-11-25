@@ -5,6 +5,7 @@ import { getFunctions, type Functions } from "firebase/functions";
 import { getDatabase, type Database } from "firebase/database";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
+import { getAnalytics, isSupported } from "firebase/analytics";
 
 /** Same named database the Android app uses — this is what keeps both sides in sync. */
 export const DB_ID = "ai-studio-611c950c-febe-47c1-afff-35dcb0788339";
@@ -24,8 +25,10 @@ if (!isDemo) {
   app = initializeApp({
     apiKey: env.VITE_FIREBASE_API_KEY, authDomain: env.VITE_FIREBASE_AUTH_DOMAIN, projectId: env.VITE_FIREBASE_PROJECT_ID,
     storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET, messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: env.VITE_FIREBASE_APP_ID, databaseURL: env.VITE_FIREBASE_DATABASE_URL,
+    appId: env.VITE_FIREBASE_APP_ID, measurementId: env.VITE_FIREBASE_MEASUREMENT_ID,
+    ...(env.VITE_FIREBASE_DATABASE_URL ? { databaseURL: env.VITE_FIREBASE_DATABASE_URL } : {}),
   });
+  if (env.VITE_FIREBASE_MEASUREMENT_ID) isSupported().then((ok) => { if (ok) getAnalytics(app!); });
   if (env.VITE_RECAPTCHA_ENTERPRISE_KEY) initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(env.VITE_RECAPTCHA_ENTERPRISE_KEY), isTokenAutoRefreshEnabled: true });
   auth = getAuth(app);
   db = getFirestore(app, DB_ID);
