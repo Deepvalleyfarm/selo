@@ -196,6 +196,54 @@ demo.disputes.push({ id: "D-1051", kind: "parcel", orderId: "PCL-5D1F7G", raised
   verification: { verifiedAt: ago(60 * 30), riderGeo: { lat: -15.4486, lng: 28.2865 }, positionSource: "client", channel: "push", attempts: 1 }, codeSummary: { state: "verified" },
   codeAttempts: [{ result: "verified", lat: -15.4486, lng: 28.2865, at: ago(60 * 30) }] });
 
+
+// v6.5 Google Maps usage, Beem OTP/SMS, Lipila withdrawals and webhook transactions
+const dayKey = (i: number) => new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+for (let i = 0; i < 7; i++) {
+  const f = 1 - i * 0.07;
+  demo[`mapsUsage/${dayKey(i)}/shards`] = [{ id: "0", places_autocomplete_calls: Math.round(3_120 * f), places_autocomplete_cacheHits: Math.round(5_870 * f), places_autocomplete_latencyMsTotal: Math.round(3_120 * f * 140),
+    geocoding_calls: Math.round(410 * f), geocoding_cacheHits: Math.round(1_960 * f), geocoding_latencyMsTotal: Math.round(410 * f * 120),
+    routes_matrix_calls: Math.round(1_180 * f), routes_matrix_cacheHits: Math.round(2_240 * f), routes_matrix_latencyMsTotal: Math.round(1_180 * f * 210),
+    routes_compute_calls: Math.round(690 * f), routes_compute_cacheHits: Math.round(1_310 * f), routes_compute_latencyMsTotal: Math.round(690 * f * 380), routes_compute_errors: i === 2 ? 4 : 0,
+    places_autocomplete_capped: 0, geocoding_fallbacks: i === 0 ? 3 : 0 }];
+  demo[`beem_stats/${dayKey(i)}/shards`] = [{ id: "0", otp_requested: Math.round(178 * f), otp_request_failed: i === 0 ? 3 : 1, otp_verified: Math.round(171 * f), otp_failed: Math.round(9 * f),
+    sms_sent: Math.round(556 * f), sms_failed: i === 0 ? 4 : 2, code_101: i === 0 ? 3 : 0, code_117: Math.round(171 * f) }];
+}
+demo.platformConfig[0] = { ...demo.platformConfig[0], deliveryBaseFee: 45, deliveryFeePerKm: 5.5, mapsAutocompleteEnabled: true, mapsGeocodingEnabled: true, mapsRoutesEnabled: true, routesTrafficAware: false,
+  mapsAutocompleteMinChars: 3, mapsAutocompleteDebounceMs: 500, mapsReversePerPickerSession: 5, mapsDailyCapAutocomplete: 20_000, mapsDailyCapGeocoding: 6_000, mapsDailyCapRoutes: 12_000,
+  mapsDailyCapRouteMatrix: 15_000, mapsUserAutocompletePerHour: 120, mapsUserGeocodePerHour: 40, rerouteMinIntervalSec: 45, rerouteMaxPerHour: 12, offRouteMeters: 60, offRouteFixes: 3, mapsCacheDays: 30,
+  withdrawalWebhookTimeoutSec: 300, minWithdrawal: 20 };
+demo.beem_health = [{ id: "current", state: "LIVE", otp: { ok: true, state: "LIVE", detail: "Operational (probe: no SMS sent)" }, sms: { ok: true, state: "LIVE", detail: "Operational · 12,480 credits" },
+  credentials: { ok: true, detail: "Valid" }, balance: 12_480, appName: "Selonachipa", appId: 226405, senderId: "Mabala", mode: "probe", checkedAt: Date.now() - 2 * 60_000 }];
+const otpRow = (i: number, ev: string, ok: boolean, code: number | null, msg: string, err: string | null = null) => ({ id: `otp${i}`, msisdn: `2609${7 + (i % 2) * -1}7${String(100_000 + i * 731).slice(-6)}`,
+  pin_id: ok || code ? `8fa8${i}-4a14` : null, event_type: ev, beem_code: code, beem_message: msg, app_context: "signup", ip_address: "41.72.1." + i, user_agent: "okhttp/4.12", success: ok, error_detail: err, created_at: ago(i * 37) });
+demo.otp_logs = [otpRow(1, "OTP_VERIFIED", true, 117, "Valid Pin"), otpRow(2, "OTP_REQUESTED", true, 100, "SMS sent successfully"), otpRow(3, "OTP_FAILED", false, 114, "Incorrect Pin", "Incorrect Pin"),
+  otpRow(4, "OTP_REQUESTED", false, 101, "Failed to send SMS", "Beem could not deliver the OTP SMS (HTTP 200)"), otpRow(5, "OTP_REQUESTED", true, 100, "SMS sent successfully"),
+  otpRow(6, "OTP_VERIFIED", true, 117, "Valid Pin"), otpRow(7, "OTP_REQUESTED", false, 101, "Failed to send SMS", "Beem could not deliver the OTP SMS (HTTP 200)"), otpRow(8, "OTP_FAILED", false, 115, "Pin TimeOut", "Pin TimeOut")];
+const smsRow = (i: number, ev: string, ref: string, body: string, ok = true) => ({ id: `sms${i}`, msisdn: "260977" + String(100_000 + i * 913).slice(-6), event_type: ev, message_body: body,
+  beem_code: ok ? 100 : null, beem_message: ok ? "Message Submitted Successfully" : null, reference_id: ref, application: "selonachipa", success: ok, error_detail: ok ? null : "SMS rejected (HTTP 400)", created_at: ago(i * 23) });
+demo.sms_logs = [smsRow(1, "PARCEL_COLLECTED", "PCL-7K2M9Q", "Hi! Your parcel (PCL-7K2M9Q) has been collected by Chanda Mulenga and is on its way. Track on Selonachipa."),
+  smsRow(2, "ORDER_CONFIRMED", "SNC-4823390", "Your order #SNC-4823390 from Tembo Electronics has been confirmed on Selonachipa."),
+  smsRow(3, "DELIVERY_CODE", "PCL-3X8B1D", "Your Selonachipa delivery code for parcel PCL-3X8B1D is •••••. Only give it to the rider once you have your item."),
+  smsRow(4, "RIDER_ASSIGNED", "SNC-4811020", "A rider has been assigned to your order. Mutale Phiri will contact you on 0965551204."),
+  smsRow(5, "ACCOUNT_CREATED", "u9", "Welcome to Selonachipa, Natasha! Your account is active. Start shopping or selling today.", false)];
+const wd = (id: string, status: string, amount: number, minsAgo: number, extra: Record<string, unknown> = {}) => ({ id, user_id: "u3", rider_id: "u3", role: "RIDER", reference_id: `SELO-WD-${id}-4c2f-925b-78be40047c63`,
+  lipila_identifier: status === "REQUESTED" ? null : `LIP${id.toUpperCase()}`, amount_ngwee: amount, amount: amount / 100, currency: "ZMW", account_number: "260965551204", status,
+  error_message: null, created_at: ago(minsAgo), recon_attempts: 0, lipila_response_raw: { status: "Pending", identifier: `LIP${id.toUpperCase()}` }, ...extra });
+demo.withdrawal_requests = [wd("a1b2", "PENDING", 48_760, 3), wd("c3d4", "MANUAL_REVIEW", 23_400, 75, { recon_attempts: 3, last_recon_result: "unreachable_or_not_configured", error_message: "No callback and the status lookup is unavailable." }),
+  wd("e5f6", "COMPLETED", 61_220, 60 * 20), wd("g7h8", "FAILED", 18_000, 60 * 26, { error_message: "Recipient account is not registered for mobile money" }),
+  { ...wd("i9j0", "FAILED", 0, 60 * 27, { error_message: "Incorrect PIN", lipila_identifier: null, lipila_response_raw: null }), user_id: "u2", role: "SELLER", rider_id: null }];
+demo.withdrawal_audit_log = ["REQUESTED", "PIN_VERIFIED", "LOCKED", "SUBMITTED", "PENDING", "MANUAL_REVIEW"].map((to, i, a) => ({ id: `wa${i}`, withdrawal_request_id: "c3d4", from_status: i ? a[i - 1] : null, to_status: to,
+  actor: i < 2 ? "rider" : i === 4 ? "lipila" : "system", metadata: i === 5 ? { reason: "No callback and the status lookup is unavailable." } : {}, timestamp: ago(75 - i) }));
+const PT = ["AirtelMoney", "MTNMoney", "ZamtelKwacha"];
+const ST = ["Successful", "Successful", "Successful", "Pending", "Failed", "Wrong PIN", "Insufficient Funds", "Successful", "Timeout", "Successful", "Cancelled", "Wrong Number"];
+demo.lipila_txs = Array.from({ length: 64 }, (_, i) => ({ id: `wh_${1000 + i}`, webhookId: `msg_${(1000 + i).toString(36)}`, referenceId: `${(0x8fa81447 + i).toString(16)}-4a14-4c2f-925b-78be40047c63`,
+  identifier: i % 5 === 4 ? `SELO-WD-${i}` : i % 7 === 3 ? `SELO-COL-PCL-${i}` : `SELO-COL-SNC-48${String(i).padStart(5, "0")}`, currency: "ZMW", amount: [48.6, 120, 252.47, 35, 89, 15.5, 410][i % 7],
+  accountNumber: `2609${["7", "6", "5"][i % 3]}${String(1_234_500 + i * 37).slice(-7)}`, status: ST[i % ST.length], paymentType: PT[i % 3], type: i % 5 === 4 ? "Disbursement" : "Collection",
+  ipAddress: `41.72.4.${i}`, message: ST[i % ST.length] === "Successful" ? "Transaction successful" : ST[i % ST.length] === "Pending" ? "Awaiting customer approval" : `${ST[i % ST.length]} — reported by MNO`,
+  externalId: ST[i % ST.length] === "Successful" ? `MP2611${(26_000 + i).toString()}` : null, referenceData: `SeloNaChipa ${i % 5 === 4 ? "withdrawal" : "order"}`, processedAt: new Date(Date.now() - i * 47 * 60_000).toISOString(),
+  source: "webhook", processed: true, merchantId: "1308", rawPayload: null }));
+
 const listeners = new Set<() => void>();
 export const demoSubscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
 export const demoChanged = () => listeners.forEach((l) => l());

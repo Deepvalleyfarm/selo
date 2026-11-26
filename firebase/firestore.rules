@@ -22,8 +22,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if me(uid) || admin();
       allow update: if me(uid) && onlyChanges(['fullName', 'firstName', 'area', 'landmark', 'language', 'photoUrl', 'coverUrl', 'notificationPrefs', 'emergencyContact',
-        'leadConsent', 'leadConsentAt', 'ageBand', 'province', 'district', 'storeName', 'businessTags', 'paymentPrefs', 'geo'])
-        && (!('geo' in request.resource.data) || (request.resource.data.geo.lat is number && request.resource.data.geo.lng is number));
+        'leadConsent', 'leadConsentAt', 'ageBand', 'province', 'district', 'storeName', 'businessTags', 'paymentPrefs']);
+      // location / geo are server-owned (location_save geocodes once and keeps the coordinates permanently)
       match /private/{doc} { allow read, write: if false; }
     }
     match /msisdnIndex/{id} { allow read, write: if false; }
@@ -82,6 +82,25 @@ service cloud.firestore {
     // shared platform address store: anyone signed in can search and reuse; only the server creates/dedupes
     match /addresses/{id} { allow read: if signedIn(); allow write: if false; }
     match /geocodeCache/{id} { allow read, write: if false; }
+    // ---- Google Maps (v6.5): public store markers, rider positions, server-only caches and metering
+    match /stores/{sellerUid} { allow read: if true; allow write: if false; }
+    match /riders/{uid} { allow read: if me(uid) || adminIn(['operations']); allow write: if false; }
+    match /riderRoutes/{uid} { allow read: if me(uid) || adminIn(['operations']); allow write: if false; }
+    match /mapsCache/{id} { allow read, write: if false; }
+    match /mapsRate/{id} { allow read, write: if false; }
+    match /mapsUsage/{day} { allow read: if adminIn(['finance', 'operations']); allow write: if false;
+      match /shards/{s} { allow read: if adminIn(['finance', 'operations']); allow write: if false; } }
+    // ---- Beem OTP + SMS (BEEM-OTP-001): Super Admin only; PINs are never stored
+    match /otp_logs/{id} { allow read: if adminIn([]); allow write: if false; }
+    match /sms_logs/{id} { allow read: if adminIn([]); allow write: if false; }
+    match /beem_stats/{day} { allow read: if adminIn([]); allow write: if false;
+      match /shards/{s} { allow read: if adminIn([]); allow write: if false; } }
+    match /beem_health/{doc=**} { allow read: if adminIn([]); allow write: if false; }
+    match /otp_sessions/{m} { allow read, write: if false; }
+    match /otp_rate/{k} { allow read, write: if false; }
+    // Listing Studio jobs (server-only; sellers see progress on listings/{id}.studio)
+    match /studioJobs/{id} { allow read: if adminIn(['moderator', 'operations']); allow write: if false; }
+    match /studioUsage/{day} { allow read: if adminIn([]); allow write: if false; }
     match /otp/{msisdn} { allow read, write: if false; }
     // saved delivery addresses (a personal shortlist that points at the shared store)
     match /users/{uid}/addresses/{id} {
@@ -101,11 +120,22 @@ service cloud.firestore {
     match /escrowLedger/{orderId}/entries/{e} { allow read: if adminIn(['finance', 'analyst']); }
     match /payouts/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support', 'analyst']); }
     match /withdrawals/{id} { allow read: if (signedIn() && resource.data.uid == request.auth.uid) || adminIn(['finance', 'support']); }
+    // Lipila full-balance withdrawals: the owner may read their own requests; status, balances and locks are server-only.
+    match /withdrawal_requests/{id} { allow read: if (signedIn() && resource.data.user_id == request.auth.uid) || adminIn(['finance', 'support']); allow write: if false; }
+    match /withdrawal_audit_log/{id} { allow read: if (signedIn() && resource.data.user_id == request.auth.uid) || adminIn(['finance', 'support']); allow write: if false; }
+    // Lipila webhook store + Transaction Monitor: Super Admin only, written by functions only
+    match /lipila_webhook_events/{id} { allow read: if adminIn([]); allow write: if false; }
+    match /webhook_idempotency_log/{id} { allow read, write: if false; }
+    match /lipila_tx_stats/{day} { allow read: if adminIn([]); allow write: if false;
+      match /shards/{s} { allow read: if adminIn([]); allow write: if false; } }
+    match /adminRate/{id} { allow read, write: if false; }
+    match /adminViewLog/{id} { allow read: if adminIn([]); allow write: if false; }
+    match /adminAccessDenied/{id} { allow read: if adminIn([]); allow write: if false; }
     match /insurancePolicies/{id} { allow read: if adminIn(['finance', 'operations']); }
     match /registrationFees/{id} { allow read: if adminIn(['finance', 'compliance']); }
 
-    match /riderWallets/{uid} { allow read: if me(uid) || adminIn(['finance', 'operations', 'support', 'analyst']); }
-    match /sellerStats/{uid} { allow read: if me(uid) || admin(); }
+    match /riderWallets/{uid} { allow read: if me(uid) || adminIn(['finance', 'operations', 'support', 'analyst']); allow write: if false; }
+    match /sellerStats/{uid} { allow read: if me(uid) || admin(); allow write: if false; }
     match /ledgers/{uid}/entries/{e} { allow read: if me(uid) || adminIn(['finance', 'support']); }
     match /socialFundTransactions/{id} { allow read: if (signedIn() && resource.data.riderUid == request.auth.uid) || adminIn(['finance']); }
 

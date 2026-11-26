@@ -1,10 +1,11 @@
 import { PARCEL_DEFAULTS } from "./parcel-rules";
+import { MAPS_DEFAULTS } from "./maps/approved";
 
 /** Defaults mirror PRD v6.0 section 8.4 (+ Parcels v2 §3/§9/§17); the live values are in platformConfig/default. */
 export const DEFAULT_CONFIG = {
   ...PARCEL_DEFAULTS,
   flatPlatformFeeKwacha: 5, buyerServiceFeePct: 0, riderPlatformFeePct: 8, socialFundPct: 5,
-  socialFundMilestoneDeliveries: 0, heroBonusPct: 10, deliveryFeePerKm: 5, deliveryBaseFee: 5, paymentProcessingPct: 0,
+  socialFundMilestoneDeliveries: 0, heroBonusPct: 10, paymentProcessingPct: 0,
   parcelListingFee: 5, insurancePremiumPct: 2, insuranceMaxDeclaredValue: 20000, agentPlatformCutPct: 5,
   sellerRegistrationFee: 10, riderWithdrawalFee: 15, minWithdrawal: 20, broadcastTimeoutMin: 5,
   autoConfirmHours: 48, maxConcurrentDeliveries: 4, dispatchCountdownSec: 15, pinMaxAttempts: 5,
@@ -13,6 +14,13 @@ export const DEFAULT_CONFIG = {
   // v6.2 paid promotions (kwacha) and how often a boost may appear
   boostLocalPerDay: 20, boostRegionalPerDay: 45, boostNationalPerDay: 90, storyPrice24h: 10, boostFrequencyCap: 3, boostSlotsPerPage: 2,
   unpaidOrderCancelMin: 30, signupOtpRequired: true,
+  // Lipila withdrawals: wait this long for the callback before reconciling with a status lookup
+  withdrawalWebhookTimeoutSec: 300,
+  // Listing Studio (Gemini + Deepgram + ElevenLabs + Cloudinary + Runway)
+  studioEnabled: true, studioAutoStart: true, studioAutoApply: true, studioVoiceoverEnabled: true, studioRunwayEnabled: true, studioCaptionsEnabled: true,
+  studioBackgroundRemoval: false, studioMaxJobsPerSellerPerDay: 5, studioDailyCapRunway: 100, studioDailyCapVoiceover: 500,
+  // Google Maps: delivery fee engine (base K45 + K5.50/km), kill switches, caps, rerouting
+  ...MAPS_DEFAULTS,
 };
 export type PlatformConfig = typeof DEFAULT_CONFIG;
 

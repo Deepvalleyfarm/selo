@@ -56,6 +56,9 @@ class RouteController {
     var rerouting by mutableStateOf(false)
     var note by mutableStateOf<String?>(null)
     internal var reroute by mutableIntStateOf(0)
+    /** Stop keys (orderId:type) of the route in [directions], used to trim finished legs instead of re-requesting. */
+    internal var routeKeys: List<String> = emptyList()
+    internal var policy: ReroutePolicy? = null
     val nextStop: Stop? get() = plan?.stops?.firstOrNull()
     val remainingM: Int get() = nav?.remainingM ?: ((plan?.totalKm ?: 0.0) * 1000).roundToInt()
     val remainingS: Int get() = nav?.remainingS ?: ((plan?.etaMin ?: 0) * 60)
@@ -78,20 +81,29 @@ fun rememberRouteController(active: List<Order>, vehicle: String): RouteControll
     val pos by rememberRiderPosition(simulate = app.backend.isDemo, simulatePath = rc.directions?.path ?: emptyList(), start = demo?.rider?.startAt)
     LaunchedEffect(pos) { pos.first?.let { rc.position = it }; rc.heading = pos.second }
 
-    // plan + directions whenever the set of stops changes, or after leaving the route
+    val cfg by app.config.collectAsState()
+    if (rc.policy == null) rc.policy = ReroutePolicy(cfg.rerouteMinIntervalSec * 1000L, cfg.rerouteMaxPerHour, cfg.offRouteFixes)
+    // Route only for accepted jobs (this controller only exists with active jobs). A new route is requested when the
+    // set of stops changes or the policy says the rider has really left the route; finished stops just trim legs.
     LaunchedEffect(progressKey, rc.coords, rc.reroute, rc.position == null) {
-        if (active.isEmpty()) { rc.plan = null; rc.directions = null; rc.nav = null; return@LaunchedEffect }
+        if (active.isEmpty()) { rc.plan = null; rc.directions = null; rc.nav = null; rc.routeKeys = emptyList(); return@LaunchedEffect }
         val origin = rc.position ?: demo?.rider?.startAt ?: rc.stopsFor(active).firstNotNullOfOrNull { it.at } ?: return@LaunchedEffect
         val plan = RoutePlanner.plan(origin, rc.stopsFor(active), vehicle)
         rc.plan = plan
+        val keys = plan.stops.map { "${it.orderId}:${it.type}" }
+        val cur = rc.directions
+        if (cur != null && cur.source != "straight_line" && isSuffix(rc.routeKeys, keys)) {
+            rc.directions = cur.dropLegs(rc.routeKeys.size - keys.size); rc.routeKeys = keys; rc.nav = null; return@LaunchedEffect
+        }
         rc.rerouting = true
-        rc.directions = runCatching { app.backend.directions(origin, plan.stops, vehicle) }
+        rc.directions = runCatching { app.backend.directions(origin, plan.stops.filter { it.at != null }, vehicle) }
             .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it
-                rc.note = "Road directions unavailable — showing straight-line guidance. Use Google Maps for the roads." }
-            .onSuccess { rc.note = null }
+                rc.note = "Road directions are unavailable right now — showing straight-line guidance." }
+            .onSuccess { rc.note = null; rc.policy?.routed(System.currentTimeMillis()) }
             .getOrElse { NavigationEngine.straightLine(origin, plan.stops, vehicle) }
             .let { d -> d.copy(steps = d.steps.map { s -> if (s.maneuver == "arrive") s.copy(instruction = plan.stops.getOrNull(s.legIndex)?.let { st ->
                 (if (st.type == StopType.PICKUP) "Arrive at pickup: " else "Arrive at drop-off: ") + st.label } ?: s.instruction) else s }) }
+        rc.routeKeys = keys
         rc.nav = null; rc.rerouting = false
     }
     // progress along the route
@@ -99,7 +111,8 @@ fun rememberRouteController(active: List<Order>, vehicle: String): RouteControll
         val d = rc.directions ?: return@LaunchedEffect; val p = rc.position ?: return@LaunchedEffect
         val st = NavigationEngine.progress(d, p, rc.nav?.stepIndex ?: 0)
         rc.nav = st
-        if (st.offRoute && !rc.rerouting && d.source != "straight_line") { rc.rerouting = true; rc.reroute++ }
+        val off = st.offRouteM > cfg.offRouteMeters
+        if (rc.policy?.onFix(off, System.currentTimeMillis()) == true && !rc.rerouting && d.source != "straight_line") { rc.rerouting = true; rc.reroute++ }
     }
     return rc
 }
@@ -152,7 +165,7 @@ fun DispatchOverlay(o: Order, active: List<Order>, profile: RiderProfile?, rc: R
                         away?.let { Text("${km(it)} away", color = Selo.Ink, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                     }
                     RouteMap(listOfNotNull(me, pickup, drop), listOfNotNull(pickup?.let { MapStop(it, StopType.PICKUP, 1) }, drop?.let { MapStop(it, StopType.DROPOFF, 2) }), me,
-                        Modifier.size(120.dp, 96.dp))
+                        Modifier.size(120.dp, 96.dp), schematic = true)
                 }
                 Column(Modifier.fillMaxWidth().background(Selo.Surface, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.Place, null, tint = Selo.Red); Text("  ${o.pickup}", fontWeight = FontWeight.Bold) }
@@ -207,7 +220,7 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
 
     Column(Modifier.fillMaxSize()) {
         RiderTitle(if (active.size > 1) "Route · ${active.size} orders" else "Active delivery", trailing = {
-            TextButton({ openGoogleMaps(ctx, rc) }) { Icon(Icons.Outlined.Map, null, tint = Selo.Red, modifier = Modifier.size(18.dp)); Text(" Google Maps", color = Selo.Red, fontSize = 13.sp) }
+            TextButton(onNavigate) { Icon(Icons.Outlined.Navigation, null, tint = Selo.Red, modifier = Modifier.size(18.dp)); Text(" Navigate", color = Selo.Red, fontSize = 13.sp) }
         })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box {
@@ -560,13 +573,3 @@ internal fun call(ctx: android.content.Context, msisdn: String) {
     runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${msisdn.replace(" ", "")}"))) }
 }
 
-/** Same planned order in Google Maps (up to 9 waypoints) for riders who prefer it. */
-internal fun openGoogleMaps(ctx: android.content.Context, rc: RouteController) {
-    val stops = rc.plan?.stops.orEmpty()
-    if (stops.isEmpty()) return
-    fun w(s: Stop) = s.at?.let { "${it.lat},${it.lng}" } ?: s.address
-    val url = "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination=" + Uri.encode(w(stops.last())) +
-        (if (stops.size > 1) "&waypoints=" + Uri.encode(stops.dropLast(1).take(9).joinToString("|") { w(it) }) else "") +
-        (rc.position?.let { "&origin=${it.lat},${it.lng}" } ?: "")
-    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-}

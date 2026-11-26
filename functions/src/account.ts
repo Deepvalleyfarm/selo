@@ -2,55 +2,22 @@
  * Account and support: sign-up OTP (proves the number before an account is created), "which security questions did I
  * choose", proof-of-delivery photos, and support tickets with threaded replies.
  */
-import { createHash, randomInt } from "node:crypto";
+import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { SMS_API_KEY, db } from "./config";
+import { db } from "./config";
 import { SECURITY_QUESTION_BANK } from "./domain-defaults";
-import { normaliseMsisdn } from "./domain";
-import { sendSms } from "./sms";
 import { notify, requireAdmin, requireUser, str } from "./util";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
-const OTP_TTL_MS = 10 * 60_000, OTP_MAX_SENDS = 3, OTP_MAX_TRIES = 5;
+/* Sign-up OTP now runs on Beem Africa: see beem/otp.controller.ts (auth_sendOtp / auth_verifyOtp). */
 
-/** Sends a 6-digit sign-up code by SMS. Max 3 sends per number per hour; a number that already has an account is refused. */
-export const auth_sendOtp = onCall({ secrets: [SMS_API_KEY] }, async (req) => {
-  const m = normaliseMsisdn(req.data?.msisdn);
-  if (!m) throw new HttpsError("invalid-argument", "Enter a valid Airtel, MTN or Zamtel number.");
-  if ((await db.doc(`msisdnIndex/${m}`).get()).exists) throw new HttpsError("already-exists", "This number already has an account. Log in instead.");
-  const ref = db.doc(`otp/${m}`);
-  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  await db.runTransaction(async (tx) => {
-    const cur = (await tx.get(ref)).data();
-    const windowStart = (cur?.windowStart as Timestamp | undefined)?.toMillis() ?? 0;
-    const sends = Date.now() - windowStart < 3_600_000 ? (cur?.sends ?? 0) : 0;
-    if (sends >= OTP_MAX_SENDS) throw new HttpsError("resource-exhausted", "Too many codes requested. Try again in an hour.");
-    tx.set(ref, { hash: sha(`${m}:${code}`), expiresAt: Timestamp.fromMillis(Date.now() + OTP_TTL_MS), tries: 0, verified: false, sends: sends + 1,
-      windowStart: sends === 0 ? Timestamp.now() : cur!.windowStart });
-  });
-  const r = await sendSms(m, `${code} is your SeloNaChipa sign-up code. It expires in 10 minutes. Never share it.`);
-  if (!r.ok) throw new HttpsError("unavailable", "We couldn't send the SMS. Check the number and try again.");
-  return { expiresInSec: OTP_TTL_MS / 1000 };
-});
-
-/** Checks the code; on success returns a one-time token that auth_register consumes. */
-export const auth_verifyOtp = onCall(async (req) => {
-  const m = normaliseMsisdn(req.data?.msisdn);
-  const code = String(req.data?.code ?? "").replace(/\D/g, "");
-  if (!m || code.length !== 6) throw new HttpsError("invalid-argument", "Enter the 6-digit code.");
-  const ref = db.doc(`otp/${m}`);
-  const token = sha(`${m}:${code}:${Date.now()}:${randomInt(1e9)}`).slice(0, 32);
-  await db.runTransaction(async (tx) => {
-    const o = (await tx.get(ref)).data();
-    if (!o) throw new HttpsError("not-found", "Request a new code.");
-    if ((o.expiresAt as Timestamp).toMillis() < Date.now()) throw new HttpsError("deadline-exceeded", "That code expired. Request a new one.");
-    if ((o.tries ?? 0) >= OTP_MAX_TRIES) throw new HttpsError("resource-exhausted", "Too many wrong codes. Request a new one.");
-    if (o.hash !== sha(`${m}:${code}`)) { tx.update(ref, { tries: FieldValue.increment(1) }); throw new HttpsError("permission-denied", "That code isn't right."); }
-    tx.update(ref, { verified: true, tokenHash: sha(token), tokenExpiresAt: Timestamp.fromMillis(Date.now() + 30 * 60_000) });
-  });
-  return { otpToken: token };
-});
+/** True while a verified, unexpired token exists (does not burn it). Lets a person mid-registration use the address search. */
+export async function peekOtpToken(msisdn: string, token: unknown): Promise<boolean> {
+  if (typeof token !== "string" || token.length !== 32) return false;
+  const o = (await db.doc(`otp/${msisdn}`).get()).data();
+  return !!o?.verified && o.tokenHash === sha(token) && (o.tokenExpiresAt as Timestamp).toMillis() > Date.now();
+}
 
 /** Used by auth_register: true once, then the token is burnt. */
 export async function consumeOtpToken(msisdn: string, token: unknown): Promise<boolean> {

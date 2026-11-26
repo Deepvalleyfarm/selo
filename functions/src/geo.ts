@@ -1,26 +1,23 @@
 /**
- * Shared address system: autocomplete, place details, reverse geocoding, route distance and the platform address store.
- * Google Maps Platform is called server-side (MAPS_API_KEY never reaches the apps). Without a key, or when Google is
- * slow or down, the store and the built-in neighbourhood gazetteer still answer, and distances fall back to straight
- * line × road factor, labelled approximate.
+ * Shared address system on the approved Google Maps APIs (see maps/approved.ts):
+ *  - Autocomplete: platform address store → Places API (New) predictions (Zambia only) → neighbourhood gazetteer.
+ *  - Selecting a prediction: Geocoding API by place_id, once; the result is cached and the saved location keeps it forever.
+ *  - Pin drop: nearby saved address first (free), then Geocoding API reverse lookup cached per ~11 m.
+ *  - Distance/ETA/fee: Routes API computeRouteMatrix (cached), straight line × 1.3 labelled "approximate" as fallback.
+ * Nothing here throws because Google is down, capped or switched off: the store and gazetteer still answer.
  */
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { MAPS_API_KEY, db } from "./config";
+import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
+import { MAPS_API_KEY, db, loadConfig } from "./config";
+import { peekOtpToken } from "./account";
+import { normaliseMsisdn } from "./domain";
+import { geocodeAddress, geocodePlaceId, placesAutocomplete, reverseGeocode, routeMatrix } from "./maps/client";
+import { geohash, haversineM, isLL, toLL } from "./maps/geo-math";
+import { userWithinLimit } from "./maps/usage";
 import { CITIES, cityById, cityOf, haversineKm, neighbourhoodFallback, type LL } from "./parcel-rules";
-import { requireUser, str } from "./util";
 
 export const ROAD_FACTOR = 1.3;
-const TIMEOUT_MS = 4_000;
-const isLL = (v: any): v is LL => v && Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lng)) && Math.abs(v.lat) <= 90 && Math.abs(v.lng) <= 180;
-const toLL = (v: any): LL => ({ lat: Number(v.lat), lng: Number(v.lng) });
-function key(): string { try { return MAPS_API_KEY.value() || process.env.MAPS_API_KEY || ""; } catch { return process.env.MAPS_API_KEY || ""; } }
-
-async function getJson(url: string, init?: RequestInit): Promise<any | null> {
-  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try { const r = await fetch(url, { ...init, signal: ctl.signal }); return r.ok ? await r.json() : null; } catch { return null; } finally { clearTimeout(t); }
-}
 
 export const normLabel = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 export const searchTokens = (s: string) => [...new Set(normLabel(s).split(" ").filter((w) => w.length >= 2))].slice(0, 20)
@@ -28,12 +25,12 @@ export const searchTokens = (s: string) => [...new Set(normLabel(s).split(" ").f
 
 export interface Suggestion { id: string; label: string; secondary: string; source: "store" | "google" | "gazetteer"; lat?: number; lng?: number }
 export interface Place { id: string; label: string; address: string; lat: number; lng: number; cityId: string | null; cityName: string | null; neighbourhood: string | null;
-  inServiceArea: boolean; approximate: boolean }
+  inServiceArea: boolean; approximate: boolean; placeId?: string | null }
 
-function placeFor(label: string, address: string, at: LL, id: string, approximate: boolean, neighbourhood?: string | null): Place {
+function placeFor(label: string, address: string, at: LL, id: string, approximate: boolean, neighbourhood?: string | null, placeId?: string | null): Place {
   const city = cityOf(at);
   return { id, label, address, lat: at.lat, lng: at.lng, cityId: city?.id ?? null, cityName: city?.name ?? null,
-    neighbourhood: neighbourhood ?? nearestNeighbourhood(at)?.name ?? null, inServiceArea: !!city, approximate };
+    neighbourhood: neighbourhood ?? nearestNeighbourhood(at)?.name ?? null, inServiceArea: !!city, approximate, placeId: placeId ?? null };
 }
 
 /** Closest named neighbourhood in the gazetteer (uses stand-in positions when no surveyed centroid exists). */
@@ -54,89 +51,95 @@ function gazetteer(q: string, cityId?: string | null): Suggestion[] {
   return out.slice(0, 8);
 }
 
-export async function autocomplete(input: string, cityId?: string | null, near?: LL | null): Promise<{ suggestions: Suggestion[]; degraded: boolean }> {
-  const q = input.trim().slice(0, 120);
-  if (q.length < 2) return { suggestions: [], degraded: false };
-  const tok = searchTokens(q)[0];
-  const storeQ = db.collection("addresses").where("searchTokens", "array-contains", normLabel(q).split(" ")[0]?.slice(0, 8) ?? tok);
-  const [store, google] = await Promise.all([
-    (cityId ? storeQ.where("cityId", "==", cityId) : storeQ).orderBy("useCount", "desc").limit(6).get().then((s) => s.docs).catch(() => []),
-    (async () => {
-      const k = key(); if (!k) return null;
-      const city = cityId ? cityById(cityId) : null; const bias = near ?? (city ? { lat: city.lat, lng: city.lng } : null);
-      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&components=country:zm&key=${k}` +
-        (bias ? `&location=${bias.lat},${bias.lng}&radius=${(city?.radiusKm ?? 20) * 1000}` : "");
-      const j = await getJson(url);
-      return j?.status === "OK" || j?.status === "ZERO_RESULTS" ? (j.predictions ?? []) : null;
-    })(),
-  ]);
-  const fromStore: Suggestion[] = store.filter((d) => normLabel(`${d.get("label")} ${d.get("address")}`).includes(normLabel(q).split(" ")[0] ?? ""))
-    .map((d) => ({ id: `addr:${d.id}`, label: d.get("label"), secondary: d.get("address"), source: "store", lat: d.get("lat"), lng: d.get("lng") }));
-  const fromGoogle: Suggestion[] = (google ?? []).slice(0, 6).map((p: any) => ({ id: `g:${p.place_id}`, label: p.structured_formatting?.main_text ?? p.description,
-    secondary: p.structured_formatting?.secondary_text ?? "", source: "google" }));
-  const merged = [...fromStore, ...fromGoogle, ...gazetteer(q, cityId)];
-  const seen = new Set<string>();
-  return { suggestions: merged.filter((s) => { const k = normLabel(s.label + s.secondary); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10),
-    degraded: !!key() && google === null };
+/** Who is asking: a signed-in user, or someone mid-registration holding a verified (unconsumed) OTP token. */
+export async function caller(req: CallableRequest): Promise<string> {
+  if (req.auth?.uid) return req.auth.uid;
+  const m = normaliseMsisdn(req.data?.preauth?.msisdn);
+  if (m && (await peekOtpToken(m, req.data?.preauth?.otpToken))) return `pre_${m}`;
+  throw new HttpsError("unauthenticated", "Please log in again.");
 }
 
-export async function details(id: string): Promise<Place> {
+export async function autocomplete(input: string, who: string, cityId?: string | null, near?: LL | null, sessionToken?: string):
+  Promise<{ suggestions: Suggestion[]; degraded: boolean }> {
+  const cfg = await loadConfig();
+  const q = input.trim().slice(0, 120);
+  if (q.length < Number(cfg.mapsAutocompleteMinChars ?? 3)) return { suggestions: [], degraded: false };
+  const first = normLabel(q).split(" ")[0]?.slice(0, 8) ?? "";
+  const storeQ = db.collection("addresses").where("searchTokens", "array-contains", first);
+  const store = await (cityId ? storeQ.where("cityId", "==", cityId) : storeQ).orderBy("useCount", "desc").limit(6).get().then((s) => s.docs).catch(() => []);
+  const fromStore: Suggestion[] = store.filter((d) => normLabel(`${d.get("label")} ${d.get("address")}`).includes(first))
+    .map((d) => ({ id: `addr:${d.id}`, label: d.get("label"), secondary: d.get("address"), source: "store", lat: d.get("lat"), lng: d.get("lng") }));
+  // Enough strong matches from our own store? Skip Google entirely (free).
+  let google: Suggestion[] = []; let degraded = false;
+  if (fromStore.length < 3) {
+    const city = cityId ? cityById(cityId) : null;
+    const bias = near ?? (city ? { lat: city.lat, lng: city.lng } : null);
+    const limitOk = await userWithinLimit(who, "places_autocomplete", Number(cfg.mapsUserAutocompletePerHour ?? 0));
+    const preds = limitOk ? await placesAutocomplete(q, cfg, { bias, radiusM: (city?.radiusKm ?? 25) * 1000, sessionToken }) : null;
+    degraded = preds === null;
+    google = (preds ?? []).map((p) => ({ id: `g:${p.placeId}`, label: p.primary, secondary: p.secondary, source: "google" as const }));
+  }
+  const merged = [...fromStore, ...google, ...gazetteer(q, cityId)];
+  const seen = new Set<string>();
+  return { suggestions: merged.filter((s) => { const k = normLabel(s.label + s.secondary); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10), degraded };
+}
+
+/** Resolves a suggestion to a point. Google predictions are geocoded once by place_id (Geocoding API, cached). */
+export async function details(id: string, who = "system"): Promise<Place> {
+  const cfg = await loadConfig();
   if (id.startsWith("addr:")) {
     const d = (await db.doc(`addresses/${id.slice(5)}`).get()).data();
     if (!d) throw new HttpsError("not-found", "That address is no longer available.");
-    return placeFor(d.label, d.address, { lat: d.lat, lng: d.lng }, id, !!d.approximate, d.neighbourhood);
+    return placeFor(d.label, d.address, { lat: d.lat, lng: d.lng }, id, !!d.approximate, d.neighbourhood, d.placeId ?? null);
   }
   if (id.startsWith("nb:")) {
     const [, cityId, nb] = id.split(":"); const city = cityById(cityId);
     if (!city) throw new HttpsError("not-found", "Unknown city.");
     const label = nb || city.name;
-    const g = await geocodeText(`${nb ? nb + ", " : ""}${city.name}, Zambia`);
-    const at = g && cityOf(g)?.id === city.id ? g : nb ? neighbourhoodFallback(city, nb) : { lat: city.lat, lng: city.lng };
-    return placeFor(label, `${label}${nb ? ", " + city.name : ""}`, at, id, !g, nb || null);
+    const g = nb ? await geocodeAddress(`${nb}, ${city.name}, Zambia`, cfg) : null;
+    const gl = g ? { lat: g.latitude, lng: g.longitude } : null;
+    const at = gl && cityOf(gl)?.id === city.id ? gl : nb ? neighbourhoodFallback(city, nb) : { lat: city.lat, lng: city.lng };
+    return placeFor(label, `${label}${nb ? ", " + city.name : ""}`, at, id, !gl, nb || null);
   }
   if (id.startsWith("g:")) {
-    const k = key(); if (!k) throw new HttpsError("unavailable", "Address lookup is unavailable. Pick the spot on the map instead.");
-    const j = await getJson(`https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(id.slice(2))}&fields=name,formatted_address,geometry&key=${k}`);
-    const r = j?.result;
-    if (!r?.geometry?.location) throw new HttpsError("unavailable", "We couldn't load that address. Try again or pick it on the map.");
-    return placeFor(r.name ?? r.formatted_address, r.formatted_address ?? r.name, r.geometry.location, id, false);
+    const placeId = id.slice(2);
+    // Same place saved before? Use the stored coordinates — never geocode the same place twice.
+    const known = await db.collection("addresses").where("placeId", "==", placeId).limit(1).get().catch(() => null);
+    const k = known?.docs[0];
+    if (k) return placeFor(k.get("label"), k.get("address"), { lat: k.get("lat"), lng: k.get("lng") }, `addr:${k.id}`, false, k.get("neighbourhood"), placeId);
+    if (!(await userWithinLimit(who, "geocoding", Number(cfg.mapsUserGeocodePerHour ?? 0))))
+      throw new HttpsError("resource-exhausted", "Too many address lookups. Pick the spot on the map instead.");
+    const g = await geocodePlaceId(placeId, cfg);
+    if (!g) throw new HttpsError("unavailable", "We couldn't load that address. Try again or pick it on the map.");
+    const short = g.address.split(",")[0];
+    return placeFor(short, g.address, { lat: g.latitude, lng: g.longitude }, id, false, null, placeId);
   }
   throw new HttpsError("invalid-argument", "Unknown address.");
 }
 
-async function geocodeText(text: string): Promise<LL | null> {
-  const k = key(); if (!k) return null;
-  const j = await getJson(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(text)}&region=zm&components=country:ZM&key=${k}`);
-  const loc = j?.results?.[0]?.geometry?.location; return isLL(loc) ? toLL(loc) : null;
-}
-
+/** Pin drop: a saved address within 25 m wins (free); otherwise one cached reverse geocode; otherwise the gazetteer. */
 export async function reverse(at: LL): Promise<Place> {
-  const k = key();
-  if (k) {
-    const j = await getJson(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${at.lat},${at.lng}&result_type=street_address|route|premise|sublocality|neighborhood&key=${k}`);
-    const r = j?.results?.[0];
-    if (r) return placeFor(r.formatted_address.split(",")[0], r.formatted_address, at, `pin:${at.lat.toFixed(6)},${at.lng.toFixed(6)}`, false);
-  }
+  const pinId = `pin:${at.lat.toFixed(6)},${at.lng.toFixed(6)}`;
+  const near = await db.collection("addresses").where("cell", "==", `${at.lat.toFixed(3)},${at.lng.toFixed(3)}`).limit(30).get().catch(() => null);
+  const best = near?.docs.map((d) => ({ d, m: haversineM(at, { lat: d.get("lat"), lng: d.get("lng") }) })).sort((a, b) => a.m - b.m)[0];
+  if (best && best.m <= 25) return placeFor(best.d.get("label"), best.d.get("address"), at, pinId, false, best.d.get("neighbourhood"), best.d.get("placeId") ?? null);
+  const g = await reverseGeocode(at, await loadConfig());
+  if (g) return placeFor(g.address.split(",")[0], g.address, at, pinId, false, null, g.placeId);
   const nb = nearestNeighbourhood(at); const city = cityOf(at);
   const label = nb ? `Pinned location near ${nb.name}` : "Pinned location";
-  return placeFor(label, city ? `${nb?.name ? nb.name + ", " : ""}${city.name}` : `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`, at,
-    `pin:${at.lat.toFixed(6)},${at.lng.toFixed(6)}`, false, nb?.name ?? null);
+  return placeFor(label, city ? `${nb?.name ? nb.name + ", " : ""}${city.name}` : `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`, at, pinId, false, nb?.name ?? null);
 }
 
-/** Road distance/duration; falls back to straight line × 1.3 and says so (approximate). */
+/** Road distance/duration (Routes API matrix, cached); falls back to straight line × 1.3 and says so. */
 export async function routeDistance(from: LL, to: LL): Promise<{ distanceKm: number; durationMin: number; approximate: boolean }> {
-  const k = key();
-  if (k) {
-    const j = await getJson(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${from.lat},${from.lng}&destinations=${to.lat},${to.lng}&mode=driving&region=zm&key=${k}`);
-    const el = j?.rows?.[0]?.elements?.[0];
-    if (el?.status === "OK") return { distanceKm: Math.round(el.distance.value / 100) / 10, durationMin: Math.ceil(el.duration.value / 60), approximate: false };
-  }
+  const r = await routeMatrix(from, to, await loadConfig());
+  if (r) return { distanceKm: Math.round(r.distanceM / 100) / 10, durationMin: Math.max(1, Math.ceil(r.durationS / 60)), approximate: false };
   const km = Math.round(haversineKm(from, to) * ROAD_FACTOR * 10) / 10;
-  return { distanceKm: km, durationMin: Math.ceil((km / 25) * 60), approximate: true };
+  return { distanceKm: km, durationMin: Math.max(1, Math.ceil((km / 25) * 60)), approximate: true };
 }
 
-/** Platform address store with de-duplication: same name within 30 m, or any entry within 8 m, is the same place. */
-export async function saveAddress(uid: string, p: { label: string; address: string; lat: number; lng: number; source?: string; approximate?: boolean }) {
+/** Platform address store with de-duplication: same name within 30 m, the same Google place, or any entry within 8 m. */
+export async function saveAddress(uid: string, p: { label: string; address: string; lat: number; lng: number; source?: string; approximate?: boolean; placeId?: string | null }) {
   const at = toLL(p);
   const city = cityOf(at);
   if (!city) throw new HttpsError("failed-precondition", "That location is outside our service area.");
@@ -145,44 +148,76 @@ export async function saveAddress(uid: string, p: { label: string; address: stri
   const near = await db.collection("addresses").where("cell", "==", cell).limit(50).get();
   const dup = near.docs.find((d) => {
     const m = haversineKm(at, { lat: d.get("lat"), lng: d.get("lng") }) * 1000;
-    return m <= 8 || (m <= 30 && normLabel(d.get("label")) === normLabel(label));
+    return m <= 8 || (m <= 30 && normLabel(d.get("label")) === normLabel(label)) || (!!p.placeId && d.get("placeId") === p.placeId && m <= 150);
   });
   if (dup) {
-    await dup.ref.update({ useCount: FieldValue.increment(1), lastUsedAt: FieldValue.serverTimestamp(), usedBy: FieldValue.arrayUnion(uid) });
+    await dup.ref.update({ useCount: FieldValue.increment(1), lastUsedAt: FieldValue.serverTimestamp(), usedBy: FieldValue.arrayUnion(uid),
+      ...(p.placeId && !dup.get("placeId") ? { placeId: p.placeId } : {}) });
     return { id: dup.id, deduplicated: true };
   }
   const id = createHash("sha1").update(`${cell}|${normLabel(label)}`).digest("hex").slice(0, 20);
   const nb = nearestNeighbourhood(at);
   await db.doc(`addresses/${id}`).set({ label, address: p.address.trim().slice(0, 200), lat: at.lat, lng: at.lng, cell, cityId: city.id, cityName: city.name,
     neighbourhood: nb?.name ?? null, searchTokens: searchTokens(`${label} ${p.address} ${nb?.name ?? ""}`), source: p.source ?? "user", approximate: !!p.approximate,
-    createdBy: uid, createdAt: FieldValue.serverTimestamp(), useCount: 1, usedBy: [uid], lastUsedAt: FieldValue.serverTimestamp() }, { merge: true });
+    placeId: p.placeId ?? null, createdBy: uid, createdAt: FieldValue.serverTimestamp(), useCount: 1, usedBy: [uid], lastUsedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { id, deduplicated: false };
+}
+
+/**
+ * The permanent location on a user's record: users/{uid}.location = { address, latitude, longitude } (+ placeId,
+ * source). Sellers also get the public stores/{uid} doc (store markers, "shops near me"). Saving the same place again
+ * is a no-op, so coordinates are never looked up twice.
+ */
+export async function saveUserLocation(uid: string, role: string, p: { address: string; label?: string; latitude: number; longitude: number; placeId?: string | null; source?: string }) {
+  const at = { lat: p.latitude, lng: p.longitude };
+  if (!isLL(at)) throw new HttpsError("invalid-argument", "Location required.");
+  const city = cityOf(at);
+  if (!city) throw new HttpsError("failed-precondition", "That location is outside the cities we serve.");
+  const ref = db.doc(`users/${uid}`);
+  const cur = (await ref.get()).data() ?? {};
+  const same = cur.location && ((p.placeId && cur.location.placeId === p.placeId) ||
+    haversineM({ lat: cur.location.latitude, lng: cur.location.longitude }, at) < 3);
+  const location = { address: p.address.slice(0, 200), latitude: at.lat, longitude: at.lng, placeId: p.placeId ?? null, source: p.source ?? "user",
+    cityId: city.id, neighbourhood: nearestNeighbourhood(at)?.name ?? null, updatedAt: FieldValue.serverTimestamp() };
+  if (!same) await ref.set({ location, geo: at, landmark: cur.landmark ?? p.label ?? null }, { merge: true });
+  if (role === "SELLER") await db.doc(`stores/${uid}`).set({ name: cur.storeName ?? cur.fullName ?? "", address: location.address, latitude: at.lat, longitude: at.lng,
+    geohash: geohash(at), geohash5: geohash(at, 5), cityId: city.id, sellerUid: uid, active: cur.accountStatus === "ACTIVE", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await saveAddress(uid, { label: p.label ?? p.address.split(",")[0], address: p.address, lat: at.lat, lng: at.lng, source: p.source, placeId: p.placeId });
+  return { ok: true, unchanged: !!same, cityId: city.id };
 }
 
 /* ------------------------------------------------------------------ callables */
 
 const opt = { secrets: [MAPS_API_KEY] };
 export const geo_autocomplete = onCall(opt, async (req) => {
-  requireUser(req);
-  return autocomplete(String(req.data?.input ?? ""), typeof req.data?.cityId === "string" ? req.data.cityId : null, isLL(req.data?.near) ? toLL(req.data.near) : null);
+  const who = await caller(req);
+  return autocomplete(String(req.data?.input ?? ""), who, typeof req.data?.cityId === "string" ? req.data.cityId : null,
+    isLL(req.data?.near) ? toLL(req.data.near) : null, typeof req.data?.sessionToken === "string" ? req.data.sessionToken.slice(0, 64) : undefined);
 });
-export const geo_details = onCall(opt, async (req) => { requireUser(req); return details(str(req.data?.id, "address")); });
+export const geo_details = onCall(opt, async (req) => { const who = await caller(req); return details(String(req.data?.id ?? ""), who); });
 export const geo_reverse = onCall(opt, async (req) => {
-  requireUser(req);
+  await caller(req);
   if (!isLL(req.data)) throw new HttpsError("invalid-argument", "Location required.");
   return reverse(toLL(req.data));
 });
 export const geo_distance = onCall(opt, async (req) => {
-  requireUser(req);
+  await caller(req);
   if (!isLL(req.data?.from) || !isLL(req.data?.to)) throw new HttpsError("invalid-argument", "Both points are required.");
   const from = toLL(req.data.from), to = toLL(req.data.to);
   const r = await routeDistance(from, to);
   return { ...r, sameCity: cityOf(from)?.id === cityOf(to)?.id && !!cityOf(from), fromCity: cityOf(from)?.name ?? null, toCity: cityOf(to)?.name ?? null };
 });
 export const address_save = onCall(async (req) => {
-  const { uid } = requireUser(req);
+  const uid = req.auth?.uid; if (!uid) throw new HttpsError("unauthenticated", "Please log in again.");
   const d = (req.data ?? {}) as Record<string, any>;
   if (!isLL(d as unknown)) throw new HttpsError("invalid-argument", "Location required.");
   return saveAddress(uid, { label: String(d.label ?? ""), address: String(d.address ?? ""), lat: Number(d.lat), lng: Number(d.lng),
-    source: typeof d.source === "string" ? d.source.slice(0, 20) : "user", approximate: d.approximate === true });
+    source: typeof d.source === "string" ? d.source.slice(0, 20) : "user", approximate: d.approximate === true, placeId: typeof d.placeId === "string" ? d.placeId : null });
+});
+/** Buyer delivery address, seller store location, agent / rider base location. */
+export const location_save = onCall(async (req) => {
+  const uid = req.auth?.uid; if (!uid) throw new HttpsError("unauthenticated", "Please log in again.");
+  const d = (req.data ?? {}) as Record<string, any>;
+  return saveUserLocation(uid, String(req.auth?.token.role ?? ""), { address: String(d.address ?? "").trim() || "Pinned location", label: typeof d.label === "string" ? d.label : undefined,
+    latitude: Number(d.latitude ?? d.lat), longitude: Number(d.longitude ?? d.lng), placeId: typeof d.placeId === "string" ? d.placeId : null, source: typeof d.source === "string" ? d.source.slice(0, 20) : "user" });
 });

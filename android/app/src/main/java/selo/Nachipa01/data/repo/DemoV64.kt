@@ -222,8 +222,25 @@ class DemoV64(private val scope: CoroutineScope, private val session: () -> Sess
 
     /* ---------------------------------------------------------------- account + support */
     var lastOtp: String? = null; private set
-    fun sendOtp(msisdn: String): Int { if (Validation.normaliseMsisdn(msisdn) == null) throw BackendException("Enter a valid Airtel, MTN or Zamtel number."); lastOtp = "%06d".format((0..999_999).random()); return 600 }
-    fun verifyOtp(code: String): String { if (code != lastOtp) throw BackendException("That code isn't right."); return "demo-otp-token-0000000000000000" }
+    private var lastPinId: String? = null
+    fun sendOtp(msisdn: String): OtpChallenge {
+        if (Validation.normaliseMsisdn(msisdn) == null) throw BackendException("That number is not valid. Please check and try again.")
+        lastOtp = "%06d".format((0..999_999).random()); lastPinId = java.util.UUID.randomUUID().toString()
+        return OtpChallenge(lastPinId!!, 60)
+    }
+    fun verifyOtp(pinId: String, code: String): String {
+        if (pinId != lastPinId) throw BackendException("Verification session expired. Please restart.")
+        if (code != lastOtp) throw BackendException("That code is incorrect. Please try again.")
+        lastPinId = null; return "demo-otp-token-0000000000000000"
+    }
+    var myLocation: Place? = null; private set
+    fun saveLocation(p: Place) { if (!p.inServiceArea) throw BackendException("That location is outside the cities we serve."); myLocation = p }
+    val stores = listOf(
+        StoreLocation("s1", "Mama Bupe's Veg", "Soweto Market, stall 14", -15.4235, 28.2733), StoreLocation("s2", "Tembo Electronics", "Cairo Road, shop 8", -15.4167, 28.2833),
+        StoreLocation("s3", "Chitenge House", "Kamwala Market", -15.4290, 28.2870), StoreLocation("s4", "Kwacha Grill", "Kabwata", -15.4410, 28.3050),
+        StoreLocation("s5", "Lusaka Hardware", "Lumumba Road", -15.4080, 28.2700), StoreLocation("s6", "Green Leaf Organics", "Woodlands", -15.4300, 28.3280),
+        StoreLocation("s7", "Phone Doctor", "Arcades", -15.4005, 28.3215), StoreLocation("s8", "Baby Corner", "Levy Mall", -15.4175, 28.2875),
+    )
     val prefs = MutableStateFlow(mapOf("orders" to true, "promotions" to false, "chat" to true, "deliveryCodeSms" to true, "weeklySummary" to true))
     val wallets = MutableStateFlow<List<String>>(emptyList())
     private val tickets = MutableStateFlow(listOf(SupportTicket("t1", "SUP-8F2K1A", "Refund for cancelled order", "Payment or refund", "RESOLVED", "Your refund of K 24.00 was sent to Airtel Money.", true, 0, now - 5 * 86_400_000L)))

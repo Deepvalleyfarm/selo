@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { logger } from "firebase-functions/v2";
 import { getStorage } from "firebase-admin/storage";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -138,6 +139,10 @@ export const listing_publish = onCall({ timeoutSeconds: 120 }, async (req) => {
   const b = db.batch();
   media.forEach((m) => b.set(db.doc(`listingMedia/med_${uuidv7()}_${listingId}`), { listingId, sellerUid, ...m, createdAt: FieldValue.serverTimestamp() }));
   await b.commit();
+  // Listing Studio: produce the professional version in the background (originals stay live until it's ready).
+  const cfg = await (await import("./config")).loadConfig() as Record<string, unknown>;
+  if (cfg.studioEnabled !== false && cfg.studioAutoStart !== false)
+    await (await import("./studio/studio")).startStudio(listingId, uid).catch((e) => logger.warn("studio start failed", String(e)));
   return { listingId, status };
 });
 

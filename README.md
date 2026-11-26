@@ -162,6 +162,20 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.5 — Google Maps, Beem OTP/SMS, Lipila production payments, Listing Studio
+
+Full architecture, data model, cost controls, monitoring and the deployment checklist are in
+[`docs/ARCHITECTURE-v6.5.md`](docs/ARCHITECTURE-v6.5.md). In short:
+- **Google Maps:** only Places API (New), Geocoding, Routes and Maps SDK for Android — anything else is blocked in code.
+  Delivery fee = K45 + K5.50/km on road distance (admin-configurable). Rider routes only after acceptance, cached,
+  re-routed only after real deviation. Live buyer tracking, Yango-style pin picker, "Shops near you" with clustering.
+  Run `scripts/maps-setup.sh` to enable the four APIs and create restricted keys.
+- **Beem:** sign-up OTP with SMS auto-read on Android, transactional SMS templates, logs and a Super Admin monitor.
+- **Lipila:** production client, Standard-Webhooks signature verification with idempotency, full-balance withdrawals
+  with locks, reconciliation and manual review, and a Super Admin transaction monitor.
+- **Listing Studio:** Gemini + Deepgram + ElevenLabs + Cloudinary + Runway turn seller videos and photos into
+  branded vertical clips with voiceover and captions (originals kept, labelled AI-enhanced).
+
 ## v6.4 — Parcels v2, delivery codes, addresses, account and support
 
 **Parcels (same city, up to 5 kg, 20 cities)**
@@ -238,7 +252,7 @@ cd functions && npm run test:rules               # Firestore security rules in t
 cd backoffice && npm run build                  # type-check + production bundle
 ```
 
-`android/app/src/test/.../ScreensScreenshotTest.kt` renders 85 screens with Robolectric and Roborazzi:
+`android/app/src/test/.../ScreensScreenshotTest.kt` renders 89 screens with Robolectric and Roborazzi:
 
 ```bash
 ./gradlew testDebugUnitTest -Proborazzi.test.record=true

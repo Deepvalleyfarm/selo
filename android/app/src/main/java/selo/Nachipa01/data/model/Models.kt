@@ -35,8 +35,9 @@ data class PlatformConfig(
     val socialFundPct: Double = 5.0,
     /** 0 = the fund stays ring-fenced for claims (PRD 6.5); >0 releases it every N deliveries. */
     val socialFundMilestoneDeliveries: Int = 0,
-    val deliveryFeePerKm: Double = 5.0,
-    val deliveryBaseFee: Double = 5.0,
+    /** Delivery fee engine: base + km × rate on Routes API road distance (admin dashboard → Maps & delivery pricing). */
+    val deliveryFeePerKm: Double = 5.5,
+    val deliveryBaseFee: Double = 45.0,
     val paymentProcessingPct: Double = 0.0,
     val parcelListingFee: Double = 5.0,
     val insurancePremiumPct: Double = 2.0,
@@ -44,7 +45,7 @@ data class PlatformConfig(
     val agentPlatformCutPct: Double = 5.0,
     val sellerRegistrationFee: Double = 10.0,
     val riderWithdrawalFee: Double = 15.0,
-    val minWithdrawal: Double = 50.0,
+    val minWithdrawal: Double = 20.0,
     val broadcastTimeoutMin: Int = 5,
     val autoConfirmHours: Int = 48,
     val maxConcurrentDeliveries: Int = 4,
@@ -57,6 +58,9 @@ data class PlatformConfig(
     val boostFrequencyCap: Int = 3, val boostSlotsPerPage: Int = 2,
     /** Rider Hero/Ambassador bonus on net delivery earnings (platform-funded). 0 disables. */
     val heroBonusPct: Double = 10.0,
+    /** Google Maps cost controls (server is authoritative; the app mirrors them to avoid wasted calls). */
+    val mapsAutocompleteMinChars: Int = 3, val mapsAutocompleteDebounceMs: Int = 500, val mapsReversePerPickerSession: Int = 5,
+    val rerouteMinIntervalSec: Int = 45, val rerouteMaxPerHour: Int = 12, val offRouteMeters: Int = 60, val offRouteFixes: Int = 3,
 ) {
     companion object {
         fun fromMap(m: Map<String, Any?>): PlatformConfig {
@@ -78,6 +82,10 @@ data class PlatformConfig(
                 d("boostLocalPerDay", x.boostLocalPerDay), d("boostRegionalPerDay", x.boostRegionalPerDay), d("boostNationalPerDay", x.boostNationalPerDay),
                 d("storyPrice24h", x.storyPrice24h), i("boostFrequencyCap", x.boostFrequencyCap), i("boostSlotsPerPage", x.boostSlotsPerPage),
                 heroBonusPct = d("heroBonusPct", x.heroBonusPct),
+                mapsAutocompleteMinChars = i("mapsAutocompleteMinChars", x.mapsAutocompleteMinChars), mapsAutocompleteDebounceMs = i("mapsAutocompleteDebounceMs", x.mapsAutocompleteDebounceMs),
+                mapsReversePerPickerSession = i("mapsReversePerPickerSession", x.mapsReversePerPickerSession),
+                rerouteMinIntervalSec = i("rerouteMinIntervalSec", x.rerouteMinIntervalSec), rerouteMaxPerHour = i("rerouteMaxPerHour", x.rerouteMaxPerHour),
+                offRouteMeters = i("offRouteMeters", x.offRouteMeters), offRouteFixes = i("offRouteFixes", x.offRouteFixes),
             )
         }
     }
@@ -128,7 +136,9 @@ data class SearchResult(val results: List<Listing>, val alsoSearched: List<Strin
 data class Wishlist(val id: String, val name: String, val itemIds: List<String>)
 
 data class SellerListingCard(val id: String, val title: String, val status: String, val thumbUrl: String?, val mediaType: String, val priceNgwee: Long,
-                             val views: Int, val likes: Int, val shares: Int, val enquiries: Int, val postedAt: Long)
+                             val views: Int, val likes: Int, val shares: Int, val enquiries: Int, val postedAt: Long,
+                             /** Listing Studio: processing | ready | failed (+ whether the studio version is live). */
+                             val studioStatus: String? = null, val studioApplied: Boolean = false, val studioVideoUrl: String? = null, val studioError: String? = null)
 data class SellerDashboard(
     val listings: List<SellerListingCard>, val weekViews: Int, val lastWeekViews: Int, val likes: Int, val shares: Int, val enquiries: Int,
     val funnel: List<Pair<String, Int>>, val top: Map<String, SellerListingCard?>, val ageBand: Map<String, Int>, val province: Map<String, Int>,
@@ -154,6 +164,8 @@ data class Order(
     /** v6.4: "order" or "parcel" (rider jobs mix both); parcel jobs need the sender's 4-digit Pickup PIN at collection. */
     val kind: String = "order", val codeState: String? = null, val arrivedAt: Long? = null, val unavailableDeadline: Long? = null,
     val riderEarningsNgwee: Long? = null, val weightBand: String = "", val distanceApproximate: Boolean = false,
+    /** Live tracking (v6.5): rider position, the road path into the drop-off (from the rider's route) and its ETA. */
+    val riderLat: Double? = null, val riderLng: Double? = null, val trackingPolyline: String? = null, val etaMinutes: Int? = null,
 )
 
 data class RiderStats(

@@ -19,7 +19,7 @@ import { coll, releaseGuard, statusField, writeLedger, type OrderKind } from "./
 import {
   applyAttempt, canIssueCode, codeMatches, codeMessage, generateDeliveryCode, hashCode, haversineKm, withinGeofence, type CodeState, type LL,
 } from "./parcel-rules";
-import { sendSms } from "./sms";
+import { sendSms, sendTemplate } from "./sms";
 import { notify, requireAdmin, requireUser, securityEvent, str } from "./util";
 
 /* ------------------------------------------------------------------ shared plumbing */
@@ -92,7 +92,7 @@ export const liveDeps: Deps = {
       android: { priority: "high", ttl: 15 * 60_000, notification: { channelId: "delivery_code", tag: `code_${id}` } } }).catch(() => null);
     return (r?.successCount ?? 0) > 0;
   },
-  sms: sendSms,
+  sms: (to: string, text: string) => sendSms(to, text, { eventType: "DELIVERY_CODE", sensitive: true }),
   waitForAck(kind, id, issuedAt, timeoutMs) {
     return new Promise((resolve) => {
       let done = false;
@@ -333,13 +333,11 @@ async function afterRelease(kind: OrderKind, id: string, p: ReleasePost) {
   ];
   if (kind === "parcel") {
     jobs.push(notify(p.senderUid, "Parcel delivered", `Your parcel ${id} was delivered and confirmed with the receiver's code.`, "DELIVERED", deepLink(kind, id)));
-    if (p.senderMsisdn) jobs.push(sendSms(p.senderMsisdn, `SeloNaChipa: parcel ${id} has been delivered.`));
+    jobs.push(sendTemplate("PARCEL_DELIVERED", p.senderMsisdn, [id], id));
     if (p.receiverUid) jobs.push(notify(p.receiverUid, "Delivered", `Parcel ${id} is marked delivered. Rate your rider in the app.`, "DELIVERED", deepLink(kind, id)));
-    jobs.push(sendSms(p.receiverMsisdn, `SeloNaChipa: parcel ${id} delivered. Thank you!`));
     jobs.push(referralCredit(p.senderUid, id));
   } else {
     jobs.push(notify(p.payerUid, "Order delivered", "Delivery confirmed with your code. Tap to rate your rider.", "DELIVERED", deepLink(kind, id)));
-    jobs.push(sendSms(p.receiverMsisdn, `SeloNaChipa: order ${id} delivered. Thank you!`));
     if (p.seller) jobs.push((async () => {
       const { disburse } = await import("./escrow");
       const u = (await db.doc(`users/${p.seller!.uid}`).get()).data();

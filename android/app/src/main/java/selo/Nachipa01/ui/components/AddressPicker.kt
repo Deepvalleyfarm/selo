@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -79,6 +80,7 @@ fun AddressField(
     var mapOpen by remember { mutableStateOf(false) }
     var locError by remember { mutableStateOf<String?>(null) }
     val saved by app.backend.savedAddresses().collectAsState(emptyList())
+    val cfg by app.config.collectAsState()
 
     fun confirm(p: Place) {
         editing = false; query = ""; results = emptyList()
@@ -87,8 +89,9 @@ fun AddressField(
     }
     LaunchedEffect(query) {
         searchError = null; slow = false
-        if (query.trim().length < 2) { results = emptyList(); searching = false; return@LaunchedEffect }
-        delay(300) // debounce typing
+        // Places API (New) cost rules: nothing below 3 characters, 500 ms debounce, cached results reused on-device.
+        if (!selo.Nachipa01.data.maps.PlacesCache.shouldSearch(query, cfg.mapsAutocompleteMinChars)) { results = emptyList(); searching = false; return@LaunchedEffect }
+        delay(cfg.mapsAutocompleteDebounceMs.toLong())
         searching = true
         val slowJob = launch { delay(2_500); slow = true }
         runCatching { app.backend.addressSuggestions(query, cityId) }
@@ -124,6 +127,7 @@ fun AddressField(
                 trailingIcon = { if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Selo.Red)
                     else if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Outlined.Close, "Clear") } },
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Selo.Red, unfocusedContainerColor = Color.White, focusedContainerColor = Color.White))
+            if (query.isNotBlank() && query.trim().length < cfg.mapsAutocompleteMinChars) Text("Keep typing — suggestions start after ${cfg.mapsAutocompleteMinChars} letters", color = Selo.Mute, fontSize = 12.sp)
             if (slow) Text("Still searching… slow connection", color = Selo.Mute, fontSize = 12.sp)
             searchError?.let { Text(it, color = Selo.Red, fontSize = 12.sp) }
             if (results.isNotEmpty()) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).border(1.dp, Selo.Line, RoundedCornerShape(12.dp))) {
@@ -136,7 +140,7 @@ fun AddressField(
                         Column(Modifier.padding(start = 10.dp)) { Text(s.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp); Text(s.secondary, color = Selo.Mute, fontSize = 12.sp, maxLines = 1) }
                     }
                 }
-            } else if (!searching && query.trim().length >= 2 && searchError == null)
+            } else if (!searching && query.trim().length >= cfg.mapsAutocompleteMinChars && searchError == null)
                 Text("No matches. Try a nearby landmark, or pick the spot on the map.", color = Selo.Mute, fontSize = 12.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip({ askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
@@ -178,6 +182,92 @@ suspend fun currentLocation(ctx: Context): Pair<Double, Double>? {
  */
 @Composable
 fun MapPicker(initial: Place?, cityId: String?, onDismiss: () -> Unit, onConfirm: (Place) -> Unit) {
+    if (selo.Nachipa01.ui.maps.Maps.enabled) GoogleMapPicker(initial, cityId, onDismiss, onConfirm) else OsmMapPicker(initial, cityId, onDismiss, onConfirm)
+}
+
+/**
+ * Google Maps pin picker (Yango-style): the pin stays in the middle and the map moves under it. The pin lifts while
+ * the map moves; when it settles the address under it resolves. Reverse lookups are debounced, skipped for tiny moves
+ * and capped per session (then the neighbourhood name is shown), so dragging around costs almost nothing.
+ */
+@Composable
+private fun GoogleMapPicker(initial: Place?, cityId: String?, onDismiss: () -> Unit, onConfirm: (Place) -> Unit) {
+    val app = LocalAppState.current
+    val ctx = LocalContext.current
+    val cfg by app.config.collectAsState()
+    val city = Cities.byId(cityId ?: initial?.cityId) ?: Cities.byId("lusaka")!!
+    var pin by remember { mutableStateOf(initial?.let { it.lat to it.lng } ?: (city.lat to city.lng)) }
+    var cameraKey by remember { mutableStateOf("start") }
+    var cameraTarget by remember { mutableStateOf(pin) }
+    var moving by remember { mutableStateOf(false) }
+    var resolved by remember { mutableStateOf(initial) }
+    var resolving by remember { mutableStateOf(false) }
+    var lookups by remember { mutableIntStateOf(0) }
+    var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) }
+    var denied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r -> permission = r.values.any { it }; denied = !permission }
+    fun goTo(p: Pair<Double, Double>) { cameraTarget = p; cameraKey = "go${System.nanoTime()}" }
+    LaunchedEffect(Unit) { if (!permission) runCatching { ask.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) } }
+    LaunchedEffect(permission) { if (permission && initial == null) currentLocation(ctx)?.let(::goTo) }
+    LaunchedEffect(pin, moving) {
+        if (moving) return@LaunchedEffect
+        val last = resolved
+        if (last != null && selo.Nachipa01.domain.route.Geo.m(selo.Nachipa01.domain.route.LatLng(last.lat, last.lng), selo.Nachipa01.domain.route.LatLng(pin.first, pin.second)) < 12) return@LaunchedEffect
+        delay(650)
+        val c = Cities.cityOf(pin.first, pin.second)
+        val local = Place("pin", Cities.nearestNeighbourhood(pin.first, pin.second)?.let { "Near $it" } ?: "Pinned location",
+            listOfNotNull(Cities.nearestNeighbourhood(pin.first, pin.second), c?.name).joinToString(", ").ifBlank { "%.5f, %.5f".format(pin.first, pin.second) },
+            pin.first, pin.second, c?.id, c?.name, Cities.nearestNeighbourhood(pin.first, pin.second), c != null)
+        if (c == null || lookups >= cfg.mapsReversePerPickerSession) { resolved = local; return@LaunchedEffect }
+        resolving = true
+        resolved = runCatching { app.backend.reverseGeocode(pin.first, pin.second) }.getOrElse { local }.copy(lat = pin.first, lng = pin.second)
+        lookups++; resolving = false
+    }
+    val lift by androidx.compose.animation.core.animateDpAsState(if (moving) 14.dp else 0.dp, label = "lift")
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxSize().background(Color(0xFFEFF1EC))) {
+            val callbacks = remember { selo.Nachipa01.ui.maps.MapCallbacks(
+                onCameraMoveStarted = { moving = true },
+                onCameraIdle = { t -> moving = false; pin = t.latitude to t.longitude }) }
+            selo.Nachipa01.ui.maps.SeloMap(selo.Nachipa01.ui.maps.MapScene(camera = selo.Nachipa01.ui.maps.MapCamera.Center(
+                com.google.android.gms.maps.model.LatLng(cameraTarget.first, cameraTarget.second), 17f, cameraKey)), Modifier.fillMaxSize(), callbacks) { StaticPinMap(Modifier.fillMaxSize()) }
+            // fixed centre pin
+            Box(Modifier.align(Alignment.Center).offset(y = (-22).dp - lift), contentAlignment = Alignment.Center) {
+                Icon(Icons.Filled.LocationOn, null, tint = Selo.Red, modifier = Modifier.size(48.dp))
+            }
+            Box(Modifier.align(Alignment.Center).size(if (moving) 6.dp else 4.dp).background(Selo.Ink.copy(.5f), CircleShape))
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onDismiss, Modifier.background(Color.White, CircleShape)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+                Spacer(Modifier.width(10.dp))
+                Text("Move the map to place the pin", fontWeight = FontWeight.Bold, modifier = Modifier.background(Color.White, RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 8.dp))
+            }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                IconButton({ if (permission) scope.launch { currentLocation(ctx)?.let(::goTo) } else runCatching { ask.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) } },
+                    Modifier.align(Alignment.End).padding(12.dp).size(48.dp).background(Color.White, CircleShape)) { Icon(Icons.Outlined.MyLocation, "My location", tint = Selo.Red) }
+                Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).navigationBarsPadding().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (denied) Text("Location permission is off, so the map starts at ${city.name} centre. Move the map to your spot.", color = Selo.AmberDark, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Place, null, tint = Selo.Red)
+                        Column(Modifier.padding(start = 8.dp).weight(1f)) {
+                            Text(if (moving) "Release to set the pin" else if (resolving) "Finding the address…" else resolved?.short ?: "", fontWeight = FontWeight.Bold)
+                            if (!moving) Text(resolved?.let { listOfNotNull(it.address.takeIf { a -> a != it.label }, it.cityName).joinToString(" · ") } ?: "", color = Selo.Mute, fontSize = 12.sp)
+                        }
+                    }
+                    val outside = !moving && resolved?.inServiceArea == false
+                    if (outside) Text("That point is outside the cities we serve.", color = Selo.Red, fontSize = 12.sp)
+                    PrimaryButton("Confirm location", enabled = !moving && !resolving && resolved != null && !outside) {
+                        resolved?.let { onConfirm(it.copy(lat = pin.first, lng = pin.second)) } }
+                }
+            }
+        }
+    }
+}
+
+/** Fallback picker for builds without a Maps SDK key (OpenStreetMap tiles). */
+@Composable
+private fun OsmMapPicker(initial: Place?, cityId: String?, onDismiss: () -> Unit, onConfirm: (Place) -> Unit) {
     val app = LocalAppState.current
     val ctx = LocalContext.current
     val city = Cities.byId(cityId ?: initial?.cityId) ?: Cities.byId("lusaka")!!
@@ -256,7 +346,7 @@ fun MapPicker(initial: Place?, cityId: String?, onDismiss: () -> Unit, onConfirm
 
 /** Test/preview stand-in for the tile map. */
 @Composable
-private fun StaticPinMap(modifier: Modifier) = Canvas(modifier) {
+internal fun StaticPinMap(modifier: Modifier) = Canvas(modifier) {
     val step = 46.dp.toPx()
     var x = 0f; while (x < size.width) { drawLine(Color.White, Offset(x, 0f), Offset(x, size.height), 8f); x += step }
     var y = 0f; while (y < size.height) { drawLine(Color.White, Offset(0f, y), Offset(size.width, y), 8f); y += step }

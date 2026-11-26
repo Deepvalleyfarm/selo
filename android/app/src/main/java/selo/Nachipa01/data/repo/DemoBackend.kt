@@ -370,7 +370,8 @@ class DemoBackend : Backend {
     override suspend fun sellerDashboard(): SellerDashboard {
         delay(200)
         val mine = (myListings.value + DemoData.listings.filter { it.sellerUid == "s1" }).map {
-            SellerListingCard(it.id, it.title, it.status, it.thumbUrl, it.mediaType, it.priceNgwee, it.views, it.likes, it.shares, it.enquiries, System.currentTimeMillis() - 86_400_000L * (it.id.length))
+            SellerListingCard(it.id, it.title, it.status, it.thumbUrl, it.mediaType, it.priceNgwee, it.views, it.likes, it.shares, it.enquiries, System.currentTimeMillis() - 86_400_000L * (it.id.length),
+                studioStatus = listOf("ready", "processing", null)[it.id.hashCode().mod(3)], studioApplied = it.id.hashCode().mod(3) == 0)
         }
         return SellerDashboard(mine, 5_420, 4_310, 1_160, 232, 291,
             listOf("Views" to 6_200, "Taps" to 1_480, "Enquiries" to 291, "Sales" to 61),
@@ -411,7 +412,10 @@ class DemoBackend : Backend {
     override fun chatMessages(threadId: String): Flow<List<ChatMessage>> { rider.markRead(threadId); return rider.messages(threadId) }
     override suspend fun sendChat(threadId: String, text: String) = rider.send(threadId, text)
     override fun notifications(): Flow<List<AppNotification>> = rider.notifications()
-    override suspend fun withdraw(amountNgwee: Long) = rider.withdraw(amountNgwee)
+    override suspend fun withdrawFull(pin: String) = rider.withdrawFull(pin)
+    override suspend fun walletStatus() = rider.walletStatus()
+    override suspend fun studioStart(listingId: String): String? { delay(300); return null }
+    override suspend fun studioApply(listingId: String, apply: Boolean) { delay(300) }
     override suspend fun setPayoutWallet(msisdn: String) {
         delay(300); val m = Validation.normaliseMsisdn(msisdn) ?: throw BackendException("Enter an Airtel Money, MTN Money or Zamtel Money number.")
         rider.setWallet(m)
@@ -503,8 +507,10 @@ class DemoBackend : Backend {
     override suspend fun ackDeliveryCode(kind: String, id: String) {}
     override suspend fun attachProofOfDelivery(kind: String, id: String, photo: Uri) { delay(300) }
 
-    override suspend fun sendSignupOtp(msisdn: String): Int { delay(400); return v64.sendOtp(msisdn) }
-    override suspend fun verifySignupOtp(msisdn: String, code: String): String { delay(300); return v64.verifyOtp(code) }
+    override suspend fun sendSignupOtp(msisdn: String, appContext: String): OtpChallenge { delay(400); return v64.sendOtp(msisdn) }
+    override suspend fun verifySignupOtp(msisdn: String, pinId: String, pin: String): String { delay(300); return v64.verifyOtp(pinId, pin) }
+    override suspend fun saveMyLocation(p: Place) { delay(200); v64.saveLocation(p) }
+    override suspend fun nearbyStores(lat: Double, lng: Double) = v64.stores
     override suspend fun myQuestions(): List<SecurityQuestion> {
         delay(200)
         val chosen = session?.msisdn?.let { securityByMsisdn[it] }?.map { it.questionId } ?: listOf("q_mother_maiden_name", "q_first_school", "q_football_team")

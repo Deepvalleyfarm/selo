@@ -399,7 +399,8 @@ export const seller_dashboard = onCall(async (req) => {
   const merge = (field: string) => audience.docs.reduce((acc, d) => { Object.entries(d.get(field) ?? {}).forEach(([k, v]) => { acc[k] = (acc[k] ?? 0) + Number(v); }); return acc; }, {} as Record<string, number>);
   const cards = listings.docs.map((d) => ({ id: d.id, title: d.get("title"), status: d.get("status"), thumbUrl: d.get("thumbUrl") ?? null, mediaType: d.get("mediaType") ?? "photo",
     priceNgwee: d.get("priceNgwee") ?? 0, views: d.get("stats.views") ?? 0, likes: d.get("stats.likes") ?? 0, shares: d.get("stats.shares") ?? 0,
-    enquiries: d.get("stats.enquiries") ?? 0, taps: d.get("stats.taps") ?? 0, postedAt: ms(d.get("publishedAt") ?? d.get("createdAt")) }));
+    enquiries: d.get("stats.enquiries") ?? 0, taps: d.get("stats.taps") ?? 0, postedAt: ms(d.get("publishedAt") ?? d.get("createdAt")),
+    studioStatus: d.get("studio.status") ?? null, studioApplied: d.get("studio.applied") === true, studioVideoUrl: d.get("studio.videoUrl") ?? null, studioError: d.get("studio.error") ?? null }));
   const top = (k: "views" | "enquiries" | "likes") => [...cards].sort((a, b) => b[k] - a[k])[0] ?? null;
   return {
     listings: cards,

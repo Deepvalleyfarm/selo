@@ -3,13 +3,15 @@ import { FieldValue, Timestamp, Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import { getDatabase } from "firebase-admin/database";
-import { LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, MAPS_API_KEY, PlatformConfig, db, loadConfig } from "./config";
+import { DB_ID, LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, MAPS_API_KEY, PlatformConfig, db, loadConfig } from "./config";
 import { acceptanceRate, withinWorkingHours, canTransition, collectionFailureReason, haversineKm, network, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
 import { onPromoCollection } from "./promotions";
 import { writeLedger, type Leg } from "./ledger";
-import { lipila, verifyLipilaSignature } from "./lipila";
+import { isFailed, isSuccessful, lipila } from "./lipila";
+import { DEFAULT_TOLERANCE_SECONDS, isSuccessStatus, parseSecrets, toPayload, verifyLipilaSignature } from "./payments/lipila-webhook";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { notify, requireUser, str } from "./util";
-import { sendSms } from "./sms";
+import { sendSms, sendTemplate } from "./sms";
 import { routeDistance } from "./geo";
 
 const ledger = (orderId: string) => db.collection(`escrowLedger/${orderId}/entries`);
@@ -58,16 +60,21 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
   const lines = items.map((i, k) => ({ listingId: i.listingId, title: listings[k].get("title"), qty: Math.max(1, Math.floor(i.qty)),
     unitNgwee: listings[k].get("priceNgwee") as number }));
   const goods = lines.reduce((s, l) => s + l.qty * l.unitNgwee, 0);
-  const dropGeo = isGeo(req.data?.dropoffGeo) ? { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) } : buyer.geo ?? null;
-  const route = seller.geo && dropGeo ? await routeDistance(seller.geo, dropGeo) : null;
-  const distanceKm = route?.distanceKm ?? (seller.geo && buyer.geo ? Math.round(haversineKm(seller.geo, buyer.geo) * 1.3 * 10) / 10 : 6);
+  const buyerPoint = buyer.location && Number.isFinite(buyer.location.latitude) ? { lat: buyer.location.latitude, lng: buyer.location.longitude } : buyer.geo ?? null;
+  const dropGeo = isGeo(req.data?.dropoffGeo) ? { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) } : buyerPoint;
+  const pickGeo = sellerPoint(seller);
+  const route = pickGeo && dropGeo ? await routeDistance(pickGeo, dropGeo) : null; // Routes API matrix, cached
+  const distanceKm = route?.distanceKm ?? 6;
   const q = quote(goods, distanceKm, cfg);
   const id = shortId("SNC");
   await orderRef(id).set({
     buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
     agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee, deliveryNgwee: q.deliveryNgwee,
     serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
-    pickupGeo: seller.geo ?? null, dropoff, dropoffGeo: dropGeo, distanceApproximate: route?.approximate ?? true, addressId: req.data?.addressId ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
+    pickupGeo: pickGeo, dropoff, dropoffGeo: dropGeo,
+    pickupLocation: pickGeo ? { address: seller.location?.address ?? seller.landmark ?? seller.area ?? "", latitude: pickGeo.lat, longitude: pickGeo.lng } : null,
+    deliveryLocation: dropGeo ? { address: dropoff, latitude: dropGeo.lat, longitude: dropGeo.lng } : null,
+    etaMinutes: (route?.durationMin ?? 20) + 10, deliveryFee: q.deliveryNgwee / 100, distanceApproximate: route?.approximate ?? true, addressId: req.data?.addressId ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
     state: "INITIATED", feeSnapshot: feeSnapshot(cfg), isParcel: false, riderUid: null, notifiedRiders: [],
     sellerPayoutStatus: "HELD", riderPayoutStatus: "HELD", timeline: { INITIATED: FieldValue.serverTimestamp() },
     createdAt: FieldValue.serverTimestamp(),
@@ -77,6 +84,8 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
 });
 
 const isGeo = (v: any) => v && Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lng));
+/** Seller pickup point: the saved store location (users.location) first, the legacy geo field second. */
+const sellerPoint = (s: any) => s?.location && Number.isFinite(s.location.latitude) ? { lat: s.location.latitude, lng: s.location.longitude } : isGeo(s?.geo) ? { lat: Number(s.geo.lat), lng: Number(s.geo.lng) } : null;
 
 /** Checkout preview: delivery fee from the road distance between the seller and the chosen drop-off (§ address system). */
 export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
@@ -90,9 +99,11 @@ export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
   const unavailable = listings.filter((l) => !l.exists || l.get("status") !== "live" || (l.get("stock") ?? 1) <= 0).map((l) => l.id);
   const goods = items.reduce((s, it, k) => s + Math.max(1, Math.floor(it.qty)) * (listings[k].get("priceNgwee") ?? 0), 0);
   const seller = (await db.doc(`users/${listings[0].get("sellerUid")}`).get()).data() ?? {};
-  const route = seller.geo ? await routeDistance(seller.geo, drop) : { distanceKm: 6, durationMin: 20, approximate: true };
+  const from = sellerPoint(seller);
+  const route = from ? await routeDistance(from, drop) : { distanceKm: 6, durationMin: 20, approximate: true };
   const q = quote(goods, route.distanceKm, cfg);
-  return { ...q, distanceKm: route.distanceKm, approximate: route.approximate || !seller.geo, etaMin: route.durationMin + 10, unavailable };
+  return { ...q, distanceKm: route.distanceKm, approximate: route.approximate || !from, etaMin: route.durationMin + 10, unavailable,
+    feeBreakdown: { baseFee: cfg.deliveryBaseFee, perKm: cfg.deliveryFeePerKm, km: route.distanceKm } };
 });
 
 /** Default number had no funds (or was declined): pay the same order, same amount, from another number. */
@@ -134,29 +145,86 @@ export async function broadcast(orderId: string) {
 
 /* ----------------------------------------------------------------- webhook */
 
-/** Lipila calls this for every collection and disbursement result. Idempotent per reference. */
-export const lipila_webhook = onRequest({ secrets: [LIPILA_WEBHOOK_SECRET, LIPILA_API_KEY] }, async (req, res) => {
-  if (!verifyLipilaSignature(req.rawBody, req.get("x-lipila-signature") ?? undefined, LIPILA_WEBHOOK_SECRET.value())) {
-    res.status(401).send("bad signature"); return;
-  }
-  const { referenceId, status, message } = req.body as { referenceId: string; status: string; message?: string };
-  const ok = /^(success|successful|completed)$/i.test(String(status));
-  const seen = db.doc(`lipilaEvents/${referenceId}_${status}`);
-  if ((await seen.get()).exists) { res.send("duplicate"); return; }
-  await seen.set({ body: req.body, at: FieldValue.serverTimestamp() });
-
+/**
+ * Lipila webhook (Standard Webhooks signing, HMAC-SHA256 — see payments/lipila-webhook.ts).
+ * 1) Verify on the raw bytes: headers → timestamp within 300 s → signature (constant time). Failure → 401.
+ * 2) Idempotency: webhook_idempotency_log/{webhook-id} and lipila_webhook_events/{webhook-id} are created together;
+ *    a repeat delivery is acknowledged with 200 and ignored.
+ * 3) Every field is stored verbatim for the Super Admin Transaction Monitor; processing runs asynchronously
+ *    (onLipilaWebhookEvent) so Lipila always gets a fast 200. Only a failure to *store* the event returns 503, so
+ *    Lipila retries instead of the payment being lost.
+ */
+export const lipila_webhook = onRequest({ secrets: [LIPILA_WEBHOOK_SECRET] }, async (req, res) => {
+  if (req.method !== "POST") { res.status(405).send("method"); return; }
+  let webhookId: string;
   try {
-    if (referenceId.startsWith("SELO-COL-PCL-")) { const { onParcelCollection } = await import("./parcels"); await onParcelCollection(referenceId, ok, String(status), message); }
-    else if (referenceId.startsWith("SELO-COL-")) await onCollection(referenceId, ok, String(status), message);
-    else if (referenceId.startsWith("SELO-BST-") || referenceId.startsWith("SELO-STY-")) await onPromoCollection(referenceId, ok, String(status), message);
-    else if (referenceId.startsWith("SELO-REG-")) await db.doc(`registrationFees/${referenceId}`).update({ status: ok ? "PAID" : "FAILED" });
-    else await onDisbursement(referenceId, ok);
-    res.send("ok");
+    ({ webhookId } = verifyLipilaSignature(req.rawBody, req.headers as Record<string, unknown>, parseSecrets(LIPILA_WEBHOOK_SECRET.value()),
+      { toleranceSeconds: Number(process.env.LIPILA_WEBHOOK_TOLERANCE_SECONDS) || DEFAULT_TOLERANCE_SECONDS }));
   } catch (e) {
-    logger.error("webhook failed", referenceId, e);
-    res.status(500).send("error");
+    logger.warn("lipila webhook rejected", { reason: (e as Error).message, ip: req.ip });
+    res.status(401).send("unauthorized"); return;
+  }
+  let raw: unknown; try { raw = JSON.parse(req.rawBody.toString("utf8")); } catch { raw = null; }
+  const p = toPayload(raw);
+  logger.info("lipila webhook", { webhookId, status: p.status, paymentType: p.paymentType, amount: p.amount, identifier: p.identifier, type: p.type });
+  const batch = db.batch();
+  batch.create(db.doc(`webhook_idempotency_log/${webhookId}`), { webhook_id: webhookId, received_at: FieldValue.serverTimestamp(), expires_at: Timestamp.fromMillis(Date.now() + 86_400_000) });
+  batch.create(db.doc(`lipila_webhook_events/${webhookId}`), { webhookId, ...p, merchantId: process.env.LIPILA_MERCHANT_ID ?? null, tenantId: null,
+    rawPayload: raw ?? null, processedAt: FieldValue.serverTimestamp(), source: "webhook", processed: false });
+  try { await batch.commit(); }
+  catch (e) {
+    if (/already exists|ALREADY_EXISTS|code 6/i.test(String((e as Error).message ?? e)) || (e as { code?: number }).code === 6) { res.status(200).send("duplicate"); return; }
+    logger.error("lipila webhook store failed", { webhookId, error: String(e) });
+    res.status(503).send("retry"); return;
+  }
+  await recordTxStats(p).catch(() => undefined);
+  res.status(200).send("ok");
+});
+
+/** Day counters for the transaction monitor's stat cards (sharded; summed per date range). */
+async function recordTxStats(p: ReturnType<typeof toPayload>) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").slice(0, 40) || "Unknown";
+  const inc = FieldValue.increment(1);
+  const upd: Record<string, unknown> = { total: inc, [`status_${key(p.status)}`]: inc, [`type_${key(p.type)}`]: inc, [`pt_${key(p.paymentType)}`]: inc };
+  if (isSuccessStatus(p.status) && /^collection$/i.test(p.type)) { upd.volumeNgwee = FieldValue.increment(Math.round(p.amount * 100)); upd[`ptvol_${key(p.paymentType)}`] = FieldValue.increment(Math.round(p.amount * 100)); }
+  await db.doc(`lipila_tx_stats/${day}/shards/${Math.floor(Math.random() * 5)}`).set(upd, { merge: true });
+  await db.doc(`lipila_tx_stats/${day}`).set({ day }, { merge: true });
+}
+
+/** Processes each stored webhook event once. Errors are logged; Lipila already has its 200. */
+export const onLipilaWebhookEvent = onDocumentCreated({ document: "lipila_webhook_events/{id}", database: DB_ID, secrets: [LIPILA_API_KEY] }, async (e) => {
+  const ev = e.data?.data(); if (!ev) return;
+  const ours = [ev.identifier, ev.referenceId].map(String).find((s) => s.startsWith("SELO-")) ?? String(ev.referenceId);
+  try {
+    await processLipilaEvent(ours, String(ev.status), ev.message || undefined, ev.rawPayload, ev.referenceId);
+    await e.data!.ref.update({ processed: true, handledAt: FieldValue.serverTimestamp() });
+  } catch (err) {
+    logger.error("lipila event processing failed", { webhookId: e.params.id, error: String(err) });
+    await e.data!.ref.update({ processed: false, processingError: String(err).slice(0, 300) });
   }
 });
+
+export async function processLipilaEvent(referenceId: string, status: string, message: string | undefined, body: unknown, lipilaRef?: string) {
+  const ok = isSuccessful(status);
+  if (!ok && !isFailed(status)) return; // Pending, Timeout, Network/System Error, Unknown: not final — reconciliation decides
+  try {
+    if (referenceId.startsWith("SELO-WD-")) { const { applyLipilaStatus } = await import("./payments/withdrawals"); await applyLipilaStatus(referenceId, status, message, body, "lipila", lipilaRef); }
+    else if (referenceId.startsWith("SELO-COL-PCL-")) { const { onParcelCollection } = await import("./parcels"); await onParcelCollection(referenceId, ok, status, message); }
+    else if (referenceId.startsWith("SELO-COL-")) await onCollection(referenceId, ok, status, message);
+    else if (referenceId.startsWith("SELO-BST-") || referenceId.startsWith("SELO-STY-")) await onPromoCollection(referenceId, ok, status, message);
+    else if (referenceId.startsWith("SELO-REG-")) await db.doc(`registrationFees/${referenceId}`).update({ status: ok ? "PAID" : "FAILED" });
+    else {
+      // Callback carrying only Lipila's own references: try withdrawals by Lipila identifier, then legacy payouts.
+      const { applyLipilaStatus } = await import("./payments/withdrawals");
+      const r = await applyLipilaStatus(referenceId, status, message, body, "lipila", lipilaRef ?? referenceId);
+      if (r === "not_found") await onDisbursement(referenceId, ok);
+    }
+  } catch (err) {
+    logger.error("lipila event failed", referenceId, err);
+    throw err; // let the trigger retry
+  }
+}
 
 async function onCollection(reference: string, ok: boolean, status: string, message?: string) {
   const orderId = reference.replace(/^SELO-COL-/, "").replace(/-R\d+$/, "");
@@ -189,6 +257,7 @@ async function onCollection(reference: string, ok: boolean, status: string, mess
       operator: operatorLabel(o.walletMsisdn), lipilaRef: reference, at: FieldValue.serverTimestamp() });
   });
   await notify(o.buyerUid, "Payment successful", "Funds secured in escrow.", "PAYMENT_CONFIRMED", `selo://orders/${orderId}`);
+  await sendTemplate("ORDER_CONFIRMED", o.buyerMsisdn, [orderId, o.sellerName ?? "your seller"], orderId);
   if (!o.isParcel) await notify(o.sellerUid, "New order", `${o.items.map((i: { title: string; qty: number }) => `${i.title} × ${i.qty}`).join(", ")} · escrow held`, "NEW_ORDER", `selo://seller/orders/${orderId}`);
   await db.runTransaction(async (tx) => move(tx, orderId, "ESCROW_LOCKED", "BROADCASTING"));
   await broadcast(orderId);
@@ -308,6 +377,7 @@ export const rider_acceptOrder = onCall(async (req) => {
     sellerUid: o.sellerUid, storeName: store, lastMessage: "", lastAt: FieldValue.serverTimestamp(), unread: {} }, { merge: true });
   await notify(o.sellerUid, "Rider on the way", `${rider.fullName} accepted order ${id}.`, "RIDER_ASSIGNED");
   await notify(o.buyerUid, "Rider assigned", `${rider.fullName} is collecting your order.`, "RIDER_ASSIGNED", `selo://orders/${id}`);
+  await sendTemplate("RIDER_ASSIGNED", o.buyerMsisdn, [rider.fullName ?? "Your rider", String(rider.msisdn ?? "").replace(/^\+260/, "0")], id);
   return { ok: true };
 });
 
@@ -342,7 +412,7 @@ export const rider_markCollected = onCall({ secrets: [LIPILA_API_KEY] }, async (
   } else if (!o.isParcel) await notify(o.sellerUid, "Order collected", `Rider collected ${id}. You'll be paid as soon as the buyer confirms delivery with their code.`, "COLLECTED");
   await db.runTransaction(async (tx) => move(tx, id, "PICKED_UP", "IN_TRANSIT"));
   await notify(o.buyerUid, "Your order is on the way!", "You'll get a 5-digit delivery code when the rider arrives. Only share it once you have your order.", "IN_TRANSIT", `selo://orders/${id}`);
-  if (o.buyerMsisdn) await sendSms(o.buyerMsisdn, `SeloNaChipa: your order ${id} is on its way. You will receive a 5-digit delivery code when the rider arrives. Only share it with the rider once you have your order.`);
+  if (o.buyerMsisdn) await sendSms(o.buyerMsisdn, `SeloNaChipa: your order ${id} is on its way. You will receive a 5-digit delivery code when the rider arrives. Only share it with the rider once you have your order.`, { eventType: "ORDER_IN_TRANSIT", referenceId: id });
   return { ok: true };
 });
 
@@ -381,24 +451,30 @@ export const wallet_lookup = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =
  * Rider / seller / agent withdrawal (§10): PIN confirmation, minimum K20, Lipila disbursement.
  * The amount is reserved (deducted) atomically when requested and restored if the disbursement finally fails.
  */
+/**
+ * Full-balance withdrawal to the user's payout wallet (riders, sellers, agents). Body: { pin }.
+ * See payments/withdrawals.ts for the state machine. Any amount sent by the app is ignored.
+ */
 export const wallet_withdraw = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
   const { uid, role } = requireUser(req, "RIDER", "SELLER", "AGENT");
+  const { requestWithdrawal } = await import("./payments/withdrawals");
+  const retryOf = typeof req.data?.retryOf === "string" ? req.data.retryOf.slice(0, 60) : null;
+  return requestWithdrawal(uid, role, String(req.data?.pin ?? ""), role === "RIDER" ? "rider" : role === "SELLER" ? "seller" : "agent", retryOf);
+});
+
+/** Wallet state for the withdraw button (balance, locked amount, in-flight withdrawal, minimum). */
+export const wallet_status = onCall(async (req) => {
+  const { uid, role } = requireUser(req, "RIDER", "SELLER", "AGENT");
+  const { walletOf, withdrawBlock } = await import("./payments/withdrawals");
   const cfg = await loadConfig();
-  const gross = Math.round(Number(req.data?.amountNgwee));
-  const fee = Math.round(cfg.riderWithdrawalFee * 100);
-  if (!Number.isFinite(gross) || gross - fee < cfg.minWithdrawal * 100)
-    throw new HttpsError("invalid-argument", `Minimum withdrawal is K${cfg.minWithdrawal + cfg.riderWithdrawalFee} (K${cfg.minWithdrawal} payout + K${cfg.riderWithdrawalFee} fee).`);
-  const sec = (await db.doc(`users/${uid}/private/security`).get()).data();
-  const bcrypt = (await import("bcryptjs")).default;
-  if (!sec || !(await bcrypt.compare(String(req.data?.pin ?? ""), sec.pinHash))) throw new HttpsError("permission-denied", "Incorrect PIN.");
-  const user = (await db.doc(`users/${uid}`).get()).data()!;
-  if (!user.payoutWallet) throw new HttpsError("failed-precondition", "Add a payout wallet first.");
-  const walletDoc = role === "RIDER" ? `riderWallets/${uid}` : `sellerStats/${uid}`;
-  const field = role === "RIDER" ? "availableNgwee" : "earningsNgwee";
-  const wid = shortId("WD");
-  await reserveWithdrawal(wid, { uid, role, gross, fee, msisdn: user.payoutWallet, walletDoc, field });
-  await disburse(`SELO-RIDW-${uid.slice(0, 8)}-${Date.now()}`, "withdrawal", uid, gross - fee, user.payoutWallet, undefined, { withdrawalOf: wid, grossNgwee: gross });
-  return { withdrawalId: wid };
+  const w = walletOf(role, uid);
+  const s = await db.doc(w.doc).get();
+  const active = s.get("activeWithdrawalId") as string | undefined;
+  const req2 = active ? (await db.doc(`withdrawal_requests/${active}`).get()).data() : null;
+  const available = (s.get(w.field) as number | undefined) ?? 0;
+  return { availableNgwee: available, lockedNgwee: (s.get("lockedNgwee") as number | undefined) ?? 0, minNgwee: Math.round(cfg.minWithdrawal * 100),
+    block: withdrawBlock({ availableNgwee: available, activeWithdrawalId: active }, Math.round(cfg.minWithdrawal * 100)),
+    active: req2 ? { id: active, status: req2.status, amountNgwee: req2.amount_ngwee, message: req2.error_message ?? null } : null };
 });
 
 export async function reserveWithdrawal(wid: string, w: { uid: string; role: string; gross: number; fee: number; msisdn: string; walletDoc: string; field: string; auto?: boolean }) {

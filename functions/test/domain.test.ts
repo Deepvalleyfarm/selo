@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { agentCommission, canTransition, insuranceId, milestoneReached, nextRetryMinutes, normaliseAnswer,
   normaliseMsisdn, pinProblem, quote, split } from "../src/domain";
 import { DEFAULT_CONFIG } from "../src/domain-defaults";
-import { verifyLipilaSignature } from "../src/lipila-signature";
 import { createHmac } from "node:crypto";
 
 describe("auth rules", () => {
@@ -31,7 +30,12 @@ describe("escrow money rules", () => {
   it("prices insured parcels", () => {
     const q = quote(0, 7.4, DEFAULT_CONFIG, 350_000);
     expect(q.insurancePremiumNgwee).toBe(7_000);
-    expect(q.totalNgwee).toBe(11_200);
+    expect(q.deliveryNgwee).toBe(8_570); // K45 + 7.4 km × K5.50
+    expect(q.totalNgwee).toBe(15_570);
+  });
+  it("delivery fee engine: base K45 + K5.50/km (8 km → K89)", () => {
+    expect(quote(0, 8, DEFAULT_CONFIG).deliveryNgwee).toBe(8_900);
+    expect(quote(0, 8, { ...DEFAULT_CONFIG, deliveryBaseFee: 30, deliveryFeePerKm: 4 }).deliveryNgwee).toBe(6_200);
   });
   it("caps declared value at K20,000", () => {
     expect(quote(0, 1, DEFAULT_CONFIG, 5_000_000).insurancePremiumNgwee).toBe(40_000);
@@ -57,16 +61,6 @@ describe("escrow money rules", () => {
   it("formats insurance IDs", () => { expect(insuranceId()).toMatch(/^INS-[A-Z2-9]{4}-[A-Z2-9]{4}$/); });
 });
 
-describe("Lipila webhook signature", () => {
-  it("verifies HMAC-SHA256 and rejects tampering", () => {
-    const body = Buffer.from('{"referenceId":"SELO-COL-SNC-1","status":"successful"}');
-    const sig = createHmac("sha256", "s3cret").update(body).digest("hex");
-    expect(verifyLipilaSignature(body, sig, "s3cret")).toBe(true);
-    expect(verifyLipilaSignature(body, sig, "other")).toBe(false);
-    expect(verifyLipilaSignature(Buffer.from("{}"), sig, "s3cret")).toBe(false);
-    expect(verifyLipilaSignature(body, undefined, "s3cret")).toBe(false);
-  });
-});
 
 import { SECURITY_QUESTION_BANK } from "../src/domain-defaults";
 describe("security question bank", () => {

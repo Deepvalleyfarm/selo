@@ -152,6 +152,8 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
     val history by app.backend.riderHistory().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
     var withdrawing by remember { mutableStateOf(false) }
+    var walletKey by remember { mutableIntStateOf(0) }
+    val wallet by selo.Nachipa01.ui.payments.rememberWalletStatus(walletKey)
     var msg by remember { mutableStateOf<String?>(null) }
     val target = profile?.weeklyTargetNgwee ?: 100_000
     val hero = RiderTiers.isHero(stats.tier)
@@ -191,7 +193,8 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
                         modifier = Modifier.padding(top = 4.dp).clickable { scope.launch { runCatching { app.backend.updateRiderProfile(mapOf("autoSettle" to (profile?.autoSettle == false))) } } })
                 }
             }
-            Text("Available now: ${zmw(stats.availableNgwee)}", color = Selo.Mute, fontSize = 12.sp)
+            Text("Available now: ${zmw(wallet?.availableNgwee ?: stats.availableNgwee)}" + (wallet?.lockedNgwee?.takeIf { it > 0 }?.let { " · ${zmw(it)} withdrawal in progress" } ?: ""), color = Selo.Mute, fontSize = 12.sp)
+            wallet?.block?.takeIf { wallet?.active == null }?.let { Text(it, color = Selo.AmberDark, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             msg?.let { NoteBox(it, Tone.OK) }
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -201,33 +204,10 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
                         "${"%.2f".format(it.platformNgwee / 100.0)},${"%.2f".format(it.fundNgwee / 100.0)},${"%.2f".format(it.bonusNgwee / 100.0)},${"%.2f".format(it.netNgwee / 100.0)},${it.km}" }
                 runCatching { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/csv"; putExtra(Intent.EXTRA_SUBJECT, "SeloNaChipa rider statement"); putExtra(Intent.EXTRA_TEXT, csv) }, "Share statement")) }
             }
-            PrimaryButton("Withdraw now", Modifier.weight(1.4f)) { withdrawing = true }
+            selo.Nachipa01.ui.payments.WithdrawButton(wallet, Modifier.weight(1.4f)) { withdrawing = true }
         }
     }
-    if (withdrawing) WithdrawDialog(stats.availableNgwee, profile?.payoutWallet ?: "", onDone = { id -> withdrawing = false; if (id != null) msg = "Withdrawal $id sent to ${walletBadge(profile?.payoutWallet ?: "")}." })
-}
-
-@Composable
-private fun WithdrawDialog(available: Long, wallet: String, onDone: (String?) -> Unit) {
-    val app = LocalAppState.current
-    val cfg by app.config.collectAsState()
-    var amount by remember { mutableStateOf("%.2f".format(Locale.UK, available / 100.0)) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val ngwee = ((amount.toDoubleOrNull() ?: 0.0) * 100).toLong()
-    val fee = Fees.kwachaToNgwee(cfg.riderWithdrawalFee)
-    AlertDialog(onDismissRequest = { onDone(null) }, title = { Text("Withdraw now") }, containerColor = Color.White, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Available ${zmw(available)}", color = Selo.Mute)
-            SeloField("Amount (ZMW)", amount, { amount = it.filter { c -> c.isDigit() || c == '.' }.take(10) }, keyboard = KeyboardType.Decimal)
-            KvRow("Withdrawal fee", zmw(fee)); KvRow("You receive", zmw((ngwee - fee).coerceAtLeast(0)), strong = true, valueColor = Selo.Green)
-            Text("Sent by Lipila to ${walletBadge(wallet)} straight away.", color = Selo.Mute, fontSize = 12.sp)
-            ErrorText(error)
-        }
-    }, confirmButton = { Button({ busy = true; scope.launch { runCatching { app.backend.withdraw(ngwee) }.onSuccess { onDone(it) }.onFailure { error = it.message }; busy = false } },
-        enabled = !busy && ngwee > 0, colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) { Text("Withdraw") } },
-        dismissButton = { TextButton({ onDone(null) }) { Text("Cancel") } })
+    if (withdrawing) wallet?.let { w -> selo.Nachipa01.ui.payments.WithdrawSheet(w, profile?.payoutWallet) { withdrawing = false; walletKey++ } }
 }
 
 /* =================================================================== SOCIAL FUND (6.8) */

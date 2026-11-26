@@ -48,7 +48,8 @@ fun BuyerShell(nav: NavHostController, initialTab: String = "discover", onLogout
         Box(Modifier.padding(bottom = pad.calculateBottomPadding())) {
             when (tab) {
                 "discover" -> selo.Nachipa01.ui.screens.discover.DiscoverScreen(onBuy = { nav.navigate("checkout/${it.id}") })
-                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { c -> tab = if (c == "cart") "cart" else "search" }, onOrders = { tab = "orders" }, onOpen = open)
+                "home" -> BuyerHome(onParcel = { nav.navigate("parcel") }, onCategory = { c -> tab = if (c == "cart") "cart" else "search" }, onOrders = { tab = "orders" }, onOpen = open,
+                    onShops = { nav.navigate("shops") })
                 "search" -> selo.Nachipa01.ui.screens.discover.SearchScreen(onOpen = open)
                 "cart" -> CartScreen(onCheckout = { nav.navigate("checkout/cart") }, onBrowse = { tab = "discover" })
                 "orders" -> BuyerOrders(onOpen = { o -> nav.navigate(if (o.isParcel) "parcelTrack/${o.id}" else "track/${o.id}") })
@@ -59,7 +60,7 @@ fun BuyerShell(nav: NavHostController, initialTab: String = "discover", onLogout
 }
 
 @Composable
-private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrders: () -> Unit, onOpen: (Listing) -> Unit) {
+private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrders: () -> Unit, onOpen: (Listing) -> Unit, onShops: () -> Unit = {}) {
     val app = LocalAppState.current
     var pill by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -74,7 +75,7 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrde
         }
         WalletCard("Selo Wallet", app.session.value?.msisdn?.let { selo.Nachipa01.domain.Validation.maskMsisdn(it) } ?: "", 124_050,
             listOf(QuickAction(Icons.Outlined.ShoppingCart, "Cart") { onCategory("cart") }, QuickAction(Icons.Outlined.Inventory2, "Send parcel", onParcel),
-                QuickAction(Icons.Outlined.Inventory2, "Orders", onOrders)), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
+                QuickAction(Icons.Outlined.Map, "Shops map", onShops), QuickAction(Icons.Outlined.Inventory2, "Orders", onOrders)), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
         selo.Nachipa01.ui.screens.discover.StoriesRow(onOpen)
         PillTabs(listOf("For you", "Nearby", "Deals"), pill) { pill = it }
         val tiles = listOf<Triple<ImageVector, String, String?>>(

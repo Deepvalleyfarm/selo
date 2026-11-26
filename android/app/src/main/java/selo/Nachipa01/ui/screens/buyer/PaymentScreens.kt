@@ -263,7 +263,8 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SeloHeader("Order ${o.id}", "${o.zone} zone · ${o.items.sumOf { it.qty }} items", onBack = onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            MapPlaceholder(160)
+            val ll = { a: Double?, b: Double? -> if (a != null && b != null) selo.Nachipa01.domain.route.LatLng(a, b) else null }
+            selo.Nachipa01.ui.maps.LiveTrackingMap(ll(o.pickupLat, o.pickupLng), ll(o.dropLat, o.dropLng), ll(o.riderLat, o.riderLng), o.trackingPolyline, o.etaMinutes)
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (o.riderName != null) SeloCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {

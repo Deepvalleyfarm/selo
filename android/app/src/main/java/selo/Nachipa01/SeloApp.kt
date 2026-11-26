@@ -16,6 +16,7 @@ class SeloApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        selo.Nachipa01.data.maps.PlacesCache.init(this)
         val app = if (BuildConfig.HAS_FIREBASE_CONFIG) FirebaseApp.initializeApp(this) else null
         backend = if (app != null) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())

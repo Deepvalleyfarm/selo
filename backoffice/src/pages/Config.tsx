@@ -14,11 +14,10 @@ const GROUPS: Record<string, Def[]> = {
     ["socialFundPct", "Social Fund per delivery", "%", "of delivery fee, ring-fenced"],
     ["socialFundMilestoneDeliveries", "Social Fund auto-release", "#", "every N deliveries · 0 = ring-fenced for claims only"],
     ["heroBonusPct", "Hero rider bonus", "%", "of net delivery earnings, Hero and Ambassador tiers"],
-    ["riderWithdrawalFee", "Withdrawal fee", "ZMW", "per withdrawal"], ["minWithdrawal", "Minimum payout", "ZMW", "net of fee"],
+    ["minWithdrawal", "Minimum withdrawal", "ZMW", "full balance must be at least this (riders, sellers, agents)"],
     ["agentPlatformCutPct", "Agent platform cut", "%", "of agent commission"], ["sellerRegistrationFee", "Registration fee", "ZMW", "sellers and agents, one-time"],
   ],
   "Delivery & parcels": [
-    ["deliveryFeePerKm", "Delivery fee per km", "ZMW", ""], ["deliveryBaseFee", "Delivery base fee", "ZMW", ""],
     ["parcelListingFee", "Parcel listing fee", "ZMW", ""], ["paymentProcessingPct", "Payment processing", "%", "surcharge"],
     ["insurancePremiumPct", "Parcel insurance premium", "%", "of declared value"], ["insuranceMaxDeclaredValue", "Max declared value", "ZMW", ""],
   ],
@@ -28,6 +27,21 @@ const GROUPS: Record<string, Def[]> = {
     ["parcelPlatformFeePct", "Parcel platform share", "%", "of delivery fee; rider gets the rest minus fund"], ["parcelSocialFundPct", "Parcel Social Fund", "%", "of delivery fee"],
     ["deliveryGeofenceM", "Delivery geofence", "m", "rider must be this close to request a code"], ["deliveryCodeExpiryMin", "Delivery code expiry", "min", ""],
     ["deliveryCodeMaxAttempts", "Code attempts", "#", "then the code locks"], ["disputeWindowHours", "Dispute window", "h", "DELIVERED → COMPLETED after this"],
+  ],
+  "Maps & delivery pricing": [
+    ["deliveryBaseFee", "Delivery base fee", "ZMW", "fee = base + km × rate (road km from Routes API)"], ["deliveryFeePerKm", "Delivery rate per km", "ZMW", "8 km at K45 + K5.50 = K89"],
+    ["mapsAutocompleteEnabled", "Places Autocomplete", "on/off", "off = saved addresses + neighbourhoods only"], ["mapsGeocodingEnabled", "Geocoding", "on/off", ""],
+    ["mapsRoutesEnabled", "Routes API", "on/off", "off = straight-line distance (approximate)"], ["routesTrafficAware", "Traffic-aware routes", "on/off", "on = Pro SKU (≈2× price)"],
+    ["mapsAutocompleteMinChars", "Autocomplete starts after", "chars", ""], ["mapsAutocompleteDebounceMs", "Autocomplete debounce", "ms", ""],
+    ["mapsReversePerPickerSession", "Pin-drop lookups per session", "#", "then the neighbourhood name is used"],
+    ["mapsDailyCapAutocomplete", "Daily cap · Places Autocomplete", "#", "0 = no cap"], ["mapsDailyCapGeocoding", "Daily cap · Geocoding", "#", ""],
+    ["mapsDailyCapRouteMatrix", "Daily cap · Route Matrix", "#", "delivery fees and ETAs"], ["mapsDailyCapRoutes", "Daily cap · Compute Routes", "#", "rider navigation"],
+    ["mapsUserAutocompletePerHour", "Autocomplete per user per hour", "#", "cache misses only"], ["mapsUserGeocodePerHour", "Address lookups per user per hour", "#", ""],
+    ["rerouteMinIntervalSec", "Min time between re-routes", "s", ""], ["rerouteMaxPerHour", "Max re-routes per rider per hour", "#", ""],
+    ["offRouteMeters", "Off-route distance", "m", ""], ["offRouteFixes", "Off-route GPS fixes before re-route", "#", ""], ["mapsCacheDays", "Google result cache", "days", "max 30 (Maps terms)"],
+  ],
+  "Payments (Lipila)": [
+    ["withdrawalWebhookTimeoutSec", "Wait for Lipila callback before reconciling", "s", "then status lookup; inconclusive → manual review"],
   ],
   Dispatch: [
     ["broadcastTimeoutMin", "Broadcast timeout", "min", "then full refund"], ["dispatchCountdownSec", "Job card countdown", "s", ""],
@@ -56,13 +70,13 @@ export default function Config() {
   const editable = can(admin, "finance", "operations");
   const dirty = Object.keys(edits).filter((key) => edits[key] !== String(cfg?.[key] ?? ""));
   const save = async () => {
-    const changes = Object.fromEntries(dirty.map((key) => [key, Number(edits[key])]));
+    const changes = Object.fromEntries(dirty.map((key) => [key, edits[key] === "true" ? true : edits[key] === "false" ? false : Number(edits[key])]));
     if (await run("admin_updateConfig", { changes, expectedVersion: cfg?.version }, `Saved as version ${(cfg?.version ?? 0) + 1}. Apps pick it up within seconds; orders already in flight keep their fee snapshot.`)) setEdits({});
   };
   return <Page title={`Platform configuration · ${tab}`} sub={`platformConfig/default · version ${cfg?.version ?? "—"} · last change ${when(cfg?.updatedAt)} by ${cfg?.updatedBy ?? "—"}`}
     right={<div className="seg">{[...Object.keys(GROUPS), "History"].map((g) => <button key={g} className={tab === g ? "on" : ""} onClick={() => setTab(g)}>{g}</button>)}</div>}>
     {dirty.length > 0 && <div className="banner">You are editing <b>{dirty.length} setting{dirty.length > 1 ? "s" : ""}</b>. Saving pushes to all apps through the <span className="mono">config-updates</span> topic and writes an audit entry.
-      <button className="btn" style={{ marginLeft: "auto" }} disabled={busy || dirty.some((k) => Number.isNaN(Number(edits[k])))} onClick={save}>Save & publish</button>
+      <button className="btn" style={{ marginLeft: "auto" }} disabled={busy || dirty.some((k) => edits[k] !== "true" && edits[k] !== "false" && Number.isNaN(Number(edits[k])))} onClick={save}>Save & publish</button>
       <button className="btn ghost" onClick={() => setEdits({})}>Discard</button></div>}
     <Msg />
     {tab === "History" ? <Panel><Table rows={history} cols={[
@@ -73,7 +87,9 @@ export default function Config() {
         const val = edits[key] ?? String(cfg?.[key] ?? "");
         return <div key={key} className={`cf ${key in edits && edits[key] !== String(cfg?.[key]) ? "edit" : ""}`}>
           <span className="lbl">{label}</span><span className="key">{key}</span>
-          <div className="inp"><span>{unit}</span><input aria-label={label} value={val} disabled={!editable} inputMode="decimal" onChange={(e) => setEdits({ ...edits, [key]: e.target.value })} /></div>
+          <div className="inp"><span>{unit}</span>{unit === "on/off"
+            ? <select aria-label={label} value={val} disabled={!editable} onChange={(e) => setEdits({ ...edits, [key]: e.target.value })}><option value="true">On</option><option value="false">Off</option></select>
+            : <input aria-label={label} value={val} disabled={!editable} inputMode="decimal" onChange={(e) => setEdits({ ...edits, [key]: e.target.value })} />}</div>
           <span className="meta">{key in edits && edits[key] !== String(cfg?.[key]) ? `Was ${cfg?.[key]} · applies to new orders only` : hint}</span>
         </div>;
       })}</div>}

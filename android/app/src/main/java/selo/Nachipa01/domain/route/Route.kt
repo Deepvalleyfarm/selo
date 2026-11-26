@@ -107,7 +107,50 @@ data class NavStep(
 )
 data class Directions(val steps: List<NavStep>, val distanceM: Int, val durationS: Int, val source: String = "google") {
     val path: List<LatLng> get() = steps.flatMap { it.path }
+    /** The same route without its first [n] legs (stops already done) — no new Routes API call needed. */
+    fun dropLegs(n: Int): Directions {
+        if (n <= 0) return this
+        val rest = steps.filter { it.legIndex >= n }.map { it.copy(legIndex = it.legIndex - n) }
+        return copy(steps = rest, distanceM = rest.sumOf { it.distanceM }, durationS = rest.sumOf { it.durationS })
+    }
 }
+
+/**
+ * Decides when the rider really needs a new route (Routes API call): only after [fixes] consecutive off-route GPS
+ * fixes, at least [minIntervalMs] after the last route, and at most [maxPerHour] times an hour. GPS jitter, a short
+ * detour or a tunnel never triggers a call.
+ */
+class ReroutePolicy(private val minIntervalMs: Long, private val maxPerHour: Int, private val fixes: Int) {
+    private var consecutive = 0
+    private val calls = ArrayDeque<Long>()
+    fun routed(now: Long) { calls.addLast(now); consecutive = 0 }
+    fun onFix(offRoute: Boolean, now: Long): Boolean {
+        consecutive = if (offRoute) consecutive + 1 else 0
+        while (calls.isNotEmpty() && calls.first() < now - 3_600_000) calls.removeFirst()
+        if (consecutive < fixes) return false
+        if (calls.isNotEmpty() && now - calls.last() < minIntervalMs) return false
+        return calls.size < maxPerHour
+    }
+}
+
+/** Live ETA for the receiver: the route's ETA scaled by how much of the road path into the drop-off is left. */
+object LiveEta {
+    fun minutes(path: List<LatLng>, rider: LatLng?, totalMinutes: Int?): Int? {
+        if (totalMinutes == null || rider == null || path.size < 2) return totalMinutes
+        val seg = path.zipWithNext().map { (a, b) -> Geo.m(a, b) }
+        val total = seg.sum().takeIf { it > 0 } ?: return totalMinutes
+        var best = Double.MAX_VALUE; var doneM = 0.0; var acc = 0.0
+        path.zipWithNext().forEachIndexed { i, (a, b) ->
+            val (t, d) = NavigationEngine.project(rider, a, b)
+            if (d < best) { best = d; doneM = acc + seg[i] * t }
+            acc += seg[i]
+        }
+        return kotlin.math.ceil(totalMinutes * (1 - doneM / total) - 0.01).toInt().coerceAtLeast(1)
+    }
+}
+
+/** True when [next] is what's left of [prev] after finishing its first stops (so the old route can be trimmed). */
+fun isSuffix(prev: List<String>, next: List<String>) = next.isNotEmpty() && next.size < prev.size && prev.takeLast(next.size) == next
 
 data class NavState(
     val stepIndex: Int, val toManeuverM: Int, val remainingM: Int, val remainingS: Int, val offRouteM: Int,
@@ -187,7 +230,7 @@ object NavigationEngine {
 
     /**
      * Offline fallback when the Directions service can't be reached: one straight "head towards" step per stop,
-     * so progress, ETA and arrival still work and the rider can hand over to Google Maps for the roads.
+     * so progress, ETA and arrival still work until road directions are available again.
      */
     fun straightLine(start: LatLng, stops: List<Stop>, vehicle: String): Directions {
         var cur = start

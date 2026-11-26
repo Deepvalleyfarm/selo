@@ -171,13 +171,25 @@ class DemoRider(private val scope: CoroutineScope, private val cfg: PlatformConf
     fun setHours(d: List<WorkingDay>) { hours.value = d }
 
     // ---------------- money
-    suspend fun withdraw(amount: Long): String {
-        delay(400)
-        val fee = Fees.kwachaToNgwee(cfg.riderWithdrawalFee)
-        if (amount - fee < Fees.kwachaToNgwee(cfg.minWithdrawal)) throw BackendException("Minimum withdrawal is K${(cfg.minWithdrawal + cfg.riderWithdrawalFee).toInt()} (K${cfg.minWithdrawal.toInt()} payout + K${cfg.riderWithdrawalFee.toInt()} fee).")
-        if (amount > available.value) throw BackendException("That's more than your available balance.")
-        available.value -= amount
-        return "WD-${(10_000..99_999).random()}"
+    // Demo of the Lipila full-balance flow: lock → "Pending" → confirmed a few seconds later. PIN 00000 = wrong PIN.
+    private var inFlight: ActiveWithdrawal? = null
+    private var locked = 0L
+    suspend fun withdrawFull(pin: String): WithdrawOutcome {
+        delay(500)
+        val min = Fees.kwachaToNgwee(cfg.minWithdrawal)
+        if (inFlight != null) throw BackendException("Withdrawal in progress")
+        if (available.value < min) throw BackendException("Minimum withdrawal is ZMW ${"%.2f".format(min / 100.0)}")
+        if (pin.length != 5 || pin == "00000") throw BackendException("Incorrect PIN")
+        val amount = available.value; available.value = 0; locked = amount
+        val id = "WD-${(10_000..99_999).random()}"
+        inFlight = ActiveWithdrawal(id, "PENDING", amount, null)
+        scope.launch { delay(4_000); inFlight = null; locked = 0 }
+        return WithdrawOutcome(id, "PENDING", amount, "Withdrawal submitted. We'll notify you when your mobile money provider confirms it.")
+    }
+    suspend fun walletStatus(): WalletStatus {
+        val min = Fees.kwachaToNgwee(cfg.minWithdrawal)
+        val block = if (inFlight != null) "Withdrawal in progress" else if (available.value < min) "Minimum withdrawal is ZMW ${"%.2f".format(min / 100.0)}" else null
+        return WalletStatus(available.value, locked, min, block, inFlight)
     }
 
     // ---------------- Social Fund claims

@@ -29,6 +29,9 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Selo">
+        <!-- Maps SDK for Android key (empty in builds without MAPS_ANDROID_API_KEY; the app then uses the fallback map) -->
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="${mapsApiKey}" />
+
 
         <!-- Camera output for proof-of-delivery, claim and incident photos -->
         <provider

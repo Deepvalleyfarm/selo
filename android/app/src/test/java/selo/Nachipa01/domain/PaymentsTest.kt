@@ -21,10 +21,15 @@ class PaymentsTest {
     }
 
     @Test fun totalIncludesDeliveryPlatformAndTransactionFees() {
-        val q = Fees.quote(20_000, 4.0, PlatformConfig(buyerServiceFeePct = 2.0, paymentProcessingPct = 1.0))
+        val q = Fees.quote(20_000, 4.0, PlatformConfig(deliveryBaseFee = 5.0, deliveryFeePerKm = 5.0, buyerServiceFeePct = 2.0, paymentProcessingPct = 1.0))
         assertEquals(2_500, q.deliveryNgwee); assertEquals(400, q.serviceFeeNgwee); assertEquals(229, q.processingFeeNgwee)
         assertEquals(23_129, q.totalNgwee)
         assertEquals(0, Fees.quote(20_000, 4.0, PlatformConfig(paymentProcessingPct = 0.0)).processingFeeNgwee)
+    }
+
+    @Test fun deliveryFeeEngineDefaultsMatchServer() {
+        // base K45 + K5.50/km on Routes API road distance: 8 km → K89
+        assertEquals(8_900, Fees.quote(0, 8.0, PlatformConfig()).deliveryNgwee)
     }
 
     @Test fun promotionPricesMatchServer() {

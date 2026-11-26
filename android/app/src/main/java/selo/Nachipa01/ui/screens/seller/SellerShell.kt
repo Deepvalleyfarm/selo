@@ -64,6 +64,10 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
     LaunchedEffect(reload) { dash = runCatching { app.backend.sellerDashboard() }.getOrNull() }
     val scope = rememberCoroutineScope()
     val u = app.session.value
+    var withdrawing by remember { mutableStateOf(false) }
+    var walletKey by remember { mutableIntStateOf(0) }
+    val wallet by selo.Nachipa01.ui.payments.rememberWalletStatus(walletKey)
+    if (withdrawing) wallet?.let { w -> selo.Nachipa01.ui.payments.WithdrawSheet(w, null) { withdrawing = false; walletKey++ } }
     Scaffold(bottomBar = { SeloBottomBar(tabs, addItem, tab) { if (it == "add") { app.resetListingFlow(); nav.navigate("addListing") } else tab = it } },
         containerColor = Selo.Surface) { pad ->
         Column(Modifier.padding(bottom = pad.calculateBottomPadding()).fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -72,7 +76,8 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
                 when (tab) {
                     "home" -> {
                         WalletCard("Earnings", "Paid out at rider pickup", stats.earningsNgwee, listOf(
-                            QuickAction(Icons.AutoMirrored.Outlined.Logout, "Withdraw") {}, QuickAction(Icons.Outlined.Add, "New listing") { app.resetListingFlow(); nav.navigate("addListing") },
+                            QuickAction(Icons.AutoMirrored.Outlined.Logout, if (wallet?.active != null) "In progress" else "Withdraw") {
+                                val b = wallet?.block; if (b == null && wallet != null) withdrawing = true else app.toast.value = b ?: "Checking your balance…" }, QuickAction(Icons.Outlined.Add, "New listing") { app.resetListingFlow(); nav.navigate("addListing") },
                             QuickAction(Icons.Outlined.Inventory2, "Orders (${stats.toPack})") { tab = "orders" }))
                         MyPromotions(onOpen = { nav.navigate("promotion/${it.id}") })
                         dash?.let { Performance(it) } ?: Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Selo.Red) }
@@ -214,6 +219,7 @@ private fun ListingManager(d: SellerDashboard, onPromote: (String, String) -> Un
     rows.forEach { c ->
         SeloCard {
             ListingRow(c) { StatusChip(c.status.replace('_', ' '), when (c.status) { "live" -> Tone.OK; "paused" -> Tone.WARN; "sold" -> Tone.INFO; "flagged" -> Tone.BRAND; else -> Tone.GREY }) }
+            StudioStrip(c, onMsg = { msg = it }, onChanged = onChanged)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 QuickLink("Edit") { editing = c }
@@ -237,6 +243,28 @@ private fun ListingManager(d: SellerDashboard, onPromote: (String, String) -> Un
         text = { Text("It disappears from the feed straight away. We keep an archived copy for your records.") },
         confirmButton = { TextButton({ act("archive", listOf(c.id), "Deleted"); confirmDelete = null }) { Text("Delete", color = Selo.Red) } },
         dismissButton = { TextButton({ confirmDelete = null }) { Text("Cancel") } }) }
+}
+
+/** Listing Studio status: AI-produced version (edit, voiceover, captions or product motion) — use it or keep the original. */
+@Composable
+private fun StudioStrip(c: SellerListingCard, onMsg: (String?) -> Unit, onChanged: () -> Unit) {
+    val app = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    fun go(block: suspend () -> String?) { busy = true; scope.launch { runCatching { block() }.onSuccess { onMsg(it); onChanged() }.onFailure { onMsg(it.message) }; busy = false } }
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp).background(Selo.Purple.copy(.07f), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.AutoAwesome, null, tint = Selo.Purple, modifier = Modifier.size(16.dp))
+        Text(when (c.studioStatus) { "processing" -> "  Studio is producing your pro video…"; "ready" -> if (c.studioApplied) "  Studio version is live" else "  Studio version ready"
+            "failed" -> "  Studio couldn't finish — original is live"; else -> "  Make a studio-quality version" }, fontSize = 12.sp, color = Selo.Purple, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        when {
+            busy -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Selo.Purple)
+            c.studioStatus == "processing" -> {}
+            c.studioStatus == "ready" && c.studioApplied -> QuickLink("Use original") { go { app.backend.studioApply(c.id, false); "Original media restored." } }
+            c.studioStatus == "ready" -> QuickLink("Use studio") { go { app.backend.studioApply(c.id, true); "Studio version is now live." } }
+            else -> QuickLink(if (c.studioStatus == "failed") "Try again" else "Create") { go { app.backend.studioStart(c.id) ?: "Studio started. We'll update this listing when it's ready." } }
+        }
+    }
 }
 
 @Composable
@@ -318,7 +346,7 @@ private fun SellerSettings(onLogout: () -> Unit) {
     SeloCard {
         Sub("Riders collect here, and buyers' delivery fees are worked out from this point.")
         selo.Nachipa01.ui.components.AddressField("Pickup point", shop, { p -> shop = p
-            if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveSellerSettings(mapOf("geo" to mapOf("lat" to p.lat, "lng" to p.lng), "landmark" to p.short)) }
+            if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }
                 .onSuccess { saved = "Shop location saved." }.onFailure { saved = it.message } } }, showSaved = false, icon = Icons.Outlined.Storefront)
     }
     H("Notifications", 16)

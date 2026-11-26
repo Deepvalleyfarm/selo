@@ -1,0 +1,37 @@
+// BEEM-OTP-001 · paste into schema.prisma for PostgreSQL deployments (matches 001_beem_logs.sql exactly).
+model OtpLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  msisdn      String   @db.VarChar(20)
+  pinId       String?  @map("pin_id") @db.VarChar(100)
+  eventType   String   @map("event_type") @db.VarChar(50)
+  beemCode    Int?     @map("beem_code")
+  beemMessage String?  @map("beem_message") @db.VarChar(255)
+  appContext  String?  @map("app_context") @db.VarChar(50)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent")
+  success     Boolean  @default(false)
+  errorDetail String?  @map("error_detail")
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  @@index([msisdn], map: "idx_otp_logs_msisdn")
+  @@index([createdAt], map: "idx_otp_logs_created_at")
+  @@map("otp_logs")
+}
+
+model SmsLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  msisdn      String   @db.VarChar(20)
+  eventType   String   @map("event_type") @db.VarChar(100)
+  messageBody String   @map("message_body")
+  beemCode    Int?     @map("beem_code")
+  beemMessage String?  @map("beem_message") @db.VarChar(255)
+  referenceId String?  @map("reference_id") @db.VarChar(100)
+  application String   @db.VarChar(50)
+  success     Boolean  @default(false)
+  errorDetail String?  @map("error_detail")
+  createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  @@index([msisdn], map: "idx_sms_logs_msisdn")
+  @@index([eventType], map: "idx_sms_logs_event_type")
+  @@index([createdAt], map: "idx_sms_logs_created_at")
+  @@index([referenceId], map: "idx_sms_logs_reference_id")
+  @@map("sms_logs")
+}

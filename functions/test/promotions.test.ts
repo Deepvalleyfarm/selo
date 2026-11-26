@@ -82,7 +82,7 @@ describe("feed placement", () => {
 
 describe("buyer payment", () => {
   it("adds the transaction fee to everything the buyer pays", () => {
-    const q = quote(20_000, 4, { ...DEFAULT_CONFIG, buyerServiceFeePct: 2, paymentProcessingPct: 1 });
+    const q = quote(20_000, 4, { ...DEFAULT_CONFIG, deliveryBaseFee: 5, deliveryFeePerKm: 5, buyerServiceFeePct: 2, paymentProcessingPct: 1 });
     expect(q.deliveryNgwee).toBe(2_500); expect(q.serviceFeeNgwee).toBe(400);
     expect(q.processingFeeNgwee).toBe(229); // 1% of 22,900
     expect(q.totalNgwee).toBe(23_129);

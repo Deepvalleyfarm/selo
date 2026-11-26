@@ -93,7 +93,15 @@ class ScreensScreenshotTest {
     @Test fun h4_contact() = shot("H4-contact-support", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("support/new") {} }
     @Test fun h5_addresses() = shot("H5-saved-addresses", Role.BUYER) { selo.Nachipa01.ui.screens.account.AccountHost("addresses") {} }
     @Test fun a0_signup() = shot("A0-signup-tab") { WelcomeScreen({}, {}, {}, initialMode = "signup") }
-    @Test fun a4_otp() = shot("A4-buyer-otp") { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 1) }
+    @Test fun a4_otp() = shot("A4-buyer-otp", advance = 1_500, prep = { s -> }) { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 1) }
+    // ---------------- v6.5 Maps, Beem OTP, Lipila withdrawals, Listing Studio
+    @Test fun m1_shops() = shot("M1-shops-near-you", Role.BUYER, advance = 1_500) { ShopsMapScreen {} }
+    @Test fun m2_address() = shot("M2-address-field", Role.BUYER) { var p by remember { mutableStateOf<selo.Nachipa01.data.model.Place?>(null) }
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(selo.Nachipa01.ui.theme.Selo.Surface).padding(16.dp)) {
+            selo.Nachipa01.ui.components.AddressField("Delivery address", p, { p = it }) } }
+    @Test fun w1_withdraw() = shot("W1-withdraw-full-balance", Role.RIDER) {
+        selo.Nachipa01.ui.payments.WithdrawSheet(selo.Nachipa01.data.model.WalletStatus(48_760, 0, 2_000, null, null), "+260965551204") {} }
+    @Test fun w2_earnings() = shot("W2-rider-earnings-withdraw", Role.RIDER, advance = 1_500) { RiderShell("earnings") {} }
     @Test fun d0_seller() = shot("D0-seller-dashboard", Role.SELLER) { SellerShell(rememberNavController()) {} }
     @Test fun d1_add() = shot("D1-add-listing", Role.SELLER) { AddListingScreen({}, {}, {}) }
     @Test fun d3_ai() = shot("D3-ai-processing", Role.SELLER) { AiProcessingScreen({}, {}) }

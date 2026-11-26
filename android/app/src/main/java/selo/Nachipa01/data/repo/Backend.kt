@@ -89,7 +89,13 @@ interface Backend {
     fun chatMessages(threadId: String): Flow<List<ChatMessage>>
     suspend fun sendChat(threadId: String, text: String)
     fun notifications(): Flow<List<AppNotification>>
-    suspend fun withdraw(amountNgwee: Long): String
+    /** Full-balance withdrawal (riders, sellers, agents). The server reads the balance; the PIN is checked server-side. */
+    suspend fun withdrawFull(pin: String): WithdrawOutcome
+    /** Balance, locked amount, minimum and any in-flight withdrawal (drives the Withdraw button). */
+    suspend fun walletStatus(): WalletStatus
+    /** Listing Studio: (re)produce the professional version, or switch between studio and original media. */
+    suspend fun studioStart(listingId: String): String?
+    suspend fun studioApply(listingId: String, apply: Boolean)
     suspend fun setPayoutWallet(msisdn: String)
     suspend fun changePin(currentPin: String, newPin: String)
     suspend fun updateSecurityQuestions(pin: String, answers: List<QuestionAnswer>)
@@ -179,8 +185,16 @@ interface Backend {
     suspend fun attachProofOfDelivery(kind: String, id: String, photo: Uri)
 
     // ------------------------------------------------ v6.4 account + support
-    suspend fun sendSignupOtp(msisdn: String): Int
-    suspend fun verifySignupOtp(msisdn: String, code: String): String
+    /** Beem OTP: sends the SMS PIN; returns Beem's pinId and the expiry (the PIN itself never reaches the app). */
+    suspend fun sendSignupOtp(msisdn: String, appContext: String = "signup"): OtpChallenge
+    /** Verifies the PIN against the pinId issued to that number; returns the one-time registration token. */
+    suspend fun verifySignupOtp(msisdn: String, pinId: String, pin: String): String
+    /** During registration (before an account exists) the verified OTP token authorises address search. */
+    fun setPreAuth(msisdn: String?, otpToken: String?) {}
+    /** Saves the user's permanent location (buyer delivery / seller store / agent base), geocoded once server-side. */
+    suspend fun saveMyLocation(p: Place)
+    /** Public store markers near a point ("shops near you" map). */
+    suspend fun nearbyStores(lat: Double, lng: Double): List<StoreLocation>
     suspend fun myQuestions(): List<SecurityQuestion>
     suspend fun updateProfile(changes: Map<String, Any?>)
     fun notificationPrefs(): Flow<Map<String, Boolean>>

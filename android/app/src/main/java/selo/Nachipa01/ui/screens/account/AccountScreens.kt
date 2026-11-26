@@ -136,6 +136,15 @@ private fun AddressesScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SeloHeader("Delivery addresses", "Used for checkout and parcels", onBack = onBack)
         FormColumn {
+            // Permanent location on the account (users.location): geocoded once on the server and reused for every fee.
+            var main by remember { mutableStateOf<Place?>(null) }
+            var mainMsg by remember { mutableStateOf<String?>(null) }
+            val role = app.session.value?.role
+            selo.Nachipa01.ui.components.AddressField(if (role == selo.Nachipa01.data.model.Role.AGENT) "My agent location" else "My main delivery location", main, { p -> main = p
+                if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }.onSuccess { mainMsg = "Saved. Delivery fees use this point." }.onFailure { mainMsg = it.message } } },
+                showSaved = false, icon = Icons.Outlined.Home)
+            mainMsg?.let { Text(it, color = Selo.Mute, fontSize = 12.sp) }
+            HorizontalDivider(color = Selo.Line)
             saved.forEach { a ->
                 Row(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (a.isDefault) Icons.Outlined.Home else Icons.Outlined.Place, null, tint = Selo.Red)

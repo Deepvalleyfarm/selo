@@ -262,6 +262,9 @@ fun ParcelDetailScreen(id: String, onBack: () -> Unit, onOpenCode: (String) -> U
                     Text(pin!!, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, letterSpacing = 4.sp, color = Selo.Teal)
                 }
             }
+            if (x.status.active && x.status != ParcelStatus.PENDING_PAYMENT) selo.Nachipa01.ui.maps.LiveTrackingMap(
+                selo.Nachipa01.domain.route.LatLng(x.pickup.lat, x.pickup.lng), selo.Nachipa01.domain.route.LatLng(x.dropoff.lat, x.dropoff.lng),
+                x.riderLat?.let { selo.Nachipa01.domain.route.LatLng(it, x.riderLng ?: 0.0) }, x.trackingPolyline, x.navEtaMinutes ?: x.etaMin, 170.dp)
             if (x.riderName != null && x.status.active) SeloCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(42.dp).background(Selo.Red, CircleShape), contentAlignment = Alignment.Center) { Text(x.riderName.split(" ").mapNotNull { it.firstOrNull() }.take(2).joinToString(""), color = Color.White, fontWeight = FontWeight.ExtraBold) }

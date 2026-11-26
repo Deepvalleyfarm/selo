@@ -4,11 +4,24 @@ package selo.Nachipa01.data.model
 
 data class AddressSuggestion(val id: String, val label: String, val secondary: String, val source: String)
 
+/** Lipila withdrawal states: PENDING / SUBMITTED wait for the provider; COMPLETED, FAILED or MANUAL_REVIEW. */
+data class WithdrawOutcome(val id: String, val status: String, val amountNgwee: Long, val message: String)
+data class ActiveWithdrawal(val id: String, val status: String, val amountNgwee: Long, val message: String?)
+data class WalletStatus(val availableNgwee: Long, val lockedNgwee: Long, val minNgwee: Long, val block: String?, val active: ActiveWithdrawal?)
+
+/** Beem OTP challenge: Beem's pinId for this number and how long the PIN is valid. */
+data class OtpChallenge(val pinId: String, val expiresInSec: Int)
+
+/** stores/{sellerUid}: public store marker. */
+data class StoreLocation(val sellerUid: String, val name: String, val address: String, val lat: Double, val lng: Double)
+
 /** A confirmed point: from a suggestion, the map pin, or the user's current location. */
 data class Place(
     val id: String, val label: String, val address: String, val lat: Double, val lng: Double,
     val cityId: String? = null, val cityName: String? = null, val neighbourhood: String? = null,
     val inServiceArea: Boolean = true, val approximate: Boolean = false, val addressId: String? = null,
+    /** Google place id when the point came from Places autocomplete (lets the server skip re-geocoding). */
+    val placeId: String? = null,
 ) {
     val short get() = label.ifBlank { address }
 }
@@ -61,6 +74,7 @@ data class Parcel(
     val unavailableDeadline: Long? = null, val unavailableResponse: String? = null,
     val trackingUrl: String? = null, val createdAt: Long = 0, val deliveredAt: Long? = null, val scheduledFor: Long? = null,
     val timeline: List<TimelineEvent> = emptyList(), val returnStatus: String? = null,
+    val trackingPolyline: String? = null, val navEtaMinutes: Int? = null,
 )
 
 /* ------------------------------------------------------------------ delivery confirmation */

@@ -129,7 +129,25 @@ data class MapStop(val at: LatLng, val type: StopType, val number: Int, val done
  * for turn-by-turn.
  */
 @Composable
-fun RouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null) {
+fun RouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null, schematic: Boolean = false) {
+    if (schematic || !selo.Nachipa01.ui.maps.Maps.enabled) { SchematicRouteMap(path, stops, rider, modifier, follow, heading); return }
+    val g = { p: LatLng -> com.google.android.gms.maps.model.LatLng(p.lat, p.lng) }
+    val pins = stops.map { s -> selo.Nachipa01.ui.maps.MapPin("${s.type}:${s.number}:${s.at.lat}", g(s.at),
+        if (s.done) selo.Nachipa01.ui.maps.PinKind.DONE else if (s.type == StopType.PICKUP) selo.Nachipa01.ui.maps.PinKind.PICKUP else selo.Nachipa01.ui.maps.PinKind.DROPOFF,
+        label = s.number.takeIf { it > 0 }?.toString()) } +
+        listOfNotNull(rider?.let { selo.Nachipa01.ui.maps.MapPin("rider", g(it), selo.Nachipa01.ui.maps.PinKind.RIDER, rotation = (heading ?: 0.0).toFloat()) })
+    val lines = if (path.size >= 2) listOf(selo.Nachipa01.ui.maps.MapLine("route", path.map(g), android.graphics.Color.rgb(200, 16, 46), 6f)) else emptyList()
+    val fitKey = "${stops.size}:${path.size}:${path.firstOrNull()}:${path.lastOrNull()}"
+    val camera = if (follow && rider != null) selo.Nachipa01.ui.maps.MapCamera.Follow(g(rider), (heading ?: 0.0).toFloat())
+        else selo.Nachipa01.ui.maps.MapCamera.Fit((path.ifEmpty { stops.map { it.at } } + listOfNotNull(rider)).map(g), fitKey)
+    selo.Nachipa01.ui.maps.SeloMap(selo.Nachipa01.ui.maps.MapScene(pins, lines, camera), modifier.clip(RoundedCornerShape(if (follow) 0.dp else 14.dp))) {
+        SchematicRouteMap(path, stops, rider, modifier, follow, heading)
+    }
+}
+
+/** Drawn stand-in used for tiny previews (no route yet), tests, and builds without a Maps key. */
+@Composable
+fun SchematicRouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null) {
     val pulse = rememberInfiniteTransition(label = "pulse").animateFloat(0.4f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "p")
     Canvas(modifier.clip(RoundedCornerShape(if (follow) 0.dp else 14.dp)).background(Color(0xFFEFF1EC))) {
         val pts = if (follow && rider != null) listOf(LatLng(rider.lat - 0.004, rider.lng - 0.004), LatLng(rider.lat + 0.004, rider.lng + 0.004))

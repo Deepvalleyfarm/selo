@@ -2,3 +2,4 @@ node_modules/
 lib/
 .env*
 .runtimeconfig.json
+!.env.example

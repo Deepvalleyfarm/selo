@@ -138,13 +138,13 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
     return withOtp(otp, when (role) {
         Role.BUYER -> listOf(
             Page("Personal information", 1, 1, { s -> req(s, "fullName" to "full name") ?: mobileProblem(s) }) { BuyerPersonal(it) },
-            Page("Address & interests", 2, 3, { s -> req(s, "area" to "area") }) { AddressPage(it, "What do you shop for?", buyerCats, "Landmark (helps riders)") },
+            Page("Address & interests", 2, 3, { s -> if (s["lat"].isBlank()) "Choose your delivery address." else null }) { AddressPage(it, "What do you shop for?", buyerCats, "Landmark (helps riders)") },
             sec(4),
             Page("Review & terms", 5, 6, { s -> terms(s, "terms", "privacy") }) { BuyerReview(it) },
         )
         Role.SELLER -> listOf(
             Page("Your business", 1, 1, { s -> req(s, "storeName" to "store name", "fullName" to "your full name") ?: mobileProblem(s) }) { BusinessPage(it, false) },
-            Page("Location & categories", 2, 3, { s -> req(s, "area" to "area") ?: if ((s.chips["categories"] ?: emptySet()).isEmpty()) "Pick at least one category." else null }) {
+            Page("Location & categories", 2, 3, { s -> (if (s["lat"].isBlank()) "Set your store location on the map." else null) ?: if ((s.chips["categories"] ?: emptySet()).isEmpty()) "Pick at least one category." else null }) {
                 AddressPage(it, "What do you sell?", sellerCats, "Pickup landmark for riders") },
             Page("Identity (KYC)", 4, 4, { s -> req(s, "nrc" to "NRC number", "tpin" to "TPIN") ?: docs(s, "nrcFront", "nrcBack", "portrait") }) { KycPage(it, "Business registration\n(corporate only)") },
             Page("Payout wallet", 5, 5, ::validateWallet) { WalletPage(it, "Where should we pay you?") },
@@ -173,34 +173,12 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
 /** The SMS confirmation sits right after the page where the number is entered (always the first page). */
 private fun withOtp(otp: Page, pages: List<Page>) = listOf(pages.first(), Page(otp.title, pages.first().to, pages.first().to, otp.validate, otp.body)) + pages.drop(1)
 
-/** Sends a 6-digit SMS code and verifies it — proves the number before the account exists (prevents duplicates and typos). */
+/** Beem OTP: auto-detects the SMS PIN or takes it typed; proves the number before the account exists. */
 @Composable
 private fun OtpPage(s: RegState) {
     val app = LocalAppState.current
-    val scope = rememberCoroutineScope()
-    val m = s.msisdn()
-    var code by remember { mutableStateOf("") }
-    var sentAt by remember { mutableLongStateOf(0L) }
-    var busy by remember { mutableStateOf(false) }
-    var err by remember { mutableStateOf<String?>(null) }
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(sentAt) { while (sentAt > 0) { kotlinx.coroutines.delay(1_000); now = System.currentTimeMillis() } }
-    val verified = s.otpToken != null && s.otpFor == m
-    fun send() = scope.launch { busy = true; err = null
-        runCatching { app.backend.sendSignupOtp(m!!) }.onSuccess { sentAt = System.currentTimeMillis(); now = sentAt; code = "" }.onFailure { err = it.message }; busy = false }
-    LaunchedEffect(m) { if (m != null && !verified && sentAt == 0L) send() }
-    H("Confirm ${m?.let(Validation::maskMsisdn) ?: "your number"}", 18)
-    if (verified) { NoteBox("Number confirmed.", Tone.OK, Icons.Outlined.CheckCircle); return }
-    Sub("We sent a 6-digit code by SMS. Enter it to confirm this number is yours.")
-    PinInput(code, { code = it; err = null }, length = 6)
-    ErrorText(err)
-    val wait = (30 - (now - sentAt) / 1000).coerceAtLeast(0)
-    PrimaryButton("Confirm", loading = busy, enabled = code.length == 6) {
-        busy = true; err = null
-        scope.launch { runCatching { app.backend.verifySignupOtp(m!!, code) }.onSuccess { s.otpToken = it; s.otpFor = m }.onFailure { err = it.message }; busy = false }
-    }
-    TextButton({ send() }, enabled = !busy && wait == 0L) { Text(if (wait > 0) "Resend code in ${wait}s" else "Resend code", color = Selo.Red) }
-    (app.backend as? selo.Nachipa01.data.repo.DemoBackend)?.v64?.lastOtp?.let { Text("DEMO ONLY · SMS code: $it", color = Selo.AmberDark, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+    val m = s.msisdn() ?: run { ErrorText("Go back and enter a valid mobile number."); return }
+    OtpVerification(m, verified = s.otpToken != null && s.otpFor == m) { token -> s.otpToken = token; s.otpFor = m; app.backend.setPreAuth(m, token) }
 }
 
 /* ============================================================ validation */
@@ -257,27 +235,22 @@ private fun BuyerPersonal(s: RegState) {
 
 @Composable
 private fun AddressPage(s: RegState, catTitle: String, cats: List<String>, landmarkLabel: String) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var detecting by remember { mutableStateOf(false) }
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-        if (granted.values.any { it }) scope.launch {
-            detecting = true
-            ctx.detectAddress()?.let { a -> s.set("province", a.province); s.set("district", a.district); s.set("area", a.area)
-                s.set("lat", a.lat.toString()); s.set("lng", a.lng.toString()) }
-            detecting = false
-        }
+    val place = s["lat"].toDoubleOrNull()?.let { lat ->
+        selo.Nachipa01.data.model.Place(s["placeRef"].ifBlank { "pin" }, s["addressLabel"], s["address"], lat, s["lng"].toDoubleOrNull() ?: 0.0,
+            selo.Nachipa01.domain.Cities.cityOf(lat, s["lng"].toDoubleOrNull() ?: 0.0)?.id, s["district"], s["area"], true, false, null, s["placeId"].ifBlank { null })
     }
-    LaunchedEffect(Unit) { if (s["area"].isBlank()) perm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }
-    MapPlaceholder(110)
-    if (detecting) Sub("Detecting your location…")
-    F(s, "area", "Area (auto-detected)")
+    // Search (Places API New, Zambia only), "Use my location" or "Pick on map"; geocoded once and saved with the account.
+    selo.Nachipa01.ui.components.AddressField(if (s.role == Role.SELLER) "Store location *" else if (s.role == Role.AGENT) "Your location *" else "Delivery address *",
+        place, { p -> if (p == null) { listOf("lat", "lng", "address", "addressLabel", "placeId").forEach { s.set(it, "") } } else {
+            s.set("lat", p.lat.toString()); s.set("lng", p.lng.toString()); s.set("address", p.address); s.set("addressLabel", p.label)
+            s.set("placeId", p.placeId ?: ""); s.set("placeRef", p.id); s.set("area", p.neighbourhood ?: p.label); s.set("district", p.cityName ?: s["district"])
+            selo.Nachipa01.domain.Cities.byId(p.cityId)?.let { s.set("province", it.province) }
+        } }, showSaved = false)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         F(s, "province", "Province", m = Modifier.weight(1f)); F(s, "district", "District", m = Modifier.weight(1f))
     }
     F(s, "landmark", landmarkLabel)
-    H(catTitle, 14)
-    ChipGroup(cats, s.chips["categories"] ?: emptySet()) { s.toggle("categories", it) }
+    if (catTitle.isNotBlank()) { H(catTitle, 14); ChipGroup(cats, s.chips["categories"] ?: emptySet()) { s.toggle("categories", it) } }
 }
 
 @Composable

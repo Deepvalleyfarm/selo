@@ -82,6 +82,32 @@ const demoFns: Record<string, (d: any) => unknown> = {
   admin_replyTicket: (d) => { const path = `supportTickets/${d.ticketId}/messages`;
     demo[path] = [...(demo[path] ?? []), { id: `m${Date.now()}`, from: "support", agent: "you (demo)", text: d.text, at: new Date() }];
     demoPatch("supportTickets", d.ticketId, { status: d.close ? "RESOLVED" : "AWAITING_USER", lastMessage: d.text.slice(0, 140), lastFrom: "support", updatedAt: new Date() }); },
+  admin_beemHealth: () => { demoPatch("beem_health", "current", { checkedAt: Date.now(), state: "LIVE" }); return demo.beem_health[0]; },
+  admin_resolveWithdrawal: (d) => { const w = demo.withdrawal_requests.find((x) => x.id === d.withdrawalId);
+    if (!w || w.status !== "MANUAL_REVIEW") throw new Error("Only withdrawals in manual review can be resolved.");
+    if (String(d.note ?? "").trim().length < 10) throw new Error("Explain what you checked on the Lipila dashboard (min. 10 characters).");
+    demoPatch("withdrawal_requests", d.withdrawalId, { status: d.outcome === "completed" ? "COMPLETED" : "FAILED", error_message: d.outcome === "failed" ? "Your mobile money provider did not complete this withdrawal." : null });
+    demo.withdrawal_audit_log = [...demo.withdrawal_audit_log, { id: `wa${Date.now()}`, withdrawal_request_id: d.withdrawalId, from_status: "MANUAL_REVIEW", to_status: d.outcome === "completed" ? "COMPLETED" : "FAILED",
+      actor: "admin", metadata: { by: "you (demo)", note: d.note }, timestamp: new Date() }]; demoChanged(); return { ok: true }; },
+  admin_txSearch: (d) => { const q = String(d.q ?? "").toLowerCase();
+    const all = (demo.lipila_txs as any[]).filter((t) => (!d.status || t.status === d.status) && (!d.paymentType || t.paymentType === d.paymentType) && (!d.type || t.type === d.type)
+      && (!d.dateFrom || t.processedAt >= `${d.dateFrom}T00:00:00`) && (!d.dateTo || t.processedAt <= `${d.dateTo}T23:59:59.999Z`)
+      && (!q || [t.referenceId, t.identifier, t.accountNumber, t.externalId, t.message].some((v) => String(v ?? "").toLowerCase().includes(q.replace(/^0/, "260")) || String(v ?? "").toLowerCase().includes(q))));
+    const start = d.cursor ? all.findIndex((t) => t.id === d.cursor) + 1 : 0; const page = all.slice(start, start + (d.pageSize ?? 50));
+    return { data: page.map(({ rawPayload, ...r }) => r), total: all.length, nextCursor: start + page.length < all.length ? page[page.length - 1].id : null }; },
+  admin_txGet: (d) => { const t = (demo.lipila_txs as any[]).find((x) => x.id === d.id); if (!t) throw new Error("Transaction not found."); const { rawPayload: _r, id: _i, processed: _p, source: _s, merchantId: _m, webhookId: _w, ...payload } = t; return { ...t, rawPayload: payload }; },
+  admin_txStats: (d) => { const rows = (demo.lipila_txs as any[]).filter((t) => (!d.dateFrom || t.processedAt >= `${d.dateFrom}T00:00:00`) && (!d.dateTo || t.processedAt <= `${d.dateTo}T23:59:59.999Z`));
+    const by = (k: string) => Object.entries(rows.reduce<Record<string, number>>((m, t: any) => { m[t[k]] = (m[t[k]] ?? 0) + 1; return m; }, {}));
+    const failRe = /^(Failed|Wrong PIN|Wrong Number|Insufficient Funds|Transaction Limit Exceeded|Cancelled|Timeout|Network Error|System Error)$/;
+    return { totalCount: rows.length, successCount: rows.filter((t) => t.status === "Successful").length, pendingCount: rows.filter((t) => t.status === "Pending").length,
+      failedCount: rows.filter((t) => failRe.test(t.status)).length, totalVolumeNgwee: Math.round(rows.filter((t) => t.status === "Successful" && t.type === "Collection").reduce((s, t) => s + t.amount, 0) * 100),
+      byStatus: by("status").map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
+      byPaymentType: by("paymentType").map(([paymentType, count]) => ({ paymentType, count, volumeNgwee: 0 })).sort((a, b) => b.count - a.count) }; },
+  admin_txExport: (d) => { const rows = (demoFns.admin_txSearch({ ...d, pageSize: 10_000 }) as { data: any[] }).data;
+    const cell = (v: unknown) => { const s = v == null ? "" : typeof v === "number" ? v.toFixed(2) : String(v); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const cols = [["Date/Time", "processedAt"], ["Reference ID", "referenceId"], ["Internal ID", "identifier"], ["External ID (MNO)", "externalId"], ["Mobile Number", "accountNumber"], ["Amount", "amount"],
+      ["Currency", "currency"], ["Status", "status"], ["Payment Type", "paymentType"], ["Transaction Type", "type"], ["Message", "message"], ["Narration", "referenceData"]];
+    return { filename: `selonachipa-transactions-${new Date().toISOString().slice(0, 10)}.csv`, csv: "\uFEFF" + [cols.map((c) => c[0]).join(","), ...rows.map((r) => cols.map(([, k]) => cell(r[k])).join(","))].join("\r\n"), rows: rows.length }; },
   admin_setRole: (d) => { demoPatch("admins", d.email, { email: d.email, role: d.role }); demoAudit("admin.set_role", "admins", null, d); },
 };
 

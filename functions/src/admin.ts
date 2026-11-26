@@ -19,10 +19,13 @@ export const admin_updateConfig = onCall(async (req) => {
   const a = requireAdmin(req, "finance", "operations");
   const changes = (req.data?.changes ?? {}) as Record<string, unknown>;
   const allowed = Object.keys(DEFAULT_CONFIG);
-  const clean: Record<string, number> = {};
+  const clean: Record<string, number | boolean> = {};
   for (const [k, v] of Object.entries(changes)) {
     if (!allowed.includes(k)) throw new HttpsError("invalid-argument", `Unknown setting ${k}.`);
+    const def = (DEFAULT_CONFIG as Record<string, unknown>)[k];
+    if (typeof def === "boolean") { if (typeof v !== "boolean") throw new HttpsError("invalid-argument", `${k} must be on or off.`); clean[k] = v; continue; }
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0) throw new HttpsError("invalid-argument", `${k} must be a positive number.`);
+    if (k === "mapsCacheDays" && v > 30) throw new HttpsError("invalid-argument", "Google results may be cached for at most 30 days.");
     clean[k] = v;
   }
   const ref = db.doc("platformConfig/default");

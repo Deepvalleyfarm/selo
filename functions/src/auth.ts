@@ -8,6 +8,8 @@ import { SECURITY_QUESTION_BANK } from "./domain-defaults";
 import { normaliseAnswer, normaliseMsisdn, pinProblem, kwachaToNgwee } from "./domain";
 import { lipila } from "./lipila";
 import { consumeOtpToken } from "./account";
+import { geohash } from "./maps/geo-math";
+import { sendTemplate } from "./sms";
 import { AppRole, requireUser, securityEvent, str } from "./util";
 
 /**
@@ -38,7 +40,8 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
   if (!msisdn) throw new HttpsError("invalid-argument", "Enter a valid Airtel, MTN or Zamtel number.");
   const pinErr = pinProblem(d.pin);
   if (pinErr) throw new HttpsError("invalid-argument", pinErr);
-  if ((await loadConfig()).signupOtpRequired && !(await consumeOtpToken(msisdn, d.otpToken)))
+  const msisdnVerified = await consumeOtpToken(msisdn, d.otpToken);
+  if ((await loadConfig()).signupOtpRequired && !msisdnVerified)
     throw new HttpsError("failed-precondition", "Confirm your number with the SMS code first.");
   const qs = Array.isArray(d.questions) ? d.questions as { questionId: string; answer: string }[] : [];
   if (qs.length !== 3 || new Set(qs.map((q) => q.questionId)).size !== 3) throw new HttpsError("invalid-argument", "Choose 3 different security questions.");
@@ -68,11 +71,13 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
     if ((await tx.get(idx)).exists) throw new HttpsError("already-exists", "This number is already registered. Log in or contact support.");
     tx.create(idx, { uid, role, createdAt: FieldValue.serverTimestamp() });
     tx.create(db.doc(`users/${uid}`), {
-      role, msisdn, fullName, firstName: String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
+      role, msisdn, msisdnVerified, fullName, firstName: String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
       accountStatus: status, kycStatus: role === "BUYER" ? "NOT_REQUIRED" : "SUBMITTED",
       storeName: profile.storeName ?? null, area: profile.area ?? profile.hub ?? null, province: profile.province ?? null,
       district: profile.district ?? null, landmark: profile.landmark ?? null,
       geo: profile.lat ? { lat: Number(profile.lat), lng: Number(profile.lng) } : null,
+      location: profile.lat ? { address: String(profile.address ?? profile.landmark ?? profile.area ?? "").slice(0, 200), latitude: Number(profile.lat), longitude: Number(profile.lng),
+        placeId: typeof profile.placeId === "string" ? profile.placeId : null, source: "registration", updatedAt: FieldValue.serverTimestamp() } : null,
       categories: profile.categories ?? [], vehicle: profile.vehicleType ?? null,
       vehicleDetails: role === "RIDER" ? { make: profile.make ?? null, model: profile.model ?? null, plate: profile.plate ?? null } : null,
       hub: profile.hub ?? null, workingDays: profile.workingDays ?? null, businessType: profile.businessType ?? null,
@@ -88,6 +93,12 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
     if (role === "SELLER") tx.create(db.doc(`sellerStats/${uid}`), { earningsNgwee: 0, todayNgwee: 0, toPack: 0, liveListings: 0, lowStock: 0, monthNgwee: 0, monthOrders: 0 });
   });
 
+  await sendTemplate("ACCOUNT_CREATED", msisdn, [String(profile.firstName ?? fullName.split(" ")[0] ?? "there")], uid).catch(() => undefined);
+  if (role === "SELLER" && profile.lat) {
+    const at = { lat: Number(profile.lat), lng: Number(profile.lng) };
+    await db.doc(`stores/${uid}`).set({ name: profile.storeName ?? fullName, address: String(profile.address ?? profile.landmark ?? profile.area ?? "").slice(0, 200),
+      latitude: at.lat, longitude: at.lng, geohash: geohash(at), geohash5: geohash(at, 5), sellerUid: uid, active: false, updatedAt: FieldValue.serverTimestamp() });
+  }
   await getAuth().createUser({ uid, displayName: fullName });
   await getAuth().setCustomUserClaims(uid, { role });
 

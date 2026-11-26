@@ -12,3 +12,8 @@ export * from "./deliveryConfirmation";
 export * from "./parcels";
 export * from "./geo";
 export * from "./account";
+export * from "./beem/otp.controller";
+export * from "./beem/beem-admin.controller";
+export * from "./payments/jobs";
+export * from "./payments/tx-monitor";
+export * from "./studio/studio";

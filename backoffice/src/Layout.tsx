@@ -6,13 +6,14 @@ import { isDemo } from "./lib/firebase";
 import { useSession } from "./lib/session";
 import { where } from "firebase/firestore";
 
-const NAV: [string, [string, string, string, string?][]][] = [
+const NAV: [string, [string, string, string, string?, string?][]][] = [
   ["MAIN", [["/", "home", "Overview"], ["/users", "users", "Users"], ["/kyc", "idcard", "KYC queue", "kyc"]]],
   ["OPERATIONS", [["/orders", "box", "Orders"], ["/parcels", "box", "Parcels"], ["/delivery-codes", "lock", "Delivery codes"], ["/riders", "bike", "Riders & live map"], ["/zones", "pin", "Zones & cities"]]],
-  ["MONEY", [["/payouts", "coins", "Escrow & payouts", "payouts"], ["/disputes", "gavel", "Disputes", "disputes"], ["/social-fund", "heart", "Social Fund"], ["/promotions", "report", "Boosts & revenue"], ["/escrow-ledger", "log", "Escrow ledger"], ["/overrides", "gavel", "Override log"]]],
+  ["MONEY", [["/payouts", "coins", "Escrow & payouts", "payouts"], ["/disputes", "gavel", "Disputes", "disputes"], ["/social-fund", "heart", "Social Fund"], ["/promotions", "report", "Boosts & revenue"], ["/escrow-ledger", "log", "Escrow ledger"], ["/overrides", "gavel", "Override log"],
+    ["/withdrawals", "coins", "Withdrawals", "withdrawals"], ["/transactions", "report", "Transactions (Lipila)", "", "super"]]],
   ["DISCOVERY", [["/engagement", "report", "Engagement & outcomes"], ["/algorithm", "sliders", "Discovery algorithm"], ["/leads", "users", "Buyer leads"]]],
   ["CONTENT", [["/listings", "flag", "Listings moderation", "moderation"], ["/content", "image", "Banners & content"], ["/notify", "send", "Notifications"], ["/support", "users", "Support inbox"]]],
-  ["SYSTEM", [["/config", "sliders", "Configuration"], ["/reports", "report", "Reports"], ["/audit", "log", "Audit log"], ["/admins", "lock", "Admin users"]]],
+  ["SYSTEM", [["/config", "sliders", "Configuration"], ["/reports", "report", "Reports"], ["/audit", "log", "Audit log"], ["/admins", "lock", "Admin users"], ["/maps-usage", "pin", "Google Maps usage"], ["/beem", "send", "Beem OTP & SMS", "", "super"]]],
 ];
 
 export default function Layout() {
@@ -24,6 +25,7 @@ export default function Layout() {
     payouts: useCollection("payouts", [where("status", "in", ["FAILED_RETRY", "ESCALATED"])], "failing").rows.filter((r) => ["FAILED_RETRY", "ESCALATED"].includes(r.status)).length,
     disputes: useCollection("disputes", [where("status", "==", "OPEN")], "open").rows.filter((r) => r.status === "OPEN").length,
     moderation: useCollection("moderationQueue").rows.length,
+    withdrawals: useCollection("withdrawal_requests", [where("status", "==", "MANUAL_REVIEW")], "review").rows.filter((r) => r.status === "MANUAL_REVIEW").length,
   };
   const initials = (admin?.email ?? "?").slice(0, 2).toUpperCase();
   return <div className="app">
@@ -31,7 +33,7 @@ export default function Layout() {
       <div className="brandrow"><span className="logo"><Logo /></span>SeloNaChipa Admin</div>
       {NAV.map(([g, items]) => <div key={g} style={{ display: "contents" }}>
         <div className="grp">{g}</div>
-        {items.map(([to, icon, label, c]) => <NavLink key={to} to={to} end={to === "/"}>
+        {items.filter((it) => it[4] !== "super" || admin?.role === "super_admin").map(([to, icon, label, c]) => <NavLink key={to} to={to} end={to === "/"}>
           <Icon n={icon} />{label}{c && counts[c] ? <span className="cnt">{counts[c]}</span> : null}
         </NavLink>)}
       </div>)}

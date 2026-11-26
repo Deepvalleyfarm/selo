@@ -22,14 +22,15 @@ export const MAPS_API_KEY = defineSecret("MAPS_API_KEY");
 export const DELIVERY_CODE_SECRET = defineSecret("DELIVERY_CODE_SECRET");
 /** Zambian SMS gateway (fallback channel for delivery codes and key events). */
 export const SMS_API_KEY = defineSecret("SMS_API_KEY");
-export const SMS_PROVIDER = defineString("SMS_PROVIDER", { default: "africastalking" }); // africastalking | http | log
+export const SMS_PROVIDER = defineString("SMS_PROVIDER", { default: "beem" }); // beem | log
 export const SMS_USERNAME = defineString("SMS_USERNAME", { default: "" });
 export const SMS_SENDER_ID = defineString("SMS_SENDER_ID", { default: "SeloNaChipa" });
 export const SMS_HTTP_URL = defineString("SMS_HTTP_URL", { default: "" });
 export const TRACKING_BASE_URL = defineString("TRACKING_BASE_URL", { default: "https://mabala-f2d65.web.app/t/" });
 
 // Non-secret parameters (set in functions/.env.<project>)
-export const LIPILA_BASE_URL = defineString("LIPILA_BASE_URL", { default: "https://api.lipila.dev" });
+// Production host must be set explicitly in functions/.env.<project> (no default: never fall back to the sandbox).
+export const LIPILA_BASE_URL = defineString("LIPILA_BASE_URL", { default: "" });
 export const LIPILA_CALLBACK_URL = defineString("LIPILA_CALLBACK_URL", { default: "" });
 export const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-2.5-flash" });
 

@@ -1,3 +1,4 @@
+import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,6 +12,11 @@ plugins {
 // -PdemoMode=true builds a sample-data APK even though google-services.json is present.
 val demoMode = (project.findProperty("demoMode") as String?) == "true"
 val hasGoogleServices = file("google-services.json").exists() && !demoMode
+
+// Maps SDK for Android key (restricted to "Maps SDK for Android" + this package/SHA-1 in Cloud Console).
+// Read from local.properties (MAPS_ANDROID_API_KEY=...) or the CI environment — never committed.
+val localProps = Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+val mapsAndroidKey: String = (localProps.getProperty("MAPS_ANDROID_API_KEY") ?: System.getenv("MAPS_ANDROID_API_KEY") ?: "").trim()
 if (hasGoogleServices) {
     apply(plugin = "com.google.gms.google-services")
 }
@@ -23,8 +29,8 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "6.4.0"
+        versionCode = 7
+        versionName = "6.5.0"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
@@ -32,6 +38,8 @@ android {
         buildConfigField("String", "TRACKING_BASE_URL", "\"https://mabala-f2d65.web.app/t/\"")
         buildConfigField("String", "RTDB_URL", "\"https://mabala-f2d65-default-rtdb.firebaseio.com\"")
         buildConfigField("boolean", "HAS_FIREBASE_CONFIG", hasGoogleServices.toString())
+        buildConfigField("boolean", "MAPS_ENABLED", mapsAndroidKey.isNotEmpty().toString())
+        manifestPlaceholders["mapsApiKey"] = mapsAndroidKey
     }
 
     signingConfigs {
@@ -102,8 +110,12 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
-    // Interactive map for address pin-drop (OpenStreetMap tiles, no API key)
+    // Google Maps SDK for Android (map display only) + marker clustering; osmdroid is the fallback for builds without a key
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.google.maps.android:android-maps-utils:3.8.2")
     implementation("org.osmdroid:osmdroid-android:6.1.20")
+    // SMS Retriever / SMS User Consent: auto-read the Beem OTP (no SMS permission needed)
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
 
     // Firebase BoM from the Firebase console; versions come from the BoM

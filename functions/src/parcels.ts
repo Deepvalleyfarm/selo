@@ -17,7 +17,7 @@ import {
   batchProblem, canMoveParcel, cityById, cityOf, generatePickupPin, INTERCITY_MESSAGE, quoteParcel, receiverLocked, sameCityProblem, suggestCategory,
   weightOk, PARCEL_CATEGORIES, type LL, type ParcelStatus,
 } from "./parcel-rules";
-import { sendSms } from "./sms";
+import { sendTemplate } from "./sms";
 import { audit, notify, requireAdmin, requireUser, str } from "./util";
 
 const ref = (id: string) => db.doc(`parcels/${id}`);
@@ -283,7 +283,7 @@ export const rider_confirmPickup = onCall({ secrets: [SMS_API_KEY] }, async (req
   const track = `${TRACKING_BASE_URL.value()}${p.trackingToken}`;
   const text = `Hi ${p.receiver.name}, your parcel from ${p.senderName} has been picked up by ${p.riderName} (Plate: ${p.riderPlate || "n/a"}) and is on its way. ` +
     `Track: ${track}. You will receive a 5-digit delivery code when the rider arrives. Only share it with the rider once you have your parcel.`;
-  await sendSms(p.receiver.msisdn, text);
+  await sendTemplate("PARCEL_COLLECTED", p.receiver.msisdn, [p.riderName ?? "your rider", id, track], id);
   if (p.receiver.uid) await notify(p.receiver.uid, "Parcel on the way", text, "IN_TRANSIT", `selo://parcels/${id}`);
   await notify(p.senderUid, "Parcel collected", `${p.riderName} collected your parcel.`, "IN_TRANSIT", `selo://parcels/${id}`);
   return { ok: true };
@@ -298,6 +298,8 @@ export const rider_ping = onCall(async (req) => {
   const nowTs = Timestamp.now();
   await db.doc(`riderLocations/${uid}`).set({ ...at, accuracy, at: nowTs });
   await db.doc(`riderPresence/${uid}`).set({ lastPingAt: nowTs, geo: at }, { merge: true });
+  await db.doc(`riders/${uid}`).set({ currentLatitude: at.lat, currentLongitude: at.lng, accuracy, heading: Number.isFinite(Number(req.data?.heading)) ? Number(req.data.heading) : null,
+    updatedAt: nowTs }, { merge: true });
   const mine = await db.collection("parcels").where("riderUid", "==", uid).where("status", "in", ["RIDER_ASSIGNED", "IN_TRANSIT", "AWAITING_DELIVERY_CODE"]).get();
   const orders = await db.collection("orders").where("riderUid", "==", uid).where("state", "in", ["RIDER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "AWAITING_DELIVERY_CODE"]).get();
   const b = db.batch();

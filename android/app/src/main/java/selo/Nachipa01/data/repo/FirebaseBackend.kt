@@ -181,6 +181,8 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         pickupLat = getDouble("pickupGeo.lat"), pickupLng = getDouble("pickupGeo.lng"), dropLat = getDouble("dropoffGeo.lat"), dropLng = getDouble("dropoffGeo.lng"),
         codeState = getString("codeSummary.state"), arrivedAt = getTimestamp("arrivedAt")?.toDate()?.time,
         unavailableDeadline = getTimestamp("unavailable.deadline")?.toDate()?.time, distanceApproximate = getBoolean("distanceApproximate") == true,
+        riderLat = getDouble("riderGeo.lat"), riderLng = getDouble("riderGeo.lng"), trackingPolyline = getString("trackingPolyline"),
+        etaMinutes = (getLong("navigation.estimatedMinutes") ?: getLong("etaMinutes"))?.toInt(),
     )
 
     override fun listings(category: String?): Flow<List<Listing>> {
@@ -428,7 +430,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         fun card(m: Map<*, *>?) = m?.let { SellerListingCard(it["id"] as String, it["title"] as? String ?: "", it["status"] as? String ?: "", it["thumbUrl"] as? String,
             it["mediaType"] as? String ?: "photo", (it["priceNgwee"] as? Number)?.toLong() ?: 0, (it["views"] as? Number)?.toInt() ?: 0,
             (it["likes"] as? Number)?.toInt() ?: 0, (it["shares"] as? Number)?.toInt() ?: 0, (it["enquiries"] as? Number)?.toInt() ?: 0,
-            (it["postedAt"] as? Number)?.toLong() ?: 0) }
+            (it["postedAt"] as? Number)?.toLong() ?: 0, it["studioStatus"] as? String, it["studioApplied"] == true, it["studioVideoUrl"] as? String, it["studioError"] as? String) }
         val w = r["week"] as Map<String, Number>; val f = r["funnel"] as Map<String, Number>; val t = r["top"] as Map<String, Map<*, *>?>
         val a = r["audience"] as Map<String, Map<String, Number>>
         return SellerDashboard((r["listings"] as List<Map<*, *>>).mapNotNull { card(it) }, w["views"]!!.toInt(), w["lastWeekViews"]!!.toInt(),
@@ -447,7 +449,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun saveSellerSettings(settings: Map<String, Any?>) {
         val u = uid() ?: return
         db.collection("users").document(u).update(settings.filterKeys { it in setOf("storeName", "photoUrl", "coverUrl", "province", "district", "area",
-            "businessTags", "paymentPrefs", "notificationPrefs", "geo", "landmark") }).await()
+            "businessTags", "paymentPrefs", "notificationPrefs", "landmark") }).await()
     }
 
     override suspend fun publishListingV2(req: PublishRequest): String = call("listing_publish", mapOf(
@@ -611,7 +613,18 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
                 it.getTimestamp("createdAt")?.toDate()?.time ?: 0, it.get("readAt") != null) } }.catch { emit(emptyList()) }
     } ?: flowOf(emptyList())
 
-    override suspend fun withdraw(amountNgwee: Long): String = call("wallet_withdraw", mapOf("amountNgwee" to amountNgwee))["withdrawalId"] as String
+    override suspend fun withdrawFull(pin: String): WithdrawOutcome {
+        val r = call("wallet_withdraw", mapOf("pin" to pin))
+        return WithdrawOutcome(r["withdrawalId"] as String, r["status"] as? String ?: "PENDING", (r["amountNgwee"] as? Number)?.toLong() ?: 0, r["message"] as? String ?: "")
+    }
+    override suspend fun studioStart(listingId: String): String? = call("studio_start", mapOf("listingId" to listingId)).let { if (it["started"] == true) null else it["reason"] as? String }
+    override suspend fun studioApply(listingId: String, apply: Boolean) { call("studio_apply", mapOf("listingId" to listingId, "apply" to apply)) }
+    override suspend fun walletStatus(): WalletStatus {
+        val r = call("wallet_status", emptyMap())
+        val a = r["active"] as? Map<*, *>
+        return WalletStatus((r["availableNgwee"] as? Number)?.toLong() ?: 0, (r["lockedNgwee"] as? Number)?.toLong() ?: 0, (r["minNgwee"] as? Number)?.toLong() ?: 2_000,
+            r["block"] as? String, a?.let { ActiveWithdrawal(it["id"] as String, it["status"] as? String ?: "", (it["amountNgwee"] as? Number)?.toLong() ?: 0, it["message"] as? String) })
+    }
     override suspend fun setPayoutWallet(msisdn: String) { call("wallet_setPayout", mapOf("msisdn" to msisdn)) }
     override suspend fun changePin(currentPin: String, newPin: String) { call("auth_changePin", mapOf("currentPin" to currentPin, "newPin" to newPin)) }
     override suspend fun updateSecurityQuestions(pin: String, answers: List<QuestionAnswer>) {
@@ -637,7 +650,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
 
     override suspend fun directions(origin: selo.Nachipa01.domain.route.LatLng, stops: List<selo.Nachipa01.domain.route.Stop>, vehicle: String): selo.Nachipa01.domain.route.Directions {
         val res = call("route_directions", mapOf("origin" to mapOf("lat" to origin.lat, "lng" to origin.lng), "vehicle" to vehicle,
-            "stops" to stops.map { s -> if (s.at != null) mapOf("lat" to s.at.lat, "lng" to s.at.lng) else mapOf("address" to s.address) }))
+            "stops" to stops.filter { it.at != null }.map { s -> mapOf("lat" to s.at!!.lat, "lng" to s.at.lng, "orderId" to s.orderId, "type" to s.type.name) }))
         @Suppress("UNCHECKED_CAST") val steps = (res["steps"] as? List<Map<String, Any?>> ?: emptyList()).map {
             selo.Nachipa01.domain.route.NavStep(it["instruction"] as? String ?: "", it["maneuver"] as? String ?: "straight",
                 (it["distanceM"] as? Number)?.toInt() ?: 0, (it["durationS"] as? Number)?.toInt() ?: 0,
@@ -652,22 +665,38 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     @Suppress("UNCHECKED_CAST")
     private fun Map<*, *>.toPlace(): Place = Place(this["id"] as? String ?: "", this["label"] as? String ?: "", this["address"] as? String ?: "",
         (this["lat"] as Number).toDouble(), (this["lng"] as Number).toDouble(), this["cityId"] as? String, this["cityName"] as? String, this["neighbourhood"] as? String,
-        this["inServiceArea"] != false, this["approximate"] == true, (this["id"] as? String)?.takeIf { it.startsWith("addr:") })
+        this["inServiceArea"] != false, this["approximate"] == true, (this["id"] as? String)?.takeIf { it.startsWith("addr:") }, this["placeId"] as? String)
     private fun Place.wire() = mapOf("label" to label, "address" to address, "lat" to lat, "lng" to lng, "neighbourhood" to neighbourhood, "addressId" to addressId)
 
+    private var preAuth: Map<String, String>? = null
+    override fun setPreAuth(msisdn: String?, otpToken: String?) { preAuth = if (msisdn != null && otpToken != null) mapOf("msisdn" to msisdn, "otpToken" to otpToken) else null }
+    private fun geo(m: Map<String, Any?>) = if (auth.currentUser == null && preAuth != null) m + ("preauth" to preAuth) else m
+
     override suspend fun addressSuggestions(input: String, cityId: String?, nearLat: Double?, nearLng: Double?): List<AddressSuggestion> {
-        @Suppress("UNCHECKED_CAST") val r = call("geo_autocomplete", mapOf("input" to input, "cityId" to cityId,
-            "near" to if (nearLat != null && nearLng != null) mapOf("lat" to nearLat, "lng" to nearLng) else null))["suggestions"] as? List<Map<String, Any?>> ?: emptyList()
-        return r.map { AddressSuggestion(it["id"] as String, it["label"] as? String ?: "", it["secondary"] as? String ?: "", it["source"] as? String ?: "") }
+        selo.Nachipa01.data.maps.PlacesCache.get(input, cityId)?.let { return it }
+        @Suppress("UNCHECKED_CAST") val r = call("geo_autocomplete", geo(mapOf("input" to input, "cityId" to cityId, "sessionToken" to selo.Nachipa01.data.maps.PlacesCache.sessionToken,
+            "near" to if (nearLat != null && nearLng != null) mapOf("lat" to nearLat, "lng" to nearLng) else null)))
+        val list = (r["suggestions"] as? List<Map<String, Any?>> ?: emptyList()).map { AddressSuggestion(it["id"] as String, it["label"] as? String ?: "", it["secondary"] as? String ?: "", it["source"] as? String ?: "") }
+        if (r["degraded"] != true) selo.Nachipa01.data.maps.PlacesCache.put(input, cityId, list)
+        return list
     }
-    override suspend fun placeDetails(id: String) = call("geo_details", mapOf("id" to id)).toPlace()
-    override suspend fun reverseGeocode(lat: Double, lng: Double) = call("geo_reverse", mapOf("lat" to lat, "lng" to lng)).toPlace()
+    override suspend fun placeDetails(id: String) = call("geo_details", geo(mapOf("id" to id))).toPlace().also { selo.Nachipa01.data.maps.PlacesCache.endSession() }
+    override suspend fun reverseGeocode(lat: Double, lng: Double) = call("geo_reverse", geo(mapOf("lat" to lat, "lng" to lng))).toPlace()
+    override suspend fun saveMyLocation(p: Place) { call("location_save", mapOf("address" to p.address, "label" to p.label, "latitude" to p.lat, "longitude" to p.lng,
+        "placeId" to p.placeId, "source" to "user")) }
+    override suspend fun nearbyStores(lat: Double, lng: Double): List<StoreLocation> {
+        val cells = selo.Nachipa01.domain.GeoHash.cellsAround(lat, lng)
+        return db.collection("stores").whereIn("geohash5", cells).whereEqualTo("active", true).limit(300).get().await().documents.mapNotNull { d ->
+            val la = d.getDouble("latitude") ?: return@mapNotNull null; val ln = d.getDouble("longitude") ?: return@mapNotNull null
+            StoreLocation(d.id, d.getString("name") ?: "", d.getString("address") ?: "", la, ln) }
+    }
     override suspend fun routeDistance(from: Place, to: Place): RouteDistance {
         val r = call("geo_distance", mapOf("from" to mapOf("lat" to from.lat, "lng" to from.lng), "to" to mapOf("lat" to to.lat, "lng" to to.lng)))
         return RouteDistance((r["distanceKm"] as Number).toDouble(), (r["durationMin"] as Number).toInt(), r["approximate"] == true, r["sameCity"] != false, r["fromCity"] as? String)
     }
     override suspend fun savePlace(p: Place, source: String): String =
-        "addr:" + call("address_save", mapOf("label" to p.label, "address" to p.address, "lat" to p.lat, "lng" to p.lng, "source" to source, "approximate" to p.approximate))["id"] as String
+        "addr:" + call("address_save", mapOf("label" to p.label, "address" to p.address, "lat" to p.lat, "lng" to p.lng, "source" to source, "approximate" to p.approximate,
+            "placeId" to p.placeId))["id"] as String
     override fun savedAddresses(): Flow<List<SavedAddress>> = uid()?.let { u ->
         db.collection("users").document(u).collection("addresses").live().map { s -> s.documents.map { d ->
             SavedAddress(d.id, d.getString("nickname") ?: "", Place(d.getString("addressId") ?: d.id, d.getString("label") ?: "", d.getString("address") ?: "",
@@ -720,7 +749,8 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             getString("paymentStatus") ?: "PENDING", getString("paymentFailure"), getString("walletMsisdn"), getString("codeSummary.state"), getString("codeSummary.channel"),
             getTimestamp("unavailable.deadline")?.toDate()?.time, getString("unavailable.response"),
             getString("trackingToken")?.let { "${BuildConfig.TRACKING_BASE_URL}$it" }, getTimestamp("createdAt")?.toDate()?.time ?: 0,
-            getTimestamp("deliveredAt")?.toDate()?.time, getTimestamp("scheduledFor")?.toDate()?.time, tl, getString("returnStatus"))
+            getTimestamp("deliveredAt")?.toDate()?.time, getTimestamp("scheduledFor")?.toDate()?.time, tl, getString("returnStatus"),
+            getString("trackingPolyline"), getLong("navigation.estimatedMinutes")?.toInt())
     }
     override fun myParcels(): Flow<List<Parcel>> = uid()?.let { u ->
         combine(db.collection("parcels").whereEqualTo("senderUid", u).orderBy("createdAt", Query.Direction.DESCENDING).limit(50).live(),
@@ -767,8 +797,12 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     }
 
     /* ======================================================== v6.4 account + support */
-    override suspend fun sendSignupOtp(msisdn: String) = (call("auth_sendOtp", mapOf("msisdn" to msisdn))["expiresInSec"] as? Number)?.toInt() ?: 600
-    override suspend fun verifySignupOtp(msisdn: String, code: String) = call("auth_verifyOtp", mapOf("msisdn" to msisdn, "code" to code))["otpToken"] as String
+    override suspend fun sendSignupOtp(msisdn: String, appContext: String): OtpChallenge {
+        val r = call("auth_sendOtp", mapOf("msisdn" to msisdn, "appContext" to appContext))
+        return OtpChallenge(r["pinId"] as String, (r["expiresInSeconds"] as? Number)?.toInt() ?: 60)
+    }
+    override suspend fun verifySignupOtp(msisdn: String, pinId: String, pin: String) =
+        call("auth_verifyOtp", mapOf("msisdn" to msisdn, "pinId" to pinId, "pin" to pin))["otpToken"] as String
     @Suppress("UNCHECKED_CAST")
     override suspend fun myQuestions(): List<SecurityQuestion> = (call("auth_myQuestions", emptyMap())["questions"] as? List<Map<String, Any?>> ?: emptyList())
         .map { SecurityQuestion(it["id"] as String, it["text"] as? String ?: "") }
