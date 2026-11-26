@@ -47,6 +47,8 @@ data class SavedAddress(val id: String, val nickname: String, val place: Place, 
 data class OrderQuoteResult(
     val goodsNgwee: Long, val deliveryNgwee: Long, val serviceFeeNgwee: Long, val processingFeeNgwee: Long, val totalNgwee: Long,
     val distanceKm: Double, val approximate: Boolean, val etaMin: Int, val unavailable: List<String> = emptyList(),
+    /** Marketing Centre deals and listing discounts applied by the server (pricing.ts). */
+    val fullGoodsNgwee: Long = goodsNgwee, val savingsNgwee: Long = 0, val deals: List<Pair<String, Long>> = emptyList(), val freeItems: List<String> = emptyList(),
 )
 
 /* ------------------------------------------------------------------ parcels v2 */

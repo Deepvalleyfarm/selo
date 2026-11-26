@@ -115,6 +115,8 @@ data class Listing(
     val promoId: String? = null,
     /** Listing Studio: media edited by AI (colour, crop, voiceover, captions); motion = clip generated from the seller's photo. */
     val aiEnhanced: Boolean = false, val aiGeneratedMotion: Boolean = false,
+    /** Marketing Centre deal on this product ("Buy 1 Get 1 Free", "Limited time · 20% off", "Bundle deal"). */
+    val promoLabel: String? = null, val promoType: String? = null, val promoEndsAt: Long? = null,
     /** Demo only: gradient colours used when a listing has no media yet. */
     val colorA: Long = 0xFFB0281A, val colorB: Long = 0xFFF2B33D,
 ) {

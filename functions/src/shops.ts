@@ -35,7 +35,7 @@ export const shop_profile = onCall(async (req) => {
   return {
     sellerUid: uid, name: businessName(u), verified: u.kycStatus === "VERIFIED", photoUrl: u.photoUrl ?? null, bannerUrl: u.coverUrl ?? null,
     address: store.address ?? u.location?.address ?? u.area ?? "", district: u.district ?? "", memberSince: u.memberSince ?? null,
-    listings: ls.docs.map((d) => { const x = d.data(); return { id: d.id, title: x.title, priceNgwee: x.priceNgwee ?? 0, discountPct: x.discountPct ?? 0,
+    listings: ls.docs.map((d) => { const x = d.data(); return { promo: x.promo && (x.promo.endsAt == null || x.promo.endsAt > Date.now()) ? x.promo : null, id: d.id, title: x.title, priceNgwee: x.priceNgwee ?? 0, discountPct: x.discountPct ?? 0,
       discountNgwee: x.discountNgwee ?? 0, thumbUrl: x.thumbUrl ?? null, videoUrl: x.videoUrl ?? null, mediaType: x.mediaType ?? "photo", photoUrls: x.photoUrls ?? [],
       category: x.category ?? "", stock: x.stock ?? 0, sellerName: businessName(u), sellerUid: uid, district: x.district ?? "", province: x.province ?? "",
       description: x.description ?? "", aiEnhanced: x.aiEnhanced === true, aiGeneratedMotion: x.aiGeneratedMotion === true }; }),

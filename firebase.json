@@ -35,6 +35,20 @@
     ],
     "rewrites": [
       {
+        "source": "/v/**",
+        "function": {
+          "functionId": "rider_verify",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/s/**",
+        "function": {
+          "functionId": "sos_view",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/r/**",
         "function": {
           "functionId": "receipt_view",

@@ -215,6 +215,8 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
     var confirming by remember { mutableStateOf<Order?>(null) }
     var rating by remember { mutableStateOf<Order?>(null) }
     var pinFor by remember { mutableStateOf<Order?>(null) }
+    var sosFromDelivery by remember { mutableStateOf(false) }
+    if (sosFromDelivery) { SafetyCentreScreen(back = { sosFromDelivery = false }, open = { sosFromDelivery = false }); return }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val fee = active.sumOf { Fees.split(it.goodsNgwee, it.deliveryNgwee, cfg).riderNetNgwee }
@@ -238,6 +240,12 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
                 Tile("Remaining", "%.1f km".format(rc.remainingM / 1000.0), Modifier.weight(1f))
                 Tile("Arrival", clock(System.currentTimeMillis() + rc.remainingS * 1000L), Modifier.weight(1f))
                 Tile("Fee", zmw(fee), Modifier.weight(1f), Selo.Green)
+            }
+            // Safety Centre shortcuts: geotagged photo evidence for this stop, and SOS one tap away.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                EvidenceButton(if (order.isParcel) "parcel" else "order", order.id, if (next?.type == StopType.PICKUP) "pickup" else "dropoff", Modifier.weight(1f))
+                Button({ app.navRequest.value = null; sosFromDelivery = true }, Modifier.heightIn(min = 44.dp), shape = RoundedCornerShape(50),
+                    colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) { Icon(Icons.Outlined.Sos, null, modifier = Modifier.size(18.dp)); Text(" SOS", fontWeight = FontWeight.Black) }
             }
             // next stop card
             Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(14.dp)).border(1.dp, Selo.Line, RoundedCornerShape(14.dp)).padding(14.dp),

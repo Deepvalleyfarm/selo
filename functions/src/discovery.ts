@@ -57,7 +57,9 @@ export function publicListing(d: DocumentSnapshot, extra: Record<string, unknown
     category: x.category ?? "", condition: x.condition ?? "", availability: x.availability ?? "In Stock", province: x.province ?? "",
     district: x.district ?? "", location: x.location ?? "", tags: x.tags ?? [], mediaType: x.mediaType ?? "photo", videoUrl: x.videoUrl ?? null,
     photoUrls: x.photoUrls ?? [], thumbUrl: x.thumbUrl ?? null, stats: { likes: x.stats?.likes ?? 0, shares: x.stats?.shares ?? 0, views: x.stats?.views ?? 0 },
-    publishedAt: ms(x.publishedAt), aiEnhanced: x.aiEnhanced === true, aiGeneratedMotion: x.aiGeneratedMotion === true, ...extra,
+    publishedAt: ms(x.publishedAt), aiEnhanced: x.aiEnhanced === true, aiGeneratedMotion: x.aiGeneratedMotion === true,
+    // Marketing Centre deal badge (hidden the moment it expires, even before the scheduler clears it)
+    promo: x.promo && (x.promo.endsAt == null || x.promo.endsAt > Date.now()) ? { label: x.promo.label, type: x.promo.type, endsAt: x.promo.endsAt ?? null } : null, ...extra,
   };
 }
 

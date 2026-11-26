@@ -8,7 +8,7 @@ import { where } from "firebase/firestore";
 
 const NAV: [string, [string, string, string, string?, string?][]][] = [
   ["MAIN", [["/", "home", "Overview"], ["/users", "users", "Users"], ["/kyc", "idcard", "KYC queue", "kyc"]]],
-  ["OPERATIONS", [["/orders", "box", "Orders"], ["/parcels", "box", "Parcels"], ["/delivery-codes", "lock", "Delivery codes"], ["/riders", "bike", "Riders & live map"], ["/zones", "pin", "Zones & cities"]]],
+  ["OPERATIONS", [["/orders", "box", "Orders"], ["/parcels", "box", "Parcels"], ["/delivery-codes", "lock", "Delivery codes"], ["/riders", "bike", "Riders & live map"], ["/safety", "heart", "Rider safety · SOS", "sos"], ["/zones", "pin", "Zones & cities"]]],
   ["MONEY", [["/payouts", "coins", "Escrow & payouts", "payouts"], ["/disputes", "gavel", "Disputes", "disputes"], ["/social-fund", "heart", "Social Fund"], ["/promotions", "report", "Boosts & revenue"], ["/escrow-ledger", "log", "Escrow ledger"], ["/overrides", "gavel", "Override log"],
     ["/withdrawals", "coins", "Withdrawals", "withdrawals"], ["/transactions", "report", "Transactions (Lipila)", "", "super"]]],
   ["DISCOVERY", [["/engagement", "report", "Engagement & outcomes"], ["/algorithm", "sliders", "Discovery algorithm"], ["/leads", "users", "Buyer leads"]]],
@@ -25,6 +25,7 @@ export default function Layout() {
     payouts: useCollection("payouts", [where("status", "in", ["FAILED_RETRY", "ESCALATED"])], "failing").rows.filter((r) => ["FAILED_RETRY", "ESCALATED"].includes(r.status)).length,
     disputes: useCollection("disputes", [where("status", "==", "OPEN")], "open").rows.filter((r) => r.status === "OPEN").length,
     moderation: useCollection("moderationQueue").rows.length,
+    sos: useCollection("sosAlerts", [where("status", "==", "OPEN")], "open").rows.filter((r) => r.status === "OPEN").length,
     withdrawals: useCollection("withdrawal_requests", [where("status", "==", "MANUAL_REVIEW")], "review").rows.filter((r) => r.status === "MANUAL_REVIEW").length,
   };
   const initials = (admin?.email ?? "?").slice(0, 2).toUpperCase();

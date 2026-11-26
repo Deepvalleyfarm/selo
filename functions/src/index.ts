@@ -19,3 +19,8 @@ export * from "./payments/tx-monitor";
 export * from "./studio/studio";
 export * from "./payments/receipts";
 export * from "./shops";
+
+export * from "./marketing";
+export * from "./reports";
+export * from "./safety";
+export * from "./adgen";

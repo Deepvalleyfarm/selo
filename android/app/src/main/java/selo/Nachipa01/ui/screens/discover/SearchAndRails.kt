@@ -53,6 +53,7 @@ fun ListingTile(l: Listing, modifier: Modifier = Modifier, onClick: () -> Unit) 
         }
         Column(Modifier.padding(8.dp)) {
             Text(l.title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp)
+            DealBadge(l, Modifier.padding(vertical = 2.dp), small = true)
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(Fees.formatK(l.offerPriceNgwee).removeSuffix(".00"), color = Selo.Red, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                 if (l.hasOffer) Text(" ${Fees.formatK(l.priceNgwee).removeSuffix(".00")}", color = Selo.Mute, fontSize = 10.sp, textDecoration = TextDecoration.LineThrough)

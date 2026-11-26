@@ -211,6 +211,22 @@ interface Backend {
     fun ticketMessages(id: String): Flow<List<TicketMessage>>
     suspend fun createTicket(subject: String, category: String, message: String, orderRef: String): String
     suspend fun replyTicket(id: String, text: String)
+
+    // ------------------------------------------------ v6.9 growth & safety
+    suspend fun campaigns(): List<Campaign>
+    suspend fun saveCampaign(c: CampaignDraft): String
+    suspend fun setCampaignStatus(id: String, status: String)
+    /** Uploads the product photo and returns the AI promotional image, description and social copy. */
+    suspend fun generateAd(photo: android.net.Uri, productName: String, priceNgwee: Long, offer: String): AdPack
+    suspend fun performanceReport(month: String?): PerformanceReport
+    suspend fun safetyStatus(): SafetyStatus
+    suspend fun setRiderInsurance(on: Boolean): SafetyStatus
+    suspend fun completeLesson(id: String): SafetyStatus
+    /** kind = "SOS" (texts the emergency contact) or "SHARE" (live link only). */
+    suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String = ""): SosResult
+    suspend fun closeSos(alertId: String, safe: Boolean)
+    suspend fun riderIdCard(): RiderIdCard
+    suspend fun addDeliveryEvidence(kind: String, id: String, photo: android.net.Uri, stage: String, lat: Double?, lng: Double?): Int
 }
 
 /** Everything the AI pre-fill + review screen sends when posting (PRD v6.1 §4.1). */

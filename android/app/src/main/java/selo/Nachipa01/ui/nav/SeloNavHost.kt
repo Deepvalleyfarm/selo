@@ -2,6 +2,10 @@ package selo.Nachipa01.ui.nav
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -108,6 +112,10 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
             selo.Nachipa01.ui.screens.account.AccountHost(e.arguments?.getString("r") ?: "support") { nav.popBackStack() } }
         composable("shops") { ShopsMapScreen(onBack = { nav.popBackStack() }, onOpenShop = { nav.navigate("shop/$it") }) }
         composable("shop/{sellerUid}") { e -> selo.Nachipa01.ui.screens.shop.ShopScreen(e.arguments?.getString("sellerUid") ?: "") { nav.popBackStack() } }
+        composable("marketing") { selo.Nachipa01.ui.screens.seller.MarketingCentreScreen({ nav.popBackStack() }, onAdGenerator = { nav.navigate("adgen") }) }
+        composable("adgen") { selo.Nachipa01.ui.screens.seller.AdGeneratorScreen { nav.popBackStack() } }
+        composable("report") { selo.Nachipa01.ui.screens.account.PerformanceReportScreen(null) { nav.popBackStack() } }
+        composable("report/{month}") { e -> selo.Nachipa01.ui.screens.account.PerformanceReportScreen(e.arguments?.getString("month")) { nav.popBackStack() } }
         composable("receipts") { selo.Nachipa01.ui.screens.account.ReceiptsScreen(null) { nav.popBackStack() } }
         composable("receipt/{refId}") { e -> selo.Nachipa01.ui.screens.account.ReceiptsScreen(e.arguments?.getString("refId")) { nav.popBackStack() } }
         composable(R.CODE) { e -> DeliveryCodeScreen(e.arguments?.getString("kind") ?: "order", e.arguments?.getString("id") ?: "", onBack = { nav.popBackStack() }) }
@@ -131,7 +139,20 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.AGENT) { AgentHomeScreen(onLogout = { nav.navigate(R.WELCOME) { popUpTo(0) } }, onAddListing = { nav.navigate(R.ADD_LISTING) }) }
     }
     ToastHost()
+    OfflineBanner()
     }
+}
+
+/** Shown while there is no connection: products already loaded stay browsable (OfflineCatalog). */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.OfflineBanner() {
+    val off by selo.Nachipa01.data.repo.OfflineCatalog.offline.collectAsState()
+    if (!off) return
+    val n = selo.Nachipa01.data.repo.OfflineCatalog.count()
+    androidx.compose.material3.Text(if (n > 0) "You're offline · showing $n products you've already seen" else "You're offline · check your connection",
+        color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)
+            .background(selo.Nachipa01.ui.theme.Selo.Ink.copy(alpha = .88f), androidx.compose.foundation.shape.RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 7.dp))
 }
 
 /** App-wide confirmation toast (e.g. "Added to cart · 3 items") shown without leaving the page. */

@@ -29,8 +29,8 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "6.8.0"
+        versionCode = 11
+        versionName = "6.9.0"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
@@ -110,6 +110,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    implementation("com.google.zxing:core:3.5.3") // QR code on the verified rider ID
     // Google Maps SDK for Android (map display only) + marker clustering; osmdroid is the fallback for builds without a key
     implementation("com.google.android.gms:play-services-maps:19.0.0")
     implementation("com.google.maps.android:android-maps-utils:3.8.2")

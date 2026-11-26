@@ -18,6 +18,7 @@ import {
   weightOk, PARCEL_CATEGORIES, type LL, type ParcelStatus,
 } from "./parcel-rules";
 import { sendTemplate } from "./sms";
+import { offerInWaves } from "./dispatch";
 import { audit, notify, requireAdmin, requireUser, str } from "./util";
 
 const ref = (id: string) => db.doc(`parcels/${id}`);
@@ -181,16 +182,20 @@ export async function broadcastParcel(id: string) {
   const online = await db.collection("riderPresence").where("isOnline", "==", true).limit(300).get();
   const ids = online.docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id);
   const [areas, zones] = ids.length ? await Promise.all([db.getAll(...ids.map((u) => db.doc(`riderAreas/${u}`))), db.getAll(...ids.map((u) => db.doc(`riderZones/${u}`)))]) : [[], []];
-  const widen = (p.broadcastRound ?? 0) >= 1; // after the first 5 minutes any rider in the city may see it
+  const widen = (p.broadcastRound ?? 0) >= 2; // after the neighbourhood waves, any rider in the city may see it
   const riders = ids.filter((_, i) => {
     const a = areas[i]?.data();
     if (!a || a.cityId !== p.cityId) return false; // hard city lock (§11)
     if (!widen && !(a.neighbourhoods ?? []).includes(p.pickup.neighbourhood)) return false;
     return withinWorkingHours(zones[i]?.get("workingHours"));
   });
-  await ref(id).update({ notifiedRiders: riders, broadcastAt: FieldValue.serverTimestamp(), broadcastRound: FieldValue.increment(1) });
+  // Smart dispatch: best-scoring riders first (dispatch.ts); the wave grows each round.
+  const round = p.broadcastRound ?? 0;
+  const { fresh } = await offerInWaves(`parcels/${id}`, riders.filter((u) => !(p.declinedBy ?? []).includes(u)),
+    { pickup: { lat: p.pickup.lat, lng: p.pickup.lng }, dropoff: { lat: p.dropoff.lat, lng: p.dropoff.lng } }, cfg.maxConcurrentDeliveries, round, p.notifiedRiders ?? []);
+  await ref(id).update({ broadcastAt: FieldValue.serverTimestamp(), broadcastRound: FieldValue.increment(1) });
   const earnings = `K${(p.fees.riderEarningsNgwee / 100).toFixed(2)}`;
-  await Promise.all(riders.map((r) => notify(r, "New parcel job", `Your Earnings: ${earnings} · ${p.pickup.neighbourhood} → ${p.dropoff.neighbourhood} · ${p.weightBand}`,
+  await Promise.all(fresh.map((r) => notify(r, "New parcel job", `Your Earnings: ${earnings} · ${p.pickup.neighbourhood} → ${p.dropoff.neighbourhood} · ${p.weightBand}`,
     "NEW_ORDER_AVAILABLE", `selo://rider/jobs/parcel/${id}`)));
   if (!riders.length) await ref(id).update({ noRidersAt: FieldValue.serverTimestamp() });
 }
@@ -207,9 +212,10 @@ export const scheduled_parcelDispatch = onSchedule({ schedule: "every 1 minutes"
     const since = (p.broadcastAt as Timestamp | undefined)?.toMillis() ?? nowMs;
     const first = (p.paidAt as Timestamp | undefined)?.toMillis() ?? since;
     if (nowMs - first >= cfg.parcelMaxBroadcastMin * 60_000) { await refundParcel(d.id, "No rider was available", "system"); continue; }
-    if (nowMs - since >= cfg.parcelBroadcastMin * 60_000) {
+    const waveMin = (p.broadcastRound ?? 0) < 3 ? 1 : cfg.parcelBroadcastMin; // smart-dispatch waves go out a minute apart
+    if (nowMs - since >= waveMin * 60_000) {
       await broadcastParcel(d.id);
-      await notify(p.senderUid, "Still looking for a rider", "No rider has accepted yet. We've widened the search.", "REBROADCAST", `selo://parcels/${d.id}`);
+      if ((p.broadcastRound ?? 0) >= 3) await notify(p.senderUid, "Still looking for a rider", "No rider has accepted yet. We've widened the search.", "REBROADCAST", `selo://parcels/${d.id}`);
     }
   }
   // auto-offline after 30 min without GPS (§18)

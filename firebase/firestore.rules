@@ -31,6 +31,11 @@ service cloud.firestore {
     match /stores/{uid} { allow read: if signedIn(); allow write: if me(uid) && role() == 'SELLER'; }
     match /agentLinks/{id} { allow read: if signedIn() && (resource.data.agentUid == request.auth.uid || resource.data.sellerUid == request.auth.uid) || admin(); }
 
+    // Marketing Centre campaigns: written only by campaign_* functions (prices are worked out on the server).
+    match /campaigns/{id} { allow read: if signedIn() && (resource.data.sellerUid == request.auth.uid || admin()); allow write: if false; }
+    // Rider safety: SOS alerts and verified rider IDs are server-written.
+    match /sosAlerts/{id} { allow read: if signedIn() && (resource.data.riderUid == request.auth.uid || admin()); allow write: if false; }
+    match /performanceReports/{id} { allow read: if signedIn() && (resource.data.uid == request.auth.uid || admin()); allow write: if false; }
     match /listings/{id} {
       allow read: if resource.data.status == 'live' || (signedIn() && (resource.data.sellerUid == request.auth.uid || resource.data.agentUid == request.auth.uid)) || admin();
       allow update: if signedIn() && (resource.data.sellerUid == request.auth.uid || resource.data.agentUid == request.auth.uid)

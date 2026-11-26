@@ -253,4 +253,17 @@ class ScreensScreenshotTest {
     @Test fun w4_agentKycNrc() = shot("K4-agent-kyc-nrc") { RegistrationWizard(Role.AGENT, {}, {}, initialPage = 2) }
     @Test fun w5_sellerKycCorporate() = shot("K5-seller-kyc-corporate", act = { }) { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 3) }
     @Test fun w6_agentHomeBottom() = shot("K6-agent-home", Role.AGENT, act = { rule.onNode(androidx.compose.ui.test.hasText("Log out")).performScrollTo() }) { AgentHomeScreen({}, {}) }
+
+    // v6.9: growth & safety
+    @Test fun g7_marketing() = shot("G7-marketing-centre", Role.SELLER, advance = 1_200) { selo.Nachipa01.ui.screens.seller.MarketingCentreScreen({}) }
+    @Test fun g8_newDeal() = shot("G8-new-deal-flash", Role.SELLER, advance = 1_200, act = { tap("Limited-time offer") }) { selo.Nachipa01.ui.screens.seller.MarketingCentreScreen({}) }
+    @Test fun g9_adgen() = shot("G9-ai-ad-generator", Role.SELLER) { selo.Nachipa01.ui.screens.seller.AdGeneratorScreen {} }
+    @Test fun g10_sellerReport() = shot("G10-seller-monthly-report", Role.SELLER, advance = 1_000) { selo.Nachipa01.ui.screens.account.PerformanceReportScreen("2026-10") {} }
+    @Test fun g11_riderReport() = shot("G11-rider-monthly-report", Role.RIDER, advance = 1_000) { selo.Nachipa01.ui.screens.account.PerformanceReportScreen("2026-10") {} }
+    @Test fun g12_safety() = shot("G12-rider-safety-centre", Role.RIDER, advance = 1_000) { RiderShell("more", initialScreen = "safety") {} }
+    @Test fun g13_riderId() = shot("G13-verified-rider-id", Role.RIDER, advance = 1_000, act = { tap("Verified rider ID") }) { RiderShell("more", initialScreen = "safety") {} }
+    @Test fun g14_sellerHome() = shot("G14-seller-home-grow", Role.SELLER) { SellerShell(rememberNavController()) {} }
+    @Test fun g15_feedDeal() = shot("G15-feed-deal-badge", Role.BUYER, advance = 1_500) { BuyerShell(rememberNavController(), "home") {} }
+    @Test fun g16_offline() = shot("G16-offline-banner", Role.BUYER, advance = 1_500, prep = { selo.Nachipa01.data.repo.OfflineCatalog.offline.value = true }) {
+        selo.Nachipa01.ui.nav.SeloNavHost {} }
 }

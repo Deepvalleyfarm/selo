@@ -355,10 +355,20 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             discountPct = n("discountPct")?.toDouble() ?: 0.0, discountNgwee = n("discountNgwee")?.toLong() ?: 0,
             rankSource = this["rankSource"] as? String, publishedAt = n("publishedAt")?.toLong() ?: 0, promoId = this["promoId"] as? String,
             aiEnhanced = this["aiEnhanced"] == true, aiGeneratedMotion = this["aiGeneratedMotion"] == true,
+            promoLabel = (this["promo"] as? Map<*, *>)?.get("label") as? String, promoType = (this["promo"] as? Map<*, *>)?.get("type") as? String,
+            promoEndsAt = ((this["promo"] as? Map<*, *>)?.get("endsAt") as? Number)?.toLong(),
         )
     }
+    /** Runs [live]; with no connection it falls back to products already on the phone (OfflineCatalog). */
+    private suspend fun <T> orOffline(live: suspend () -> T, cached: () -> T): T = try {
+        live().also { OfflineCatalog.offline.value = false }
+    } catch (e: BackendException) {
+        if (e.message != NETWORK_ERROR || OfflineCatalog.count() == 0) throw e
+        OfflineCatalog.offline.value = true; cached()
+    }
+    private fun cachedListings(records: List<Map<String, Any?>>) = records.mapNotNull { runCatching { it.toListing() }.getOrNull() }
     @Suppress("UNCHECKED_CAST")
-    private fun Map<*, *>.listings(key: String) = (this[key] as? List<Map<*, *>>)?.map { it.toListing() } ?: emptyList()
+    private fun Map<*, *>.listings(key: String) = (this[key] as? List<Map<*, *>>)?.also { OfflineCatalog.remember(it) }?.map { it.toListing() } ?: emptyList()
 
     override suspend fun logEvents(events: List<BehaviourEvent>, variant: String?) {
         val u = uid() ?: return
@@ -367,8 +377,13 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         batch.commit().await()
     }
 
-    override suspend fun feed(sessionId: String?, count: Int): FeedPage {
-        val r = call("feed_next", mapOf("sessionId" to sessionId, "count" to count))
+    override suspend fun feed(sessionId: String?, count: Int): FeedPage = orOffline({ liveFeed(sessionId, count) }) {
+        // Offline: page through the products already seen, newest first.
+        val from = sessionId?.removePrefix("offline:")?.toIntOrNull() ?: 0
+        FeedPage("offline:${from + count}", cachedListings(OfflineCatalog.all().drop(from).take(count)), "offline")
+    }
+    private suspend fun liveFeed(sessionId: String?, count: Int): FeedPage {
+        val r = call("feed_next", mapOf("sessionId" to sessionId?.takeUnless { it.startsWith("offline:") }, "count" to count))
         @Suppress("UNCHECKED_CAST") val g = r["guard"] as? Map<String, Any?> ?: emptyMap()
         fun gi(k: String, d: Int) = (g[k] as? Number)?.toInt() ?: d
         return FeedPage(r["sessionId"] as String, r.listings("items"), r["variant"] as? String ?: "control", (r["cohort"] as? Number)?.toInt() ?: 0,
@@ -376,21 +391,28 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun homeRails(): List<Rail> = (call("home_rails", emptyMap())["rails"] as? List<Map<*, *>>)
-        ?.map { Rail(it["id"] as String, it["title"] as String, it.listings("items")) } ?: emptyList()
+    override suspend fun homeRails(): List<Rail> = orOffline({ (call("home_rails", emptyMap())["rails"] as? List<Map<*, *>>)
+        ?.map { Rail(it["id"] as String, it["title"] as String, it.listings("items")) } ?: emptyList() }) {
+        listOf(Rail("offline", "Saved on your phone", cachedListings(OfflineCatalog.all().take(20)))) }
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun search(query: String, filters: SearchFilters): SearchResult {
+    override suspend fun search(query: String, filters: SearchFilters): SearchResult = orOffline({ liveSearch(query, filters) }) {
+        SearchResult(cachedListings(OfflineCatalog.search(query)), emptyList()) }
+    @Suppress("UNCHECKED_CAST")
+    private suspend fun liveSearch(query: String, filters: SearchFilters): SearchResult {
         val r = call("search_listings", mapOf("q" to query, "filters" to mapOf("minNgwee" to filters.minNgwee, "maxNgwee" to filters.maxNgwee,
             "province" to filters.province, "district" to filters.district, "condition" to filters.condition, "mediaType" to filters.mediaType,
             "availability" to filters.availability, "category" to filters.category)))
         return SearchResult(r.listings("results"), (r["alsoSearched"] as? List<String>) ?: emptyList())
     }
 
-    override suspend fun listing(id: String): Listing? {
+    override suspend fun listing(id: String): Listing? = try {
         val d = db.collection("listings").document(id).get().await()
-        if (!d.exists()) return null
-        return (d.data!! + ("id" to d.id) + ("publishedAt" to (d.getTimestamp("publishedAt")?.toDate()?.time ?: 0L))).toListing()
+        if (!d.exists()) null
+        else (d.data!!.filterValues { it !is com.google.firebase.Timestamp } + ("id" to d.id) + ("publishedAt" to (d.getTimestamp("publishedAt")?.toDate()?.time ?: 0L)))
+            .also { OfflineCatalog.remember(listOf(it)) }.toListing()
+    } catch (e: Exception) {
+        OfflineCatalog.get(id)?.let { OfflineCatalog.offline.value = true; it.toListing() } ?: throw (e as? BackendException ?: BackendException(NETWORK_ERROR))
     }
 
     override fun likedIds(): Flow<Set<String>> = uid()?.let { u ->
@@ -702,7 +724,11 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun reverseGeocode(lat: Double, lng: Double) = call("geo_reverse", geo(mapOf("lat" to lat, "lng" to lng))).toPlace()
     override suspend fun saveMyLocation(p: Place) { call("location_save", mapOf("address" to p.address, "label" to p.label, "latitude" to p.lat, "longitude" to p.lng,
         "placeId" to p.placeId, "source" to "user")) }
-    override suspend fun shopProfile(sellerUid: String): ShopProfile {
+    override suspend fun shopProfile(sellerUid: String): ShopProfile = orOffline({ liveShop(sellerUid) }) {
+        val ls = cachedListings(OfflineCatalog.all().filter { it["sellerUid"] == sellerUid })
+        ShopProfile(sellerUid, ls.firstOrNull()?.sellerName ?: "Shop", false, null, null, "Offline · products you've already seen", ls)
+    }
+    private suspend fun liveShop(sellerUid: String): ShopProfile {
         val r = call("shop_profile", mapOf("sellerUid" to sellerUid))
         @Suppress("UNCHECKED_CAST") val ls = (r["listings"] as? List<Map<*, *>>).orEmpty().map { it.toListing() }
         return ShopProfile(sellerUid, r["name"] as? String ?: "", r["verified"] == true, r["photoUrl"] as? String, r["bannerUrl"] as? String, r["address"] as? String ?: "", ls)
@@ -759,7 +785,10 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         fun l(k: String) = (r[k] as? Number)?.toLong() ?: 0
         @Suppress("UNCHECKED_CAST")
         return OrderQuoteResult(l("goodsNgwee"), l("deliveryNgwee"), l("serviceFeeNgwee"), l("processingFeeNgwee"), l("totalNgwee"), (r["distanceKm"] as? Number)?.toDouble() ?: 0.0,
-            r["approximate"] == true, (r["etaMin"] as? Number)?.toInt() ?: 0, r["unavailable"] as? List<String> ?: emptyList())
+            r["approximate"] == true, (r["etaMin"] as? Number)?.toInt() ?: 0, r["unavailable"] as? List<String> ?: emptyList(),
+            fullGoodsNgwee = (r["fullGoodsNgwee"] as? Number)?.toLong() ?: l("goodsNgwee"), savingsNgwee = l("savingsNgwee"),
+            deals = (r["deals"] as? List<Map<*, *>>).orEmpty().map { (it["title"] as? String ?: "Deal") to ((it["savingNgwee"] as? Number)?.toLong() ?: 0) },
+            freeItems = (r["freeItems"] as? List<Map<*, *>>).orEmpty().map { "${(it["qty"] as? Number)?.toInt() ?: 1} × ${it["title"]} free" })
     }
 
     /* ======================================================== v6.4 parcels */
@@ -882,4 +911,62 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun createTicket(subject: String, category: String, message: String, orderRef: String) =
         call("support_createTicket", mapOf("subject" to subject, "category" to category, "message" to message, "orderRef" to orderRef))["ticketId"] as String
     override suspend fun replyTicket(id: String, text: String) { call("support_reply", mapOf("ticketId" to id, "text" to text)) }
+
+    /* ======================================================== v6.9 growth & safety */
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>.toCampaign() = Campaign(this["id"] as String, runCatching { CampaignType.valueOf(this["type"] as String) }.getOrDefault(CampaignType.DISCOUNT),
+        this["title"] as? String ?: "", (this["listingIds"] as? List<String>).orEmpty(), (this["discountPct"] as? Number)?.toInt(), (this["bundlePriceNgwee"] as? Number)?.toLong(),
+        (this["startsAt"] as? Number)?.toLong() ?: 0, (this["endsAt"] as? Number)?.toLong(), (this["maxUnits"] as? Number)?.toInt(), this["status"] as? String ?: "ACTIVE",
+        (this["unitsSold"] as? Number)?.toInt() ?: 0, (this["revenueNgwee"] as? Number)?.toLong() ?: 0, (this["orders"] as? Number)?.toInt() ?: 0,
+        this["label"] as? String ?: "", this["live"] == true)
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun campaigns(): List<Campaign> = (call("campaign_list", emptyMap())["campaigns"] as? List<Map<*, *>>).orEmpty().map { it.toCampaign() }
+    override suspend fun saveCampaign(c: CampaignDraft): String = call("campaign_save", mapOf("id" to c.id, "type" to c.type.name, "title" to c.title, "listingIds" to c.listingIds,
+        "discountPct" to c.discountPct, "bundlePriceNgwee" to c.bundlePriceNgwee, "startsAt" to c.startsAt, "endsAt" to c.endsAt, "maxUnits" to c.maxUnits))["id"] as String
+    override suspend fun setCampaignStatus(id: String, status: String) { call("campaign_setStatus", mapOf("id" to id, "status" to status)) }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun generateAd(photo: android.net.Uri, productName: String, priceNgwee: Long, offer: String): AdPack {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = "adgen/$u/${UUID.randomUUID()}.jpg"
+        try { storage.reference.child(path).putFile(photo).await() } catch (e: Exception) { throw BackendException("We couldn't upload the photo. Check your connection and try again.") }
+        val r = call("ad_generate", mapOf("photoPath" to path, "productName" to productName, "priceNgwee" to priceNgwee, "offer" to offer))
+        fun t(k: String) = r[k] as? String ?: ""
+        return AdPack(t("id"), r["storyUrl"] as? String, r["squareUrl"] as? String, t("productName"), t("headline"), t("description"), t("whatsapp"), t("facebook"), t("tiktok"),
+            (r["hashtags"] as? List<String>).orEmpty())
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun performanceReport(month: String?): PerformanceReport {
+        val r = call("performance_report", mapOf("month" to month))
+        return PerformanceReport(r["month"] as? String ?: "", r["monthLabel"] as? String ?: "", r["role"] as? String ?: "",
+            (r["metrics"] as? List<Map<*, *>>).orEmpty().map { ReportMetric(it["key"] as? String ?: "", it["label"] as? String ?: "", (it["value"] as? Number)?.toLong() ?: 0,
+                (it["previous"] as? Number)?.toLong() ?: 0, it["unit"] as? String ?: "count") },
+            (r["highlights"] as? List<String>).orEmpty(), (r["tips"] as? List<String>).orEmpty(),
+            (r["top"] as? List<Map<*, *>>).orEmpty().map { TopProduct(it["title"] as? String ?: "", (it["units"] as? Number)?.toInt() ?: 0, (it["revenueNgwee"] as? Number)?.toLong() ?: 0) })
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>.toSafety() = SafetyStatus(this["emergencyName"] as? String, this["emergencyPhone"] as? String, this["insurance"] == true,
+        (this["premiumNgwee"] as? Number)?.toLong() ?: 0, (this["coverNgwee"] as? Number)?.toLong() ?: 0, (this["lessons"] as? List<String>).orEmpty().toSet(),
+        (this["evidenceCount"] as? Number)?.toInt() ?: 0, this["openAlertId"] as? String, this["openAlertUrl"] as? String)
+    override suspend fun safetyStatus() = call("rider_safety", emptyMap()).toSafety()
+    override suspend fun setRiderInsurance(on: Boolean) = call("rider_safety", mapOf("insurance" to on)).toSafety()
+    override suspend fun completeLesson(id: String) = call("rider_safety", mapOf("lessonDone" to id)).toSafety()
+    override suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String): SosResult {
+        val r = call("rider_sos", mapOf("lat" to lat, "lng" to lng, "accuracy" to accuracy, "kind" to kind, "note" to note))
+        return SosResult(r["alertId"] as String, r["shareUrl"] as? String ?: "", r["mapsUrl"] as? String ?: "", r["contactNotified"] == true, r["hasContact"] == true, r["contactName"] as? String)
+    }
+    override suspend fun closeSos(alertId: String, safe: Boolean) { call("rider_sosUpdate", mapOf("alertId" to alertId, "status" to if (safe) "SAFE" else "CLOSED")) }
+    override suspend fun riderIdCard(): RiderIdCard {
+        val r = call("rider_idCard", emptyMap())
+        fun t(k: String) = r[k] as? String ?: ""
+        return RiderIdCard(t("code"), t("verifyUrl"), t("name"), r["photoUrl"] as? String, t("plate"), t("vehicle"), r["verified"] == true, t("status"), t("memberSince"))
+    }
+    override suspend fun addDeliveryEvidence(kind: String, id: String, photo: android.net.Uri, stage: String, lat: Double?, lng: Double?): Int {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val path = "evidence/$u/${kind}_${id}_${stage}_${System.currentTimeMillis()}.jpg"
+        try { storage.reference.child(path).putFile(photo).await() } catch (e: Exception) { throw BackendException("We couldn't upload the photo. Check your connection and try again.") }
+        return (call("delivery_addEvidence", mapOf("kind" to kind, "id" to id, "path" to path, "stage" to stage, "lat" to lat, "lng" to lng))["count"] as? Number)?.toInt() ?: 1
+    }
 }

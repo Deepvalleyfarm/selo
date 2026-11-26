@@ -64,6 +64,8 @@ fun MoreScreens(s: String, profile: RiderProfile?, stats: RiderStats, open: (Str
         s == "profile" -> ProfileScreen(profile, back)
         s == "settings" -> SettingsScreen(profile, back, onLogout, open)
         s == "incident" -> IncidentScreen { open("settings") }
+        s == "safety" -> SafetyCentreScreen(back, open)
+        s == "report" -> selo.Nachipa01.ui.screens.account.PerformanceReportScreen(null, back)
         s == "claim" -> ClaimFlow(stats, back)
         s == "fundHistory" -> FundHistory(back)
         s == "ambassador" -> AmbassadorScreen(back)
@@ -84,6 +86,8 @@ fun MoreMenu(profile: RiderProfile?, open: (String) -> Unit, onLogout: () -> Uni
                 Avatar(p, 48); Column(Modifier.padding(start = 12.dp).weight(1f)) { Text(p.fullName, fontWeight = FontWeight.Bold); Text("${p.tier} rider · ${p.zoneName}", color = Selo.Mute, fontSize = 12.sp) }
                 Icon(Icons.Outlined.ChevronRight, null, tint = Selo.Mute) } }
             Column(Modifier.background(Color.White, RoundedCornerShape(14.dp))) {
+                MenuRow(Icons.Outlined.HealthAndSafety, "Safety Centre · SOS") { open("safety") }
+                MenuRow(Icons.Outlined.Assessment, "Monthly performance report") { open("report") }
                 MenuRow(Icons.Outlined.Chat, "Messages", threads.sumOf { it.unread }) { open("messages") }
                 MenuRow(Icons.Outlined.Map, "Zone & availability") { open("zones") }
                 MenuRow(Icons.Outlined.Notifications, "Notifications", notes.count { !it.read }) { open("notifications") }

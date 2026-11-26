@@ -13,6 +13,9 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { notify, requireUser, str } from "./util";
 import { sendSms, sendTemplate } from "./sms";
 import { routeDistance } from "./geo";
+import { offerInWaves } from "./dispatch";
+import { priceCart } from "./pricing";
+import { recordCampaignSales, sellerCampaigns } from "./marketing";
 
 const ledger = (orderId: string) => db.collection(`escrowLedger/${orderId}/entries`);
 const orderRef = (id: string) => db.doc(`orders/${id}`);
@@ -57,9 +60,11 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
   if (listings.some((l) => l.get("sellerUid") !== sellerUid)) throw new HttpsError("invalid-argument", "One seller per order.");
   const seller = (await db.doc(`users/${sellerUid}`).get()).data() ?? {};
   const buyer = (await db.doc(`users/${uid}`).get()).data() ?? {};
-  const lines = items.map((i, k) => ({ listingId: i.listingId, title: listings[k].get("title"), qty: Math.max(1, Math.floor(i.qty)),
-    unitNgwee: listings[k].get("priceNgwee") as number }));
-  const goods = lines.reduce((s, l) => s + l.qty * l.unitNgwee, 0);
+  // Listing discounts and Marketing Centre deals (pricing.ts) — the same numbers the checkout quote showed.
+  const priced = priceCart(items.map((i, k) => cartLine(i, listings[k])), await sellerCampaigns(sellerUid));
+  const lines = priced.lines.map((l) => ({ listingId: l.listingId, title: l.title, qty: l.qty, unitNgwee: l.unitNgwee, listNgwee: l.listNgwee,
+    freeQty: l.freeQty, lineNgwee: l.lineNgwee, promo: l.promo }));
+  const goods = priced.goodsNgwee;
   const buyerPoint = buyer.location && Number.isFinite(buyer.location.latitude) ? { lat: buyer.location.latitude, lng: buyer.location.longitude } : buyer.geo ?? null;
   const dropGeo = isGeo(req.data?.dropoffGeo) ? { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) } : buyerPoint;
   const pickGeo = sellerPoint(seller);
@@ -69,7 +74,8 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
   const id = shortId("SNC");
   await orderRef(id).set({
     buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
-    agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee, deliveryNgwee: q.deliveryNgwee,
+    agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee,
+    pricing: { fullNgwee: priced.fullNgwee, savingsNgwee: priced.savingsNgwee, applied: priced.applied }, deliveryNgwee: q.deliveryNgwee,
     serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
     pickupGeo: pickGeo, dropoff, dropoffGeo: dropGeo,
     pickupLocation: pickGeo ? { address: seller.location?.address ?? seller.landmark ?? seller.area ?? "", latitude: pickGeo.lat, longitude: pickGeo.lng } : null,
@@ -84,6 +90,8 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
   return { orderId: id, totalNgwee: q.totalNgwee };
 });
 
+const cartLine = (i: { listingId: string; qty: number }, l: FirebaseFirestore.DocumentSnapshot) => ({ listingId: i.listingId, title: String(l.get("title") ?? ""),
+  qty: i.qty, priceNgwee: Number(l.get("priceNgwee") ?? 0), discountPct: Number(l.get("discountPct") ?? 0), discountNgwee: Number(l.get("discountNgwee") ?? 0) });
 const isGeo = (v: any) => v && Number.isFinite(Number(v.lat)) && Number.isFinite(Number(v.lng));
 /** Seller pickup point: the saved store location (users.location) first, the legacy geo field second. */
 const sellerPoint = (s: any) => s?.location && Number.isFinite(s.location.latitude) ? { lat: s.location.latitude, lng: s.location.longitude } : isGeo(s?.geo) ? { lat: Number(s.geo.lat), lng: Number(s.geo.lng) } : null;
@@ -98,12 +106,14 @@ export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
   const cfg = await loadConfig();
   const listings = await Promise.all(items.map((i) => db.doc(`listings/${i.listingId}`).get()));
   const unavailable = listings.filter((l) => !l.exists || l.get("status") !== "live" || (l.get("stock") ?? 1) <= 0).map((l) => l.id);
-  const goods = items.reduce((s, it, k) => s + Math.max(1, Math.floor(it.qty)) * (listings[k].get("priceNgwee") ?? 0), 0);
+  const priced = priceCart(items.map((i, k) => cartLine(i, listings[k])), await sellerCampaigns(String(listings[0].get("sellerUid") ?? "")));
+  const goods = priced.goodsNgwee;
   const seller = (await db.doc(`users/${listings[0].get("sellerUid")}`).get()).data() ?? {};
   const from = sellerPoint(seller);
   const route = from ? await routeDistance(from, drop) : { distanceKm: 6, durationMin: 20, approximate: true };
   const q = quote(goods, route.distanceKm, cfg);
-  return { ...q, distanceKm: route.distanceKm, approximate: route.approximate || !from, etaMin: route.durationMin + 10, unavailable,
+  return { ...q, fullGoodsNgwee: priced.fullNgwee, savingsNgwee: priced.savingsNgwee, deals: priced.applied.map((a) => ({ title: a.title, type: a.type, savingNgwee: a.savingNgwee })),
+    freeItems: priced.lines.filter((l) => l.freeQty > 0).map((l) => ({ title: l.title, qty: l.freeQty })), distanceKm: route.distanceKm, approximate: route.approximate || !from, etaMin: route.durationMin + 10, unavailable,
     feeBreakdown: { baseFee: cfg.deliveryBaseFee, perKm: cfg.deliveryFeePerKm, km: route.distanceKm } };
 });
 
@@ -126,21 +136,28 @@ export const order_retryPayment = onCall({ secrets: [LIPILA_API_KEY] }, async (r
 
 /* --------------------------------------------------------------- broadcast */
 
-export async function broadcast(orderId: string) {
-  const o = (await orderRef(orderId).get()).data();
-  if (!o) return;
+/** Online riders in the pickup zone with free capacity and inside their own working hours (PRD 6.10). */
+async function eligibleRiders(o: Record<string, any>) {
   const zones = (await db.collection("zones").where("isActive", "==", true).get()).docs;
   const zone = o.pickupGeo ? zones.find((z) => haversineKm(o.pickupGeo, z.get("centre")) <= z.get("radiusKm")) : zones.find((z) => z.get("name") === o.zoneName);
   const cfg = await loadConfig();
   let q = db.collection("riderPresence").where("isOnline", "==", true);
   if (zone) q = q.where("zoneIds", "array-contains", zone.id);
-  const candidates = (await q.limit(50).get()).docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id);
-  // Outside their own working hours riders get no dispatches, even when marked online (PRD 6.10).
+  const candidates = (await q.limit(50).get()).docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id)
+    .filter((u) => !(o.declinedBy ?? []).includes(u));
   const hours = candidates.length ? await db.getAll(...candidates.map((id) => db.doc(`riderZones/${id}`))) : [];
-  const riders = candidates.filter((_, i) => withinWorkingHours(hours[i]?.get("workingHours")));
-  await orderRef(orderId).update({ zoneId: zone?.id ?? null, notifiedRiders: riders, broadcastAt: FieldValue.serverTimestamp() });
+  return { zone, cfg, riders: candidates.filter((_, i) => withinWorkingHours(hours[i]?.get("workingHours"))) };
+}
+
+/** Smart dispatch (dispatch.ts): the best-scoring riders are offered the order first, more riders each wave. */
+export async function broadcast(orderId: string, round = 0) {
+  const o = (await orderRef(orderId).get()).data();
+  if (!o || o.state !== "BROADCASTING") return;
+  const { zone, cfg, riders } = await eligibleRiders(o);
+  if (round === 0) await orderRef(orderId).update({ zoneId: zone?.id ?? null });
+  const { fresh } = await offerInWaves(`orders/${orderId}`, riders, { pickup: o.pickupGeo ?? null, dropoff: o.dropoffGeo ?? null }, cfg.maxConcurrentDeliveries, round, o.notifiedRiders ?? []);
   const net = split(o.goodsNgwee, o.deliveryNgwee, o.feeSnapshot).riderNetNgwee;
-  await Promise.all(riders.map((r) => notify(r, "New Order Available!", `K${(net / 100).toFixed(2)} net · ${o.pickup} → ${o.dropoff} · ~${o.distanceKm} km`,
+  await Promise.all(fresh.map((r) => notify(r, "New Order Available!", `K${(net / 100).toFixed(2)} net · ${o.pickup} → ${o.dropoff} · ~${o.distanceKm} km`,
     "NEW_ORDER_AVAILABLE", `selo://rider/jobs/${orderId}`)));
 }
 
@@ -274,12 +291,14 @@ async function onCollection(reference: string, ok: boolean, status: string, mess
     const seller = o.sellerName || "the seller";
     await issueReceipt({ reference, kind: "order", refId: orderId, payerUid: o.buyerUid, payerName: o.buyerName ?? "", payerMsisdn: o.buyerMsisdn ?? "",
       onBehalfOf: { type: o.agentUid ? "agent" : "seller", name: seller, uid: o.sellerUid, via: agent ? `agent ${agent}` : null },
-      lines: [...(o.items ?? []).map((i: { title: string; qty: number; unitNgwee: number }) => ({ label: `${i.title} × ${i.qty}`, amountNgwee: i.qty * i.unitNgwee, onBehalfOf: seller })),
+      lines: [...(o.items ?? []).map((i: { title: string; qty: number; unitNgwee: number; freeQty?: number; lineNgwee?: number }) => ({
+          label: `${i.title} × ${i.qty}${i.freeQty ? ` (${i.freeQty} free)` : ""}`, amountNgwee: i.lineNgwee ?? i.qty * i.unitNgwee, onBehalfOf: seller })),
         ...(o.deliveryNgwee ? [{ label: `Delivery (${o.distanceKm ?? "—"} km)`, amountNgwee: o.deliveryNgwee, onBehalfOf: "the delivery rider" }] : []),
         ...(o.serviceFeeNgwee ? [{ label: "Service fee", amountNgwee: o.serviceFeeNgwee, onBehalfOf: "SeloNaChipa" }] : []),
         ...(o.processingFeeNgwee ? [{ label: "Transaction fee", amountNgwee: o.processingFeeNgwee, onBehalfOf: "SeloNaChipa" }] : [])],
       totalNgwee: o.totalNgwee, walletMsisdn: o.attemptWallets?.[reference] ?? o.walletMsisdn ?? "" }).catch((e) => logger.warn("receipt failed", orderId, String(e)));
   }
+  await recordCampaignSales(o.items ?? [], orderId);
   await sendTemplate("ORDER_CONFIRMED", o.buyerMsisdn, [orderId, o.sellerName ?? "your seller"], orderId);
   if (!o.isParcel) await notify(o.sellerUid, "New order", `${o.items.map((i: { title: string; qty: number }) => `${i.title} × ${i.qty}`).join(", ")} · escrow held`, "NEW_ORDER", `selo://seller/orders/${orderId}`);
   await db.runTransaction(async (tx) => move(tx, orderId, "ESCROW_LOCKED", "BROADCASTING"));

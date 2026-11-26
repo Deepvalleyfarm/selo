@@ -130,6 +130,7 @@ fun FeedCard(l: Listing, active: Boolean, liked: Boolean, saved: Boolean, follow
 
         // bottom-left: seller, title, price, details
         Column(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 16.dp, end = 84.dp, bottom = 92.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            DealBadge(l)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(l.sellerName.ifBlank { "SeloNaChipa shop" }, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, modifier = Modifier.clickable { shopApp.navRequest.value = "shop/${l.sellerUid}" })
                 if (l.sellerVerified) Icon(Icons.Filled.Verified, "Verified seller", tint = Color(0xFF4FC3F7), modifier = Modifier.padding(start = 4.dp).size(16.dp))
@@ -225,6 +226,22 @@ fun AiBadge(l: Listing, modifier: Modifier = Modifier, small: Boolean = false) {
         verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(if (small) 10.dp else 12.dp))
         Text(if (l.aiGeneratedMotion) " AI motion" else " AI-enhanced", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = if (small) 9.sp else 11.sp)
+    }
+}
+
+/** Marketing Centre deal on the product: "Buy 1 Get 1 Free", "Bundle deal", or a limited-time offer with a live countdown. */
+@Composable
+fun DealBadge(l: Listing, modifier: Modifier = Modifier, small: Boolean = false) {
+    val label = l.promoLabel ?: return
+    val ends = l.promoEndsAt
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    if (ends != null && l.promoType == "FLASH") LaunchedEffect(ends) { while (now < ends) { kotlinx.coroutines.delay(30_000); now = System.currentTimeMillis() } }
+    if (ends != null && now >= ends) return
+    Row(modifier.background(Color(0xFFFFD54F), RoundedCornerShape(8.dp)).padding(horizontal = if (small) 5.dp else 8.dp, vertical = if (small) 2.dp else 4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(if (l.promoType == "FLASH") Icons.Outlined.Timer else Icons.Outlined.LocalOffer, null, tint = Selo.Ink, modifier = Modifier.size(if (small) 11.dp else 14.dp))
+        Text(" $label" + if (l.promoType == "FLASH" && ends != null) " · ${selo.Nachipa01.ui.screens.seller.timeLeft(ends, now)}" else "",
+            color = Selo.Ink, fontWeight = FontWeight.ExtraBold, fontSize = if (small) 10.sp else 12.sp, maxLines = 1)
     }
 }
 

@@ -49,11 +49,11 @@ object DemoData {
             photoUrls = if (video) emptyList() else listOf("1", "2", "3"))
 
     val listings = listOf(
-        l("l1", "s1", "Mama Bupe's Veg", "Fresh Chongwe tomatoes – 5 kg bag", "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Packed at Soweto Market, stall 14.", 8_000, "Fresh produce", "Soweto", true, 0xFFB0281A, 0xFFF2B33D, 820, 4100, tags = listOf("tomatoes", "chongwe")).copy(aiEnhanced = true),
+        l("l1", "s1", "Mama Bupe's Veg", "Fresh Chongwe tomatoes – 5 kg bag", "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Packed at Soweto Market, stall 14.", 8_000, "Fresh produce", "Soweto", true, 0xFFB0281A, 0xFFF2B33D, 820, 4100, tags = listOf("tomatoes", "chongwe")).copy(aiEnhanced = true, promoLabel = "Buy 1 Get 1 Free", promoType = "BOGO", promoEndsAt = System.currentTimeMillis() + 2 * 86_400_000),
         l("l2", "s1", "Mama Bupe's Veg", "Rape bundle, freshly cut", "Tender rape leaves cut at dawn. Bundle feeds a family of four.", 1_000, "Fresh produce", "Soweto", false, 0xFF1B5E20, 0xFF7CB342, 140, 900),
         l("l3", "s2", "Bashi Tembo Electronics", "Smartphone 128 GB, dual SIM", "Dual SIM, 6.5\" screen, 5000 mAh battery. One-year shop warranty.", 245_000, "Phones & accessories", "Lusaka CBD", true, 0xFF1A1A2E, 0xFF4B3B8F, 2300, 11000, disc = 8.0, tags = listOf("phone", "smartphone")).copy(aiEnhanced = true, aiGeneratedMotion = true),
         l("l4", "s3", "Comesa Fashions", "Chitenge fabric, 6 yards", "Wax print chitenge in three colourways. Ideal for outfits and headwraps.", 12_000, "Fashion", "Comesa", false, 0xFF86198F, 0xFFDB2777, 610, 3200, tags = listOf("chitenge", "fabric")),
-        l("l5", "s4", "Kwacha Grill", "Nshima & grilled chicken combo", "Quarter chicken, nshima and village chicken relish. Delivered hot in 30 minutes.", 7_500, "Fast food", "Kabwata", true, 0xFF9A3412, 0xFFF59E0B, 1450, 6400, disc = 10.0),
+        l("l5", "s4", "Kwacha Grill", "Nshima & grilled chicken combo", "Quarter chicken, nshima and village chicken relish. Delivered hot in 30 minutes.", 7_500, "Fast food", "Kabwata", true, 0xFF9A3412, 0xFFF59E0B, 1450, 6400, disc = 10.0).copy(promoLabel = "Limited time · 20% off", promoType = "FLASH", promoEndsAt = System.currentTimeMillis() + 5 * 3_600_000),
         l("l6", "s5", "SunPower Zambia", "Solar lantern + phone charger kit", "10 W panel, two LED lanterns and USB charging. Ready for load-shedding.", 65_000, "Electronics", "Kitwe", true, 0xFF065F46, 0xFF0D9488, 980, 5200, province = "Copperbelt"),
         l("l7", "s6", "Chilenje Furniture Works", "Solid mukwa coffee table", "Hand-made mukwa hardwood table, 120 × 60 cm, oil finish.", 180_000, "Furniture", "Chilenje", false, 0xFF5D4037, 0xFFBCAAA4, 220, 1500, avail = "Made to Order"),
         l("l8", "s7", "Mwila Hardware", "Cement 50 kg (Dangote)", "Grade 42.5 cement. Free delivery within Matero for 20+ bags.", 13_500, "Building materials", "Matero", false, 0xFF37474F, 0xFF90A4AE, 90, 800, avail = "Last Units"),
@@ -549,4 +549,67 @@ class DemoBackend : Backend {
     override fun ticketMessages(id: String) = v64.ticketMsgs(id)
     override suspend fun createTicket(subject: String, category: String, message: String, orderRef: String): String { delay(400); return v64.newTicket(subject, category, message) }
     override suspend fun replyTicket(id: String, text: String) { delay(200); v64.reply(id, text) }
+
+    /* ======================================================== v6.9 growth & safety (demo) */
+    private val demoCampaigns = mutableListOf(
+        Campaign("cp1", CampaignType.BOGO, "Weekend 2-for-1 tomatoes", listOf("l1"), startsAt = System.currentTimeMillis() - 86_400_000, endsAt = System.currentTimeMillis() + 2 * 86_400_000,
+            unitsSold = 38, revenueNgwee = 152_000, orders = 19, label = "Buy 1 Get 1 Free", live = true),
+        Campaign("cp2", CampaignType.FLASH, "Lunch rush 20% off", listOf("l2"), discountPct = 20, startsAt = System.currentTimeMillis() - 3_600_000, endsAt = System.currentTimeMillis() + 5 * 3_600_000,
+            unitsSold = 12, revenueNgwee = 9_600, orders = 9, label = "Limited time · 20% off", live = true),
+        Campaign("cp3", CampaignType.BUNDLE, "Relish pack", listOf("l1", "l2"), bundlePriceNgwee = 8_500, startsAt = System.currentTimeMillis() - 20 * 86_400_000,
+            endsAt = System.currentTimeMillis() - 6 * 86_400_000, status = "ENDED", unitsSold = 22, revenueNgwee = 93_500, orders = 11, label = "Bundle deal"),
+    )
+    override suspend fun campaigns(): List<Campaign> { delay(300); return demoCampaigns.toList() }
+    override suspend fun saveCampaign(c: CampaignDraft): String {
+        delay(400); campaignProblem(c)?.let { throw BackendException(it) }
+        val id = c.id ?: "cp${demoCampaigns.size + 1}"
+        val label = when (c.type) { CampaignType.BOGO -> "Buy 1 Get 1 Free"; CampaignType.FLASH -> "Limited time · ${c.discountPct}% off"; CampaignType.BUNDLE -> "Bundle deal"; else -> "${c.discountPct}% off" }
+        demoCampaigns.removeAll { it.id == id }
+        demoCampaigns.add(0, Campaign(id, c.type, c.title, c.listingIds, c.discountPct, c.bundlePriceNgwee, c.startsAt, c.endsAt, c.maxUnits, label = label, live = c.startsAt <= System.currentTimeMillis()))
+        return id
+    }
+    override suspend fun setCampaignStatus(id: String, status: String) {
+        delay(200); val i = demoCampaigns.indexOfFirst { it.id == id }; if (i >= 0) demoCampaigns[i] = demoCampaigns[i].copy(status = status, live = status == "ACTIVE")
+    }
+    override suspend fun generateAd(photo: android.net.Uri, productName: String, priceNgwee: Long, offer: String): AdPack {
+        delay(1_800)
+        val name = productName.ifBlank { "Fresh Chongwe tomatoes" }
+        val price = if (priceNgwee > 0) " — only ${Fees.formatK(priceNgwee)}" else ""
+        return AdPack("ad-demo", photo.toString(), photo.toString(), name, "Farm-fresh & ready", "$name, picked this morning and packed with care. Firm, deep-red and full of " +
+            "flavour — perfect for relish, stews and salads. Order on SeloNaChipa, pay safely with Airtel Money, MTN MoMo or Zamtel Kwacha, and get it delivered to your door.",
+            "🍅 $name$price! ${offer.ifBlank { "Fresh today" }}. Order on SeloNaChipa 🛵 Pay with mobile money.",
+            "Shani Lusaka! 🍅 $name just arrived$price.\n\nFresh, firm and full of flavour. Order on SeloNaChipa — your money is held safely until it reaches your door. 👉 Tap the link to order now!",
+            "Relish season 🍅 $name$price #SeloNaChipa", listOf("#Lusaka", "#ZambiaBusiness", "#SeloNaChipa", "#FreshProduce", "#ShopLocal"))
+    }
+    override suspend fun performanceReport(month: String?): PerformanceReport {
+        delay(400)
+        return if (session?.role == Role.RIDER) PerformanceReport("2026-10", "October 2026", "RIDER", listOf(
+            ReportMetric("earnings", "Net earnings", 412_350, 365_000, "ngwee"), ReportMetric("deliveries", "Deliveries completed", 184, 161, "count"),
+            ReportMetric("km", "Distance ridden", 1_046, 912, "km"), ReportMetric("perDelivery", "Average per delivery", 2_241, 2_267, "ngwee"),
+            ReportMetric("fund", "Saved in your Social Fund", 27_600, 24_150, "ngwee"), ReportMetric("acceptance", "Acceptance rate", 91, 91, "pct"),
+            ReportMetric("completion", "Completion rate (all time)", 98, 98, "pct")),
+            listOf("23 more deliveries than last month.", "K 276.00 went into your Social Fund."),
+            listOf("Stay online at busy times (12:00–14:00 and 17:00–19:00) near markets to get more top-ranked offers.", "Ride safe: keep your emergency contact up to date in the Safety Centre."))
+        else PerformanceReport("2026-10", "October 2026", "SELLER", listOf(
+            ReportMetric("sales", "Sales", 1_284_500, 1_032_000, "ngwee"), ReportMetric("net", "Your earnings (after platform fee)", 1_254_000, 1_007_500, "ngwee"),
+            ReportMetric("orders", "Paid orders", 61, 49, "count"), ReportMetric("units", "Items sold", 143, 118, "count"),
+            ReportMetric("aov", "Average order", 21_057, 21_061, "ngwee"), ReportMetric("cancelRate", "Cancelled or refunded", 3, 6, "pct"),
+            ReportMetric("promoShare", "Sales from your deals", 24, 0, "pct")),
+            listOf("Sales up 24% on last month.", "Best seller: Fresh Chongwe tomatoes – 5 kg bag (64 sold)."),
+            listOf("Small average orders — a product bundle can raise what each buyer spends.", "Keep your best seller in stock: it sold out twice last month."),
+            listOf(TopProduct("Fresh Chongwe tomatoes – 5 kg bag", 64, 512_000), TopProduct("Rape bundle, freshly cut", 52, 52_000), TopProduct("Relish pack (bundle)", 22, 187_000)))
+    }
+    private var safety = SafetyStatus("Mutale Mulenga", "+260966123456", false, 200, 1_000_000, setOf("helmet"), 46)
+    override suspend fun safetyStatus(): SafetyStatus { delay(200); return safety }
+    override suspend fun setRiderInsurance(on: Boolean): SafetyStatus { delay(300); safety = safety.copy(insurance = on); return safety }
+    override suspend fun completeLesson(id: String): SafetyStatus { delay(150); safety = safety.copy(lessons = safety.lessons + id); return safety }
+    override suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String): SosResult {
+        delay(600); safety = safety.copy(openAlertId = "sos1", openAlertUrl = "https://mabala-f2d65.web.app/s/demo")
+        return SosResult("sos1", "https://mabala-f2d65.web.app/s/demo", "https://maps.google.com/?q=%.6f,%.6f".format(lat, lng), kind == "SOS", true, safety.emergencyName)
+    }
+    override suspend fun closeSos(alertId: String, safe: Boolean) { delay(200); safety = safety.copy(openAlertId = null, openAlertUrl = null) }
+    override suspend fun riderIdCard(): RiderIdCard { delay(200)
+        return RiderIdCard("SNR-4F2A9C", "https://mabala-f2d65.web.app/v/SNR-4F2A9C", session?.fullName?.ifBlank { null } ?: "Chanda Mulenga", null, "ALB 4521", "Motorbike Honda CG125", true, "ACTIVE", "Mar 2026") }
+    override suspend fun addDeliveryEvidence(kind: String, id: String, photo: android.net.Uri, stage: String, lat: Double?, lng: Double?): Int {
+        delay(500); safety = safety.copy(evidenceCount = safety.evidenceCount + 1); return 1 }
 }

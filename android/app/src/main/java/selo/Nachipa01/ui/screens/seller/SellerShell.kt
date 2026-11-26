@@ -79,6 +79,7 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
                             QuickAction(Icons.AutoMirrored.Outlined.Logout, if (wallet?.active != null) "In progress" else "Withdraw") {
                                 val b = wallet?.block; if (b == null && wallet != null) withdrawing = true else app.toast.value = b ?: "Checking your balance…" }, QuickAction(Icons.Outlined.Add, "New listing") { app.resetListingFlow(); nav.navigate("addListing") },
                             QuickAction(Icons.Outlined.Inventory2, "Orders (${stats.toPack})") { tab = "orders" }))
+                        GrowRow(onMarketing = { nav.navigate("marketing") }, onAds = { nav.navigate("adgen") }, onReport = { nav.navigate("report") })
                         MyPromotions(onOpen = { nav.navigate("promotion/${it.id}") })
                         dash?.let { Performance(it) } ?: Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Selo.Red) }
                         SellerOrderList(orders.take(2), scope, app)
@@ -87,6 +88,21 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
                     "orders" -> SellerOrderList(orders, scope, app)
                     "more" -> SellerSettings(onLogout)
                 }
+            }
+        }
+    }
+}
+
+/** Marketing Centre, AI Ad Generator and the monthly report, one tap from the seller home. */
+@Composable
+private fun GrowRow(onMarketing: () -> Unit, onAds: () -> Unit, onReport: () -> Unit) {
+    SectionLabel("Grow your sales")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(Triple(Icons.Outlined.LocalOffer, "Marketing Centre", onMarketing), Triple(Icons.Outlined.AutoAwesome, "AI Ad Generator", onAds),
+            Triple(Icons.Outlined.Assessment, "Monthly report", onReport)).forEach { (i, t, go) ->
+            Column(Modifier.weight(1f).heightIn(min = 84.dp).background(Color.White, RoundedCornerShape(14.dp)).clickable(onClick = go).padding(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Icon(i, null, tint = Selo.Red); Text(t, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 14.sp)
             }
         }
     }

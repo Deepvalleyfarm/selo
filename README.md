@@ -162,6 +162,37 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.9 — growth tools, rider safety, smart dispatch
+
+- **AI Ad Generator** (`ad_generate`, `adgen.ts`):
+  - The seller uploads one product photo.
+  - Gemini reads it and writes a description plus WhatsApp Status, Facebook and TikTok copy with hashtags.
+  - Cloudinary composes a 9:16 and a 1:1 promotional image around the real photo: headline, price badge, optional offer and "Order on SeloNaChipa". The product itself is never redrawn.
+  - Limit: 20 ads per seller per day.
+- **Offline browsing** (`OfflineCatalog`):
+  - Every product loaded is kept on the phone (400 newest).
+  - With no connection, the feed, home rails, search, product and shop pages fall back to it, and an "You're offline" banner shows. Photos come from the image cache.
+- **Rider Safety Centre** (`safety.ts`, rider app → More → Safety Centre, plus an SOS button on the active delivery screen):
+  - SOS texts the emergency contact a live-location link (`/s/{token}`) and alerts operations (back office → Rider safety).
+  - Incident location sharing.
+  - Verified rider ID with a QR code that opens `/v/{code}`.
+  - Geotagged delivery evidence photos.
+  - Optional accident cover: a premium per completed delivery, taken in the payout transaction and recorded in the ledger. Defaults are K 2 per delivery for K 10,000 of cover.
+  - Seven short safety lessons.
+- **Smart dispatch** (`dispatch.ts`):
+  - Each rider gets a 0–100 score: distance to the seller (30), distance to the buyer (10), fit with their current route (15), availability and GPS freshness (15), acceptance and completion history (20), and estimated pickup time (10).
+  - Jobs go out in waves: top 3, then top 8 a minute later, then everyone eligible.
+  - The top 10 scores are stored on each job.
+- **Monthly performance reports** (`reports.ts`):
+  - Sellers see sales, earnings, orders, items, average order, cancellations, deal share and top products. Riders see earnings, deliveries, km, per-delivery average, Social Fund, acceptance and completion.
+  - Each report compares with the month before and adds highlights and tips.
+  - Saved on the 1st of each month with a notification; the current month is available to date.
+- **Marketing Centre** (`marketing.ts`, `pricing.ts`):
+  - Discount campaigns, Buy One Get One Free, limited-time offers (up to 7 days, optional unit cap) and 2–5 product bundles.
+  - Prices are worked out on the server in both the checkout quote and order creation, so buyers pay exactly what they see. Products show a deal badge with a countdown.
+  - Listing discounts are now honoured at checkout too (previously only the app showed them).
+- Community broker hub "Katanjinjin Zone" is now **Kamwala Shopping Centre**.
+
 ## v6.8 — corporate sign-up, reachable buttons, smarter location picker
 
 - **Sellers and agents: Individual or Corporate.**

@@ -286,6 +286,9 @@ export function releaseInTx(tx: Transaction, kind: OrderKind, id: string, d: Doc
         sellerReleaseAt: Timestamp.fromMillis(now() + (cfg.sellerDisputeHoldHours ?? 0) * 3_600_000) });
     }
   }
+  // Optional rider cover (Safety Centre): a small premium per completed delivery, taken from that delivery's earnings.
+  const premium = w.insurance?.on ? Math.min(riderEarnings, Math.max(0, Math.round(Number(w.insurance.premiumNgwee ?? 0)))) : 0;
+  if (premium > 0) { L("insurance", "platform", premium, { partyUid: riderUid, note: "rider cover premium" }); riderEarnings -= premium; revenue.rider_insurance = premium; }
   const before = w.availableNgwee ?? 0;
   L("rider_earnings", "rider", riderEarnings, { partyUid: riderUid, balanceBefore: before, balanceAfter: before + riderEarnings });
   L("social_fund", "rider_social_fund", fund, { partyUid: riderUid, balanceBefore: w.socialFundNgwee ?? 0, balanceAfter: (w.socialFundNgwee ?? 0) + fund });
@@ -303,7 +306,7 @@ export function releaseInTx(tx: Transaction, kind: OrderKind, id: string, d: Doc
   const pickup = kind === "parcel" ? d.pickup?.address : d.pickup, dropoff = kind === "parcel" ? d.dropoff?.address : d.dropoff;
   tx.set(db.collection(`ledgers/${riderUid}/entries`).doc(), { type: "delivery_credit", kind, orderId: id,
     gross: kind === "parcel" ? d.fees.deliveryNgwee : d.deliveryNgwee, platformFee: riderPlatformFee,
-    socialLevy: fund, net: riderPending, bonus: riderEarnings - riderPending, km: d.distanceKm ?? 0, pickup: pickup ?? "", dropoff: dropoff ?? "",
+    socialLevy: fund, net: riderPending, bonus: riderEarnings + premium - riderPending, insurancePremium: premium, km: d.distanceKm ?? 0, pickup: pickup ?? "", dropoff: dropoff ?? "",
     pickupArea: kind === "parcel" ? d.pickup?.neighbourhood ?? area(pickup) : area(pickup), dropArea: kind === "parcel" ? d.dropoff?.neighbourhood ?? area(dropoff) : area(dropoff),
     item: kind === "parcel" ? d.description : (d.items ?? []).map((i: { title: string; qty: number }) => `${i.qty} × ${i.title}`).join(", "),
     podUrl: d.proofOfDelivery ?? null, override: o.override, at: FieldValue.serverTimestamp() });

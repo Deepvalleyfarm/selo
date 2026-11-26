@@ -115,10 +115,18 @@ fun CheckoutScreen(listingId: String, onBack: () -> Unit, onPaid: (String) -> Un
                 q != null -> {
                     AmountBreakdown(buildList {
                         items.forEach { add(AmountLine("${it.listing.title} × ${it.qty}", it.listing.priceNgwee * it.qty)) }
+                        // Listing discounts and Marketing Centre deals, as applied by the server (buyers pay exactly this).
+                        if (q.savingsNgwee > 0) {
+                            if (q.deals.isEmpty()) add(AmountLine("Discounts", -q.savingsNgwee))
+                            else { q.deals.forEach { (t, v) -> add(AmountLine("Deal · $t", -v)) }
+                                val other = q.savingsNgwee - q.deals.sumOf { it.second }; if (other > 0) add(AmountLine("Product discounts", -other)) }
+                        }
                         add(AmountLine("Delivery · ${if (q.approximate) "≈ " else ""}${"%.1f".format(q.distanceKm)} km", q.deliveryNgwee))
                         if (q.serviceFeeNgwee > 0) add(AmountLine("Platform fee (${trimPct(cfg.buyerServiceFeePct)}%)", q.serviceFeeNgwee))
                         if (q.processingFeeNgwee > 0) add(AmountLine("Transaction fee (${trimPct(cfg.paymentProcessingPct)}%)", q.processingFeeNgwee))
                     })
+                    q.freeItems.forEach { Text("🎁 $it", color = Selo.GreenDark, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                    if (q.savingsNgwee > 0) Text("You save ${Fees.formatK(q.savingsNgwee)} on this order", color = Selo.GreenDark, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
                     if (q.approximate) Text("Distance is approximate (straight line × road factor) because live routing isn't available right now.", color = Selo.AmberDark, fontSize = 12.sp)
                     Text("Arrives in about ${q.etaMin} min after a rider collects it.", color = Selo.Mute, fontSize = 12.sp)
                 }

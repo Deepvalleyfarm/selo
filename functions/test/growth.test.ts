@@ -1,0 +1,56 @@
+import { describe, expect, it } from "vitest";
+import { adImageUrl, cleanCopy, layerText } from "../src/adgen";
+import { monthRange, prevMonth, riderMetrics, sellerMetrics } from "../src/reports";
+import { sosSms } from "../src/safety";
+
+describe("AI ad generator", () => {
+  it("escapes Cloudinary text layers", () => {
+    expect(layerText("Fresh, ripe 5kg/bag")).toBe("Fresh%252C%20ripe%205kg%252Fbag");
+  });
+  it("builds story and square images around the real photo", () => {
+    const u = adImageUrl("demo", "selo/adgen/u/abc", { w: 1080, h: 1920, headline: "Fresh tomatoes", price: "K 80", offer: null });
+    expect(u).toContain("w_1080,h_1920,c_pad");
+    expect(u).toContain("K%2080");
+    expect(u.endsWith("/selo/adgen/u/abc")).toBe(true);
+  });
+  it("cleans the AI copy and hashtags", () => {
+    const c = cleanCopy({ headline: "  Big   deal ", hashtags: ["Lusaka", "#Zambia Biz", ""], whatsapp: "x".repeat(500) }, "Tomatoes");
+    expect(c.headline).toBe("Big deal");
+    expect(c.hashtags).toEqual(["#Lusaka", "#ZambiaBiz"]);
+    expect(c.whatsapp.length).toBe(300);
+    expect(c.productName).toBe("Tomatoes");
+  });
+});
+
+describe("monthly performance report", () => {
+  it("uses Lusaka month boundaries", () => {
+    const [s, e] = monthRange("2026-11");
+    expect(s.toISOString()).toBe("2026-10-31T22:00:00.000Z");
+    expect(e.toISOString()).toBe("2026-11-30T22:00:00.000Z");
+    expect(prevMonth("2026-01")).toBe("2025-12");
+  });
+  it("seller: sales, net after flat fee, top product, deal share", () => {
+    const o = (goods: number, promo: string | null = null, state = "COMPLETED") => ({ state, goodsNgwee: goods, items: [{ title: "Tomatoes", qty: 2, unitNgwee: goods / 2, lineNgwee: goods, promo }] });
+    const r = sellerMetrics([o(10_000), o(20_000, "c1"), o(5_000, null, "REFUNDED")], [o(10_000)], 500);
+    const m = Object.fromEntries(r.metrics.map((x) => [x.key, x.value]));
+    expect(m.sales).toBe(30_000); expect(m.net).toBe(29_000); expect(m.orders).toBe(2); expect(m.promoShare).toBe(67); expect(m.cancelRate).toBe(33);
+    expect(r.top[0]).toMatchObject({ title: "Tomatoes", units: 4 });
+    expect(r.highlights[0]).toMatch(/up 200%/);
+  });
+  it("rider: earnings net of cover premium, deliveries, fund", () => {
+    const e = { type: "delivery_credit", net: 2_000, bonus: 100, socialLevy: 120, km: 4.4, insurancePremium: 200 };
+    const r = riderMetrics([e, e], [e], { acceptanceRate: 70, completedDeliveries: 9, failedDeliveries: 1 });
+    const m = Object.fromEntries(r.metrics.map((x) => [x.key, x.value]));
+    expect(m.earnings).toBe(3_800); expect(m.deliveries).toBe(2); expect(m.fund).toBe(240); expect(m.completion).toBe(90);
+    expect(r.tips.join(" ")).toMatch(/acceptance rate/);
+  });
+});
+
+describe("rider SOS", () => {
+  it("texts the emergency contact a map link and the live page", () => {
+    const t = sosSms("Chanda Mulenga", "+260971234514", -15.41, 28.28, "https://x/s/abc", "SOS");
+    expect(t).toContain("https://maps.google.com/?q=-15.410000,28.280000");
+    expect(t).toContain("https://x/s/abc");
+    expect(t.length).toBeLessThan(300);
+  });
+});

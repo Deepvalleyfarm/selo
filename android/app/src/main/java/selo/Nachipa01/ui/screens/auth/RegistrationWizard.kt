@@ -519,7 +519,7 @@ private fun AgentHubPage(s: RegState) {
         Sub("You'll add your NRC number and photos on the next step.")
     }
     H("Your operating hub", 14)
-    listOf("Soweto Market" to "Lusaka", "Comesa Market" to "Lusaka CBD", "Katanjinjin Zone" to "Lusaka", "City Market" to "Lusaka").forEach { (h, c) ->
+    listOf("Soweto Market" to "Lusaka", "Comesa Market" to "Lusaka CBD", "Kamwala Shopping Centre" to "Lusaka", "City Market" to "Lusaka").forEach { (h, c) ->
         RadioCard(s["hub"] == h, h, c, icon = Icons.Outlined.Storefront) { s.set("hub", h); s.set("area", h) }
     }
     Text("Area you cover", fontSize = 12.sp, color = Selo.Mute, fontWeight = FontWeight.Bold)

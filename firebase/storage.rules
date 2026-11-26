@@ -37,6 +37,17 @@ service firebase.storage {
       allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
       allow read: if (request.auth != null && request.auth.uid == uid) || admin(['operations', 'support']);
     }
+    // Delivery evidence (Safety Centre): rider uploads geotagged photos; rider and operations/support read.
+    match /evidence/{uid}/{file} {
+      allow create: if request.auth != null && request.auth.uid == uid && request.auth.token.role == 'RIDER'
+        && request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if (request.auth != null && request.auth.uid == uid) || admin(['operations', 'support']);
+    }
+    // AI Ad Generator source photos (seller only; the function reads them with admin access)
+    match /adgen/{uid}/{file} {
+      allow create: if request.auth != null && request.auth.uid == uid && request.resource.size < 10 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+      allow read: if request.auth != null && request.auth.uid == uid;
+    }
     match /content/{path=**} { allow read: if true; allow write: if admin(['moderator']); }
   }
 }

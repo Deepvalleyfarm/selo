@@ -4,8 +4,15 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { DB_ID, LIPILA_API_KEY, db, loadConfig } from "./config";
 import { broadcastConfigChange } from "./admin";
 import { agentCommission } from "./domain";
-import { disburse, refund, retryPayout } from "./escrow";
+import { broadcast, disburse, refund, retryPayout } from "./escrow";
 import { notify } from "./util";
+
+/** Smart dispatch: if nobody in the current wave accepts within a minute, the order goes to the next, wider wave. */
+export const scheduled_dispatchWaves = onSchedule({ schedule: "every 1 minutes" }, async () => {
+  const cutoff = Timestamp.fromMillis(Date.now() - 60_000);
+  const waiting = await db.collection("orders").where("state", "==", "BROADCASTING").where("waveAt", "<", cutoff).limit(100).get();
+  for (const o of waiting.docs) if ((o.get("dispatchRound") ?? 0) < 3) await broadcast(o.id, o.get("dispatchRound") ?? 1).catch(() => undefined);
+});
 
 /** No rider within broadcastTimeoutMin → full refund, no fees retained. */
 export const scheduled_broadcastTimeout = onSchedule({ schedule: "every 1 minutes", secrets: [LIPILA_API_KEY] }, async () => {
