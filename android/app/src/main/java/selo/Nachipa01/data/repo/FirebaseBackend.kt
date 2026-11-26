@@ -157,6 +157,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         zone = getString("zoneName") ?: "", thumbUrl = getString("thumbUrl"), videoUrl = getString("videoUrl"),
         stock = (getLong("stock") ?: 0).toInt(), status = getString("status") ?: "live",
         views = (getLong("viewCount") ?: 0).toInt(), saves = (getLong("saveCount") ?: 0).toInt(),
+        aiEnhanced = getBoolean("aiEnhanced") == true, aiGeneratedMotion = getBoolean("aiGeneratedMotion") == true,
     )
 
     @Suppress("UNCHECKED_CAST")
@@ -343,6 +344,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             likes = (st["likes"] as? Number)?.toInt() ?: 0, shares = (st["shares"] as? Number)?.toInt() ?: 0, views = (st["views"] as? Number)?.toInt() ?: 0,
             discountPct = n("discountPct")?.toDouble() ?: 0.0, discountNgwee = n("discountNgwee")?.toLong() ?: 0,
             rankSource = this["rankSource"] as? String, publishedAt = n("publishedAt")?.toLong() ?: 0, promoId = this["promoId"] as? String,
+            aiEnhanced = this["aiEnhanced"] == true, aiGeneratedMotion = this["aiGeneratedMotion"] == true,
         )
     }
     @Suppress("UNCHECKED_CAST")

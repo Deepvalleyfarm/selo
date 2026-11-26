@@ -49,9 +49,9 @@ object DemoData {
             photoUrls = if (video) emptyList() else listOf("1", "2", "3"))
 
     val listings = listOf(
-        l("l1", "s1", "Mama Bupe's Veg", "Fresh Chongwe tomatoes – 5 kg bag", "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Packed at Soweto Market, stall 14.", 8_000, "Fresh produce", "Soweto", true, 0xFFB0281A, 0xFFF2B33D, 820, 4100, tags = listOf("tomatoes", "chongwe")),
+        l("l1", "s1", "Mama Bupe's Veg", "Fresh Chongwe tomatoes – 5 kg bag", "Firm, deep-red tomatoes picked this morning in Chongwe. Ideal for relish and stews. Packed at Soweto Market, stall 14.", 8_000, "Fresh produce", "Soweto", true, 0xFFB0281A, 0xFFF2B33D, 820, 4100, tags = listOf("tomatoes", "chongwe")).copy(aiEnhanced = true),
         l("l2", "s1", "Mama Bupe's Veg", "Rape bundle, freshly cut", "Tender rape leaves cut at dawn. Bundle feeds a family of four.", 1_000, "Fresh produce", "Soweto", false, 0xFF1B5E20, 0xFF7CB342, 140, 900),
-        l("l3", "s2", "Bashi Tembo Electronics", "Smartphone 128 GB, dual SIM", "Dual SIM, 6.5\" screen, 5000 mAh battery. One-year shop warranty.", 245_000, "Phones & accessories", "Lusaka CBD", true, 0xFF1A1A2E, 0xFF4B3B8F, 2300, 11000, disc = 8.0, tags = listOf("phone", "smartphone")),
+        l("l3", "s2", "Bashi Tembo Electronics", "Smartphone 128 GB, dual SIM", "Dual SIM, 6.5\" screen, 5000 mAh battery. One-year shop warranty.", 245_000, "Phones & accessories", "Lusaka CBD", true, 0xFF1A1A2E, 0xFF4B3B8F, 2300, 11000, disc = 8.0, tags = listOf("phone", "smartphone")).copy(aiEnhanced = true, aiGeneratedMotion = true),
         l("l4", "s3", "Comesa Fashions", "Chitenge fabric, 6 yards", "Wax print chitenge in three colourways. Ideal for outfits and headwraps.", 12_000, "Fashion", "Comesa", false, 0xFF86198F, 0xFFDB2777, 610, 3200, tags = listOf("chitenge", "fabric")),
         l("l5", "s4", "Kwacha Grill", "Nshima & grilled chicken combo", "Quarter chicken, nshima and village chicken relish. Delivered hot in 30 minutes.", 7_500, "Fast food", "Kabwata", true, 0xFF9A3412, 0xFFF59E0B, 1450, 6400, disc = 10.0),
         l("l6", "s5", "SunPower Zambia", "Solar lantern + phone charger kit", "10 W panel, two LED lanterns and USB charging. Ready for load-shedding.", 65_000, "Electronics", "Kitwe", true, 0xFF065F46, 0xFF0D9488, 980, 5200, province = "Copperbelt"),

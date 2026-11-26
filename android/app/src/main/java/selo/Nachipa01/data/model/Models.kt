@@ -111,6 +111,8 @@ data class Listing(
     val rankSource: String? = null, val publishedAt: Long = 0, val durationMs: Long = 0,
     /** Set when this card is a paid Boost placement (shown with a "Sponsored" label). */
     val promoId: String? = null,
+    /** Listing Studio: media edited by AI (colour, crop, voiceover, captions); motion = clip generated from the seller's photo. */
+    val aiEnhanced: Boolean = false, val aiGeneratedMotion: Boolean = false,
     /** Demo only: gradient colours used when a listing has no media yet. */
     val colorA: Long = 0xFFB0281A, val colorB: Long = 0xFFF2B33D,
 ) {

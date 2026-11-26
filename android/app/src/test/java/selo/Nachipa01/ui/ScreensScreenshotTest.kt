@@ -101,6 +101,13 @@ class ScreensScreenshotTest {
             selo.Nachipa01.ui.components.AddressField("Delivery address", p, { p = it }) } }
     @Test fun w1_withdraw() = shot("W1-withdraw-full-balance", Role.RIDER) {
         selo.Nachipa01.ui.payments.WithdrawSheet(selo.Nachipa01.data.model.WalletStatus(48_760, 0, 2_000, null, null), "+260965551204") {} }
+    @Test fun f7_aiBadges() = shot("F7-ai-enhanced-badges", Role.BUYER, advance = 1_000) {
+        var items by remember { mutableStateOf<List<selo.Nachipa01.data.model.Listing>>(emptyList()) }
+        val app = LocalAppState.current
+        LaunchedEffect(Unit) { items = app.backend.listings().first().filter { it.id in listOf("l1", "l3", "l2") }.sortedBy { it.id } }
+        androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(selo.Nachipa01.ui.theme.Selo.Surface).padding(10.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            items.forEach { l -> selo.Nachipa01.ui.screens.discover.ListingTile(l, androidx.compose.ui.Modifier.weight(1f)) {} } } }
     @Test fun w2_earnings() = shot("W2-rider-earnings-withdraw", Role.RIDER, advance = 1_500) { RiderShell("earnings") {} }
     @Test fun d0_seller() = shot("D0-seller-dashboard", Role.SELLER) { SellerShell(rememberNavController()) {} }
     @Test fun d1_add() = shot("D1-add-listing", Role.SELLER) { AddListingScreen({}, {}, {}) }

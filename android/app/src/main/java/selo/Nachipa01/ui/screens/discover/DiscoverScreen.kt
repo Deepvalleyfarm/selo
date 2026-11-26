@@ -175,6 +175,7 @@ private fun DetailsSheet(l: Listing, onBuy: () -> Unit, onAddToCart: () -> Unit,
         if (l.hasOffer) Text("  was ${Fees.formatK(l.priceNgwee)}", color = Selo.Mute, fontSize = 13.sp)
     }
     Text(l.description, fontSize = 14.sp, lineHeight = 20.sp)
+    aiExplanation(l)?.let { NoteBox(it, Tone.INFO, Icons.Outlined.AutoAwesome) }
     SeloCard {
         KvRow("Condition", l.condition.ifBlank { "—" }); KvRow("Availability", l.availability)
         KvRow("Location", listOf(l.district, l.province).filter { it.isNotBlank() }.joinToString(", ").ifBlank { l.zone })

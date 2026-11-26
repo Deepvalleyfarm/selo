@@ -47,6 +47,7 @@ fun ListingTile(l: Listing, modifier: Modifier = Modifier, onClick: () -> Unit) 
             val url = l.thumbUrl ?: l.photoUrls.firstOrNull { it.startsWith("http") }
             if (url != null) AsyncImage(url, l.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             if (l.isVideo) Icon(Icons.Outlined.PlayCircle, "Video", tint = Color.White, modifier = Modifier.padding(6.dp).size(20.dp).align(Alignment.TopEnd))
+            AiBadge(l, Modifier.align(Alignment.BottomStart).padding(6.dp), small = true)
             if (l.hasOffer) Text(if (l.discountPct > 0) "−${l.discountPct.toInt()}%" else "OFFER", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier.padding(6.dp).background(Selo.Coral, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
         }
