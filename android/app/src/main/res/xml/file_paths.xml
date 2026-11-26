@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="photos" path="photos/" />
+    <!-- Sign-up ID photos and other captures kept for auto-saved drafts -->
+    <files-path name="captures" path="captures/" />
 </paths>

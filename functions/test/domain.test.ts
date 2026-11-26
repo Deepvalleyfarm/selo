@@ -1,3 +1,4 @@
+import { identityOf } from "../src/auth";
 import { describe, expect, it } from "vitest";
 import { agentCommission, canTransition, insuranceId, milestoneReached, nextRetryMinutes, normaliseAnswer,
   normaliseMsisdn, pinProblem, quote, split } from "../src/domain";
@@ -67,5 +68,19 @@ describe("security question bank", () => {
   it("has 12 questions with the same ids as the app", () => {
     expect(Object.keys(SECURITY_QUESTION_BANK)).toHaveLength(12);
     expect(SECURITY_QUESTION_BANK.q_favourite_dish).toBe("What is your favourite traditional Zambian dish?");
+  });
+});
+
+describe("sign-up identity", () => {
+  it("accepts NRC only as XXXXXX/XX/X", () => {
+    expect(identityOf({ idType: "NRC", idNumber: "123456/78/1" })).toMatchObject({ idType: "NRC", idNumber: "123456/78/1", key: "NRC_123456781" });
+    expect(typeof identityOf({ idType: "NRC", idNumber: "123456781" })).toBe("string");
+    expect(typeof identityOf({ idType: "NRC", idNumber: "12345/78/1" })).toBe("string");
+  });
+  it("accepts passports and driver's licences, rejects missing types", () => {
+    expect(identityOf({ idType: "Passport", idNumber: "zn123456" })).toMatchObject({ idNumber: "ZN123456" });
+    expect(identityOf({ idType: "Driver's licence", idNumber: "DL-2201934" })).toMatchObject({ idType: "Driver's licence" });
+    expect(identityOf({})).toMatch(/Choose your ID type/);
+    expect(identityOf({ nrc: "123456/78/1" })).toMatchObject({ idType: "NRC" }); // older app versions
   });
 });

@@ -85,9 +85,12 @@ fun StepBar(current: Int, total: Int) {
 
 @Composable
 fun PrimaryButton(text: String, modifier: Modifier = Modifier, color: Color = Selo.Red, enabled: Boolean = true,
-                  loading: Boolean = false, sub: String? = null, onClick: () -> Unit) {
-    Button(onClick = onClick, enabled = enabled && !loading, modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
-        shape = RoundedCornerShape(50), colors = ButtonDefaults.buttonColors(containerColor = color,
+                  loading: Boolean = false, sub: String? = null, whyDisabled: String? = null, onClick: () -> Unit) {
+    // A greyed-out button is never silent: tapping it explains what is still missing.
+    val app = selo.Nachipa01.ui.LocalAppState.current
+    val explain = !enabled && !loading && whyDisabled != null
+    Button(onClick = { if (explain) app.fail(whyDisabled) else onClick() }, enabled = (enabled || explain) && !loading, modifier = modifier.fillMaxWidth().heightIn(min = 48.dp),
+        shape = RoundedCornerShape(50), colors = ButtonDefaults.buttonColors(containerColor = if (explain) color.copy(alpha = .4f) else color,
             disabledContainerColor = color.copy(alpha = .4f), disabledContentColor = Color.White)) {
         if (loading) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
         else Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -109,10 +112,10 @@ fun OutlineButton(text: String, modifier: Modifier = Modifier, sub: String? = nu
 }
 
 @Composable
-fun BackNextRow(onBack: () -> Unit, onNext: () -> Unit, nextLabel: String = "Next", nextEnabled: Boolean = true, loading: Boolean = false) {
+fun BackNextRow(onBack: () -> Unit, onNext: () -> Unit, nextLabel: String = "Next", nextEnabled: Boolean = true, loading: Boolean = false, whyDisabled: String? = "Complete this step first.") {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlineButton("Back", Modifier.weight(1f), onClick = onBack)
-        PrimaryButton(nextLabel, Modifier.weight(1.4f), enabled = nextEnabled, loading = loading, onClick = onNext)
+        PrimaryButton(nextLabel, Modifier.weight(1.4f), enabled = nextEnabled, loading = loading, whyDisabled = whyDisabled, onClick = onNext)
     }
 }
 
@@ -125,11 +128,17 @@ fun SeloField(
     trailing: ImageVector? = null, singleLine: Boolean = true, placeholder: String? = null,
 ) {
     var reveal by remember { mutableStateOf(false) }
+    // Mobile numbers: +260 is fixed in front, the user types only the 9-digit number (leading 0 or 260 are dropped).
+    val phone = keyboard == KeyboardType.Phone
+    val phoneError = if (phone) MsisdnInput.problem(value) else null
     Column(modifier) {
         OutlinedTextField(
-            value = value, onValueChange = onChange, label = { Text(label) }, singleLine = singleLine,
-            placeholder = placeholder?.let { { Text(it, color = Selo.Mute) } },
-            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), isError = error != null,
+            value = if (phone) MsisdnInput.national(value) else value, onValueChange = { v -> if (phone) onChange(MsisdnInput.full(v)) else onChange(v) },
+            label = { Text(label) }, singleLine = singleLine,
+            // always visible (a Material prefix hides until focus): users see +260 and type only their number
+            leadingIcon = if (phone) { { Text("+260", fontWeight = FontWeight.Bold, color = Selo.Ink, modifier = Modifier.padding(start = 14.dp, end = 2.dp)) } } else null,
+            placeholder = (if (phone) "97 123 4567" else placeholder)?.let { { Text(it, color = Selo.Mute) } },
+            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), isError = (error ?: phoneError) != null,
             keyboardOptions = KeyboardOptions(keyboardType = keyboard),
             visualTransformation = if (secret && !reveal) PasswordVisualTransformation() else VisualTransformation.None,
             trailingIcon = when {
@@ -140,8 +149,23 @@ fun SeloField(
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Selo.Red, focusedLabelColor = Selo.Red,
                 unfocusedContainerColor = Color.White, focusedContainerColor = Color.White, unfocusedBorderColor = Selo.Field),
         )
-        if (error != null) Text(error, color = Selo.Red, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+        (error ?: phoneError)?.let { Text(it, color = Selo.Red, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, top = 2.dp)) }
     }
+}
+
+/** +260 handling for every mobile number input (pure; unit-tested). Field state holds "+260XXXXXXXXX" or "". */
+object MsisdnInput {
+    /** What the user sees after the fixed +260: up to 9 digits, without a typed leading 0 or 260. */
+    fun national(raw: String): String {
+        var d = raw.filter(Char::isDigit)
+        if (d.startsWith("260") && (raw.trim().startsWith("+") || d.length > 9)) d = d.drop(3)
+        if (d.startsWith("0")) d = d.drop(1)
+        return d.take(9)
+    }
+    fun full(raw: String): String = national(raw).let { if (it.isEmpty()) "" else "+260$it" }
+    /** Live hint once the number is complete but isn't an Airtel, MTN or Zamtel mobile. */
+    fun problem(value: String): String? { val n = national(value)
+        return if (n.length == 9 && selo.Nachipa01.domain.Validation.normaliseMsisdn(n) == null) "Use an Airtel (97/77), MTN (96/76) or Zamtel (95/75) number." else null }
 }
 
 /** Five boxes driven by a hidden numeric field. */

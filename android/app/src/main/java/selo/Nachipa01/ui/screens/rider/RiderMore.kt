@@ -179,7 +179,8 @@ fun ChatThreadScreen(id: String, back: () -> Unit) {
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(text, { text = it.take(1000) }, Modifier.weight(1f), placeholder = { Text("Message") }, shape = RoundedCornerShape(24.dp), maxLines = 4)
-            IconButton({ val t = text.trim(); if (t.isNotEmpty()) { text = ""; scope.launch { runCatching { app.backend.sendChat(id, t) } } } }) {
+            IconButton({ val t = text.trim(); if (t.isEmpty()) app.info("Type a message first.") else { text = ""; scope.launch {
+                runCatching { app.backend.sendChat(id, t) }.onFailure { e -> text = t; app.fail(e.message ?: "Message not sent. Check your connection and try again.") } } } }) {
                 Icon(Icons.AutoMirrored.Outlined.Send, "Send", tint = Selo.Red) }
         }
     }
@@ -217,7 +218,7 @@ fun ZonesScreen(back: () -> Unit) {
                         Text("+${z.radiusKm} km dispatch radius", color = Selo.Mute, fontSize = 12.sp)
                     }
                     if (z.active) StatusChip("Added", Tone.OK)
-                    else OutlinedButton({ scope.launch { runCatching { app.backend.addZone(z.id) } } }, shape = RoundedCornerShape(50),
+                    else OutlinedButton({ scope.launch { app.attempt("${z.name} added to your zones") { app.backend.addZone(z.id) } } }, shape = RoundedCornerShape(50),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)) { Text("Add zone", color = Selo.Red) }
                 }
             }
@@ -239,7 +240,7 @@ fun ZonesScreen(back: () -> Unit) {
             if (saved) NoteBox("Working hours saved.", Tone.OK)
         }
         Box(Modifier.background(Color.White).padding(12.dp)) {
-            PrimaryButton("Save working hours", enabled = edit != hours) { scope.launch { runCatching { app.backend.setWorkingHours(edit) }.onSuccess { saved = true } } }
+            PrimaryButton("Save working hours", enabled = edit != hours, whyDisabled = "Change a day or time first.") { scope.launch { app.attempt("Working hours saved") { app.backend.setWorkingHours(edit) }?.let { saved = true } } }
         }
     }
 }
@@ -361,7 +362,7 @@ fun ProfileScreen(profile: RiderProfile?, back: () -> Unit) {
                 ErrorText(error)
                 PrimaryButton("Save changes", loading = busy) { busy = true; error = null
                     scope.launch { runCatching { app.backend.updateRiderProfile(mapOf("vehicle" to vehicle, "plate" to plate, "emergencyName" to eName,
-                        "emergencyPhone" to (Validation.normaliseMsisdn(ePhone) ?: ePhone)), photo) }.onSuccess { editing = false }.onFailure { error = it.message }; busy = false } }
+                        "emergencyPhone" to (Validation.normaliseMsisdn(ePhone) ?: ePhone)), photo) }.onSuccess { editing = false; app.ok("Profile saved") }.onFailure { error = it.message; app.fail(it.message) }; busy = false } }
             }
         }
     }
@@ -454,7 +455,7 @@ private fun WalletSheet(profile: RiderProfile?, done: (String?) -> Unit) {
             error = if (Operator.unsupported(number)) "Not an Airtel, MTN or Zamtel number." else null)
         op?.let { Row(verticalAlignment = Alignment.CenterVertically) { OperatorMark(it, 28.dp); Text("  ${it.label}", fontWeight = FontWeight.Bold) } }
         ErrorText(error)
-        PrimaryButton("Switch payouts to this wallet", enabled = Validation.normaliseMsisdn(number) != null && op != null, loading = busy) {
+        PrimaryButton("Switch payouts to this wallet", whyDisabled = "Enter a valid Airtel, MTN or Zamtel number.", enabled = Validation.normaliseMsisdn(number) != null && op != null, loading = busy) {
             busy = true; scope.launch { runCatching { app.backend.setPayoutWallet(number) }.onSuccess { done("Payouts now go to ${walletBadge(Validation.normaliseMsisdn(number)!!)}.") }.onFailure { error = it.message }; busy = false } }
     }
 }
@@ -470,7 +471,7 @@ private fun PinSheet(done: (String?) -> Unit) {
         if (cur.length == 5) { Text("New PIN", fontWeight = FontWeight.Bold, fontSize = 13.sp); PinInput(new, { new = it })
             Text("Confirm new PIN", fontWeight = FontWeight.Bold, fontSize = 13.sp); PinInput(again, { again = it }, error = again.length == 5 && again != new) }
         ErrorText(error ?: Validation.pinProblem(new).takeIf { new.length == 5 })
-        PrimaryButton("Change PIN", enabled = cur.length == 5 && new.length == 5 && new == again && Validation.pinProblem(new) == null, loading = busy) {
+        PrimaryButton("Change PIN", whyDisabled = when { cur.length < 5 -> "Enter your current 5-digit PIN."; new.length < 5 -> "Enter a new 5-digit PIN."; new != again -> "The new PINs don't match."; else -> Validation.pinProblem(new) ?: "Check your new PIN." }, enabled = cur.length == 5 && new.length == 5 && new == again && Validation.pinProblem(new) == null, loading = busy) {
             busy = true; scope.launch { runCatching { app.backend.changePin(cur, new) }.onSuccess { done("PIN changed.") }.onFailure { error = it.message }; busy = false } }
     }
 }
@@ -494,7 +495,7 @@ private fun QuestionsSheet(done: (String?) -> Unit) {
                 if (q.id in picked) SeloField("Answer", picked[q.id] ?: "", { a -> picked = picked + (q.id to a.take(60)) })
             }
             ErrorText(error)
-            PrimaryButton("Save questions", enabled = picked.size == SecurityQuestions.REQUIRED && picked.values.all { it.trim().length >= 2 }, loading = busy) {
+            PrimaryButton("Save questions", whyDisabled = if (picked.size < SecurityQuestions.REQUIRED) "Choose ${SecurityQuestions.REQUIRED} questions." else "Answer each question (at least 2 characters).", enabled = picked.size == SecurityQuestions.REQUIRED && picked.values.all { it.trim().length >= 2 }, loading = busy) {
                 busy = true; scope.launch { runCatching { app.backend.updateSecurityQuestions(pin, picked.map { QuestionAnswer(it.key, it.value) }) }
                     .onSuccess { done("Security questions updated.") }.onFailure { error = it.message }; busy = false } }
         }
@@ -511,7 +512,7 @@ private fun EmergencySheet(profile: RiderProfile?, done: (String?) -> Unit) {
         Text("Selonachipa operations call this person if you're in a road incident.", color = Selo.Mute, fontSize = 13.sp)
         SeloField("Name", name, { name = it.take(60) }); SeloField("Phone number", phone, { phone = it.take(16) }, keyboard = KeyboardType.Phone)
         ErrorText(error)
-        PrimaryButton("Save", enabled = name.isNotBlank() && phone.filter(Char::isDigit).length >= 9, loading = busy) {
+        PrimaryButton("Save", whyDisabled = if (name.isBlank()) "Enter your contact's name." else "Enter their mobile number.", enabled = name.isNotBlank() && phone.filter(Char::isDigit).length >= 9, loading = busy) {
             busy = true; scope.launch { runCatching { app.backend.updateRiderProfile(mapOf("emergencyName" to name, "emergencyPhone" to (Validation.normaliseMsisdn(phone) ?: phone))) }
                 .onSuccess { done("Emergency contact saved.") }.onFailure { error = it.message }; busy = false } }
     }
@@ -552,7 +553,7 @@ fun IncidentScreen(back: () -> Unit) {
                 Text(if (photo != null) "  Photo attached · retake" else "  Add a photo (optional)", color = Selo.Red, fontWeight = FontWeight.SemiBold)
             }
             ErrorText(error)
-            PrimaryButton("Send report", enabled = desc.trim().length >= 10, loading = busy) {
+            PrimaryButton("Send report", whyDisabled = "Describe what happened in at least 10 characters.", enabled = desc.trim().length >= 10, loading = busy) {
                 busy = true; scope.launch { runCatching { app.backend.reportIncident(IncidentReport(type, desc.trim(), ref, photo)) }.onSuccess { done = it }.onFailure { error = it.message }; busy = false } }
         }
     }

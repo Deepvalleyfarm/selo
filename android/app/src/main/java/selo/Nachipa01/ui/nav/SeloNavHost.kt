@@ -2,6 +2,11 @@ package selo.Nachipa01.ui.nav
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -66,6 +71,7 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
                 onLoggedIn = { signedIn(it); nav.goHome(it) },
                 onCreateProfile = { nav.navigate(R.ROLE) },
                 onForgotPin = { nav.navigate(R.FORGOT) },
+                onResumeSignup = { role -> nav.navigate("register/${role.name}") },
             )
         }
         composable(R.ROLE) { RoleSelectScreen(onBack = { nav.popBackStack() }, onContinue = { nav.navigate("register/${it.name}") }) }
@@ -122,8 +128,14 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
 private fun androidx.compose.foundation.layout.BoxScope.ToastHost() {
     val app = LocalAppState.current
     val msg = app.toast.value ?: return
-    LaunchedEffect(msg) { kotlinx.coroutines.delay(2_400); if (app.toast.value == msg) app.toast.value = null }
-    androidx.compose.material3.Text(msg, color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 96.dp, start = 20.dp, end = 20.dp)
-            .background(selo.Nachipa01.ui.theme.Selo.Ink, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp))
+    val kind = app.toastKind.value
+    LaunchedEffect(msg, kind) { kotlinx.coroutines.delay(if (kind == "error") 4_500 else 2_600); if (app.toast.value == msg) { app.toast.value = null; app.toastKind.value = "info" } }
+    val bg = when (kind) { "ok" -> selo.Nachipa01.ui.theme.Selo.GreenDark; "error" -> selo.Nachipa01.ui.theme.Selo.Red; else -> selo.Nachipa01.ui.theme.Selo.Ink }
+    androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding()
+        .padding(bottom = 96.dp, start = 20.dp, end = 20.dp).background(bg, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+        .clickable { app.toast.value = null }.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        androidx.compose.material3.Icon(when (kind) { "ok" -> androidx.compose.material.icons.Icons.Outlined.CheckCircle; "error" -> androidx.compose.material.icons.Icons.Outlined.ErrorOutline
+            else -> androidx.compose.material.icons.Icons.Outlined.Info }, null, tint = androidx.compose.ui.graphics.Color.White, modifier = androidx.compose.ui.Modifier.size(20.dp))
+        androidx.compose.material3.Text("  $msg", color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+    }
 }

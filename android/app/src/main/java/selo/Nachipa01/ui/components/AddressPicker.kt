@@ -257,7 +257,7 @@ private fun GoogleMapPicker(initial: Place?, cityId: String?, onDismiss: () -> U
                     }
                     val outside = !moving && resolved?.inServiceArea == false
                     if (outside) Text("That point is outside the cities we serve.", color = Selo.Red, fontSize = 12.sp)
-                    PrimaryButton("Confirm location", enabled = !moving && !resolving && resolved != null && !outside) {
+                    PrimaryButton("Confirm location", whyDisabled = if (moving) "Let go of the map first." else if (resolving) "Still finding the address…" else if (resolved?.inServiceArea == false) "That point is outside the cities we serve. Move the pin." else "Move the map to place the pin.", enabled = !moving && !resolving && resolved != null && !outside) {
                         resolved?.let { onConfirm(it.copy(lat = pin.first, lng = pin.second)) } }
                 }
             }
@@ -338,7 +338,7 @@ private fun OsmMapPicker(initial: Place?, cityId: String?, onDismiss: () -> Unit
                 }
                 val outside = resolved?.inServiceArea == false
                 if (outside) Text("That point is outside the cities we serve.", color = Selo.Red, fontSize = 12.sp)
-                PrimaryButton("Confirm location", enabled = !resolving && resolved != null && !outside) { resolved?.let(onConfirm) }
+                PrimaryButton("Confirm location", whyDisabled = if (resolving) "Still finding the address…" else if (resolved?.inServiceArea == false) "That point is outside the cities we serve." else "Tap the map to place the pin.", enabled = !resolving && resolved != null && !outside) { resolved?.let(onConfirm) }
             }
         }
     }

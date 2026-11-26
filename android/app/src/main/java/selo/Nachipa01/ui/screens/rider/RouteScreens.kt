@@ -188,7 +188,7 @@ fun DispatchOverlay(o: Order, active: List<Order>, profile: RiderProfile?, rc: R
                 ErrorText(error)
             }
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton({ scope.launch { runCatching { app.backend.declineJob(o.id) }; onDone(false) } }, Modifier.weight(1f).height(56.dp),
+                OutlinedButton({ scope.launch { runCatching { app.backend.declineJob(o.id) }; app.info("Job declined — it goes to the next rider."); onDone(false) } }, Modifier.weight(1f).height(56.dp),
                     shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red),
                     colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = Selo.Red)) { Text("Decline", fontWeight = FontWeight.Bold, fontSize = 16.sp) }
                 Button({ busy = true; scope.launch { runCatching { app.backend.acceptJob(o.id) }.onSuccess { onDone(true) }.onFailure { error = it.message ?: "Order already taken."; busy = false } } },
@@ -388,7 +388,7 @@ fun ConfirmDeliveryDialog(o: Order, position: LatLng?, onDismiss: () -> Unit, on
                         attemptsLeft?.let { Text("  ·  $it attempt${if (it == 1) "" else "s"} left", color = if (it <= 2) Selo.Red else Selo.Mute) } }
                     ErrorText(error)
                     if (locked) NoteBox("Too many wrong codes — this code is locked. Request a new one in 2 minutes.", Tone.BRAND)
-                    PrimaryButton("Verify", color = Selo.Green, loading = busy, enabled = code.length == 5 && !locked && left > 0) {
+                    PrimaryButton("Verify", color = Selo.Green, loading = busy, whyDisabled = when { locked -> "This code is locked after too many attempts. Ask for a new one."; left <= 0 -> "The code expired. Request a new one."; else -> "Enter all 5 digits the receiver reads to you." }, enabled = code.length == 5 && !locked && left > 0) {
                         busy = true; error = null
                         scope.launch {
                             runCatching { app.backend.verifyDeliveryCode(o.kind, o.id, code, position?.lat, position?.lng) }
@@ -472,7 +472,7 @@ fun RateBuyerDialog(o: Order, onDone: () -> Unit) {
                     tint = Color(0xFFF5B301), modifier = Modifier.size(40.dp).clickable { stars = i }) } }
             }
         },
-        confirmButton = { Button({ scope.launch { if (stars > 0) runCatching { app.backend.rateBuyer(o.id, stars) }; onDone() } },
+        confirmButton = { Button({ scope.launch { if (stars > 0) app.attempt("Thanks for rating the buyer") { app.backend.rateBuyer(o.id, stars) }; onDone() } },
             colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) { Text(if (stars > 0) "Submit" else "Skip") } }, containerColor = Color.White)
 }
 
@@ -549,8 +549,8 @@ fun NavigationScreen(active: List<Order>, profile: RiderProfile?, rc: RouteContr
                     }
                 }
                 if (order != null) {
-                    if (s.type == StopType.PICKUP) PrimaryButton("Mark collected", enabled = arrived || app.backend.isDemo) {
-                        if (order.kind == "parcel") pinFor = order else scope.launch { runCatching { app.backend.markCollected(order.id) } }
+                    if (s.type == StopType.PICKUP) PrimaryButton("Mark collected", whyDisabled = "Get to the pickup point first — the button unlocks when you arrive.", enabled = arrived || app.backend.isDemo) {
+                        if (order.kind == "parcel") pinFor = order else scope.launch { app.attempt("Marked as collected — head to the drop-off") { app.backend.markCollected(order.id) } }
                     } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton({ call(ctx, order.buyerMsisdn) }, Modifier.weight(1f).height(50.dp), shape = RoundedCornerShape(14.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red)) { Icon(Icons.Outlined.Call, null, tint = Selo.Red) }

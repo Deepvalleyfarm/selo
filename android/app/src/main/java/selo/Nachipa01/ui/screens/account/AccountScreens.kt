@@ -111,11 +111,11 @@ private fun ProfileEditScreen(onBack: () -> Unit) {
             SeloField("Mobile number (login)", u?.msisdn?.replace("+260", "0") ?: "", {}, trailing = Icons.Outlined.Lock)
             Sub("Your number is your login. To change it, contact support so we can verify it's you.")
             msg?.let { NoteBox(it, Tone.OK) }; ErrorText(err)
-            PrimaryButton("Save", loading = busy, enabled = name.trim().length >= 3) {
+            PrimaryButton("Save", loading = busy, whyDisabled = "Enter your full name (at least 3 letters).", enabled = name.trim().length >= 3) {
                 busy = true; err = null; msg = null
                 scope.launch { runCatching { app.backend.updateProfile(mapOf("fullName" to name.trim(), "area" to area.trim())) }
-                    .onSuccess { app.session.value = app.session.value?.copy(fullName = name.trim(), firstName = name.trim().substringBefore(" "), area = area.trim()); msg = "Profile saved." }
-                    .onFailure { err = it.message }; busy = false }
+                    .onSuccess { app.session.value = app.session.value?.copy(fullName = name.trim(), firstName = name.trim().substringBefore(" "), area = area.trim()); msg = "Profile saved."; app.ok("Profile saved") }
+                    .onFailure { err = it.message; app.fail(it.message) }; busy = false }
             }
         }
     }
@@ -152,7 +152,7 @@ private fun AddressesScreen(onBack: () -> Unit) {
                         Text(a.nickname + if (a.isDefault) " · default" else "", fontWeight = FontWeight.Bold)
                         Text(listOfNotNull(a.place.short, a.place.cityName).joinToString(" · "), color = Selo.Mute, fontSize = 12.sp)
                     }
-                    IconButton({ scope.launch { runCatching { app.backend.deleteMyAddress(a.id) } } }) { Icon(Icons.Outlined.Delete, "Delete ${a.nickname}", tint = Selo.Mute) }
+                    IconButton({ scope.launch { app.attempt("${a.nickname} deleted") { app.backend.deleteMyAddress(a.id) } } }) { Icon(Icons.Outlined.Delete, "Delete ${a.nickname}", tint = Selo.Mute) }
                 }
             }
             if (!adding) OutlineButton("Add an address") { adding = true }
@@ -161,7 +161,7 @@ private fun AddressesScreen(onBack: () -> Unit) {
                 SeloField("Name it (e.g. Home, Work)", nick, { nick = it.take(40) })
                 CheckRow(def, { def = it }, "Make this my default delivery address")
                 ErrorText(err)
-                PrimaryButton("Save address", loading = busy, enabled = place?.inServiceArea == true && nick.isNotBlank()) {
+                PrimaryButton("Save address", loading = busy, whyDisabled = if (place == null) "Choose the address first." else if (place?.inServiceArea != true) "That address is outside the cities we serve." else "Give the address a name, e.g. Home or Work.", enabled = place?.inServiceArea == true && nick.isNotBlank()) {
                     busy = true; err = null
                     scope.launch { runCatching { app.backend.saveMyAddress(nick.trim(), place!!, def || saved.isEmpty()) }
                         .onSuccess { adding = false; place = null; nick = ""; def = false; app.toast.value = "Address saved." }.onFailure { err = it.message }; busy = false }
@@ -191,7 +191,7 @@ private fun WalletsScreen(onBack: () -> Unit) {
                 error = if (Operator.unsupported(number)) "Not an Airtel, MTN or Zamtel number." else null)
             op?.let { Row(verticalAlignment = Alignment.CenterVertically) { OperatorMark(it, 28.dp); Text("  ${it.label}", fontWeight = FontWeight.Bold) } }
             ErrorText(err)
-            PrimaryButton("Add wallet", loading = busy, enabled = Validation.normaliseMsisdn(number) != null && op != null) {
+            PrimaryButton("Add wallet", loading = busy, whyDisabled = "Enter a valid Airtel, MTN or Zamtel number.", enabled = Validation.normaliseMsisdn(number) != null && op != null) {
                 busy = true; err = null
                 scope.launch { runCatching { app.backend.savePaymentWallets(wallets + number) }.onSuccess { number = ""; app.toast.value = "Wallet added." }.onFailure { err = it.message }; busy = false }
             }
@@ -228,7 +228,7 @@ fun ChangePinScreen(onBack: () -> Unit) {
             if (again.length == 5 && again != new) Text("PINs don't match.", color = Selo.Red, fontSize = 12.sp)
             if (new.length == 5 && new == cur) Text("Choose a PIN different from your current one.", color = Selo.Red, fontSize = 12.sp)
             ErrorText(err)
-            PrimaryButton("Change PIN", loading = busy, enabled = cur.length == 5 && new.length == 5 && new == again && new != cur && Validation.pinProblem(new) == null) {
+            PrimaryButton("Change PIN", loading = busy, whyDisabled = when { cur.length < 5 -> "Enter your current 5-digit PIN."; new.length < 5 -> "Enter a new 5-digit PIN."; new == cur -> "Your new PIN must be different from the current one."; new != again -> "The new PINs don't match."; else -> Validation.pinProblem(new) ?: "Check your new PIN." }, enabled = cur.length == 5 && new.length == 5 && new == again && new != cur && Validation.pinProblem(new) == null) {
                 busy = true; err = null
                 scope.launch { runCatching { app.backend.changePin(cur, new) }.onSuccess { done = true }.onFailure { err = it.message; cur = "" }; busy = false }
             }
@@ -268,7 +268,7 @@ fun SecurityQuestionsScreen(onBack: () -> Unit) {
             else if (!unlocked) {
                 Text("Enter your current PIN to continue", fontWeight = FontWeight.Bold); PinInput(pin, { pin = it; err = null })
                 ErrorText(err)
-                PrimaryButton("Continue", enabled = pin.length == 5) { unlocked = true }
+                PrimaryButton("Continue", whyDisabled = "Enter your 5-digit PIN to continue.", enabled = pin.length == 5) { unlocked = true }
             } else {
                 Text("Choose ${SecurityQuestions.REQUIRED} of these and answer them", fontWeight = FontWeight.Bold)
                 offered.forEach { q ->
@@ -277,10 +277,10 @@ fun SecurityQuestionsScreen(onBack: () -> Unit) {
                 }
                 TextButton({ offered = SecurityQuestions.offer(bank); picked = emptyMap() }) { Text("Show different questions", color = Selo.Red) }
                 ErrorText(err)
-                PrimaryButton("Save questions", loading = busy, enabled = picked.size == SecurityQuestions.REQUIRED && picked.values.all { Validation.answerProblem(it) == null }) {
+                PrimaryButton("Save questions", loading = busy, whyDisabled = if (picked.size < SecurityQuestions.REQUIRED) "Choose ${SecurityQuestions.REQUIRED} questions." else "Answer each question (at least 2 characters).", enabled = picked.size == SecurityQuestions.REQUIRED && picked.values.all { Validation.answerProblem(it) == null }) {
                     busy = true; err = null
                     scope.launch { runCatching { app.backend.updateSecurityQuestions(pin, picked.map { QuestionAnswer(it.key, it.value) }) }
-                        .onSuccess { done = true }.onFailure { e -> err = e.message; if (e.message?.contains("PIN", true) == true) { unlocked = false; pin = "" } }; busy = false }
+                        .onSuccess { done = true; app.ok("Security questions updated") }.onFailure { e -> err = e.message; app.fail(e.message); if (e.message?.contains("PIN", true) == true) { unlocked = false; pin = "" } }; busy = false }
                 }
             }
         }
@@ -389,7 +389,7 @@ private fun ContactFormScreen(onBack: () -> Unit, onSent: (String) -> Unit) {
             SeloField("Order or parcel ref (optional)", ref, { ref = it.uppercase().take(20) }, placeholder = "e.g. SNC-48241 or PCL-7Q2M4X1")
             SeloField("How can we help?", message, { message = it.take(2000) }, singleLine = false)
             ErrorText(err)
-            PrimaryButton("Send", loading = busy, enabled = subject.trim().length >= 3 && message.trim().length >= 10) {
+            PrimaryButton("Send", loading = busy, whyDisabled = if (subject.trim().length < 3) "Add a short subject." else "Describe the problem in at least 10 characters.", enabled = subject.trim().length >= 3 && message.trim().length >= 10) {
                 busy = true; err = null
                 scope.launch { runCatching { app.backend.createTicket(subject.trim(), category, message.trim(), ref) }.onSuccess(onSent).onFailure { err = it.message }; busy = false }
             }

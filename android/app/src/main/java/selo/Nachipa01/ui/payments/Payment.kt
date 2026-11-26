@@ -93,10 +93,12 @@ fun PaymentMethodPicker(choice: PaymentChoice, title: String = "Pay with", exclu
             }
             if (!choice.useDefault) {
                 val op = choice.otherOperator
-                OutlinedTextField(choice.other, { choice.other = it.filter { c -> c.isDigit() || c == '+' || c == ' ' }.take(16) }, Modifier.fillMaxWidth(),
-                    label = { Text("Mobile money number") }, placeholder = { Text("e.g. 0977 123 456") }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                OutlinedTextField(selo.Nachipa01.ui.components.MsisdnInput.national(choice.other), { choice.other = selo.Nachipa01.ui.components.MsisdnInput.full(it) }, Modifier.fillMaxWidth(),
+                    label = { Text("Mobile money number") }, placeholder = { Text("97 123 4567") }, singleLine = true, shape = RoundedCornerShape(12.dp),
+
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    leadingIcon = op?.let { { Box(Modifier.padding(start = 8.dp)) { OperatorMark(it, 30.dp) } } },
+                    leadingIcon = { Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) { op?.let { OperatorMark(it, 26.dp); Spacer(Modifier.width(6.dp)) }
+                        Text("+260", fontWeight = FontWeight.Bold) } },
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Selo.Red, unfocusedContainerColor = Color.White, focusedContainerColor = Color.White))
                 when {
                     op != null -> Row(verticalAlignment = Alignment.CenterVertically) {

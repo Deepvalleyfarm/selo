@@ -207,7 +207,7 @@ private fun ShareSheet(l: Listing, onShared: (String) -> Unit) {
     Text("Share with a friend", fontWeight = FontWeight.Bold)
     SeloField("Friend's phone number", phone, { phone = it }, keyboard = KeyboardType.Phone, placeholder = "097 123 4567")
     ErrorText(err)
-    PrimaryButton("Send in SeloNaChipa", loading = busy, enabled = phone.length >= 9) {
+    PrimaryButton("Send in SeloNaChipa", loading = busy, whyDisabled = "Enter your friend's mobile number.", enabled = phone.length >= 9) {
         busy = true; err = null
         scope.launch { runCatching { app.backend.shareToUser(l.id, phone) }.onSuccess { onShared("inapp") }.onFailure { err = it.message }; busy = false }
     }

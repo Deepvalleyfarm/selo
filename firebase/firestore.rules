@@ -102,6 +102,7 @@ service cloud.firestore {
     match /studioJobs/{id} { allow read: if adminIn(['moderator', 'operations']); allow write: if false; }
     match /studioUsage/{day} { allow read: if adminIn([]); allow write: if false; }
     match /otp/{msisdn} { allow read, write: if false; }
+    match /idIndex/{id} { allow read, write: if false; }
     // saved delivery addresses (a personal shortlist that points at the shared store)
     match /users/{uid}/addresses/{id} {
       allow read, delete: if me(uid);

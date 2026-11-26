@@ -35,13 +35,18 @@ import java.util.Locale
 
 /** A1: welcome back / login with five sliding paid adverts and Create Profile. No OTP anywhere. */
 @Composable
-fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit, onForgotPin: () -> Unit, initialMode: String = "login") {
+fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit, onForgotPin: () -> Unit, initialMode: String = "login",
+                  onResumeSignup: (selo.Nachipa01.data.model.Role) -> Unit = {}, previewPin: String = "") {
     val app = LocalAppState.current
     val ads by app.adverts.collectAsState()
     val remembered = app.rememberedMsisdn.value
-    var switchNumber by remember { mutableStateOf(remembered == null) }
+    var switchNumber by rememberSaveable { mutableStateOf(remembered == null) }
     var number by remember { mutableStateOf("") }
-    var pin by remember { mutableStateOf("") }
+    var pin by remember { mutableStateOf(previewPin) }
+    // The number pad hides itself once all 5 digits are in, so the Login button is right there; tap the boxes to edit.
+    var padOpen by remember { mutableStateOf(previewPin.length < Validation.PIN_LENGTH) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -61,13 +66,14 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
     fun login() {
         if (locked) return
         val msisdn = if (switchNumber) Validation.normaliseMsisdn(number) else remembered
-        if (msisdn == null) { error = "Enter a valid Airtel, MTN or Zamtel number."; return }
+        if (msisdn == null) { error = if (number.isBlank()) "Enter your mobile number." else "Enter a valid Airtel (97/77), MTN (96/76) or Zamtel (95/75) number."; return }
         if (pin.length != Validation.PIN_LENGTH) { error = "Enter your 5-digit PIN."; return }
         loading = true; error = null
         scope.launch {
             runCatching { app.backend.login(msisdn, pin) }
-                .onSuccess(onLoggedIn)
-                .onFailure { error = it.message; pin = ""; if (it.message?.contains("Locked", true) == true || it.message?.contains("Too many", true) == true) lock() }
+                .onSuccess { u -> app.ok("Welcome back, ${u.firstName.ifBlank { "there" }}"); onLoggedIn(u) }
+                .onFailure { error = it.message ?: "Couldn't log in. Please try again."; pin = ""; padOpen = true
+                    if (it.message?.contains("Locked", true) == true || it.message?.contains("Too many", true) == true) lock() }
             loading = false
         }
     }
@@ -93,6 +99,19 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
                 Text(full, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 6.dp))
                 Text("${role.name.lowercase().replaceFirstChar { it.uppercase() }} account", fontSize = 12.sp, color = Selo.Mute)
             }
+            // An unfinished sign-up (auto-saved) comes first: one tap to carry on where they left off.
+            var draft by remember { mutableStateOf(RegDraft.summary(ctx)) }
+            draft?.let { d ->
+                Column(Modifier.fillMaxWidth().background(Selo.TealTint, RoundedCornerShape(14.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Continue your ${d.role.name.lowercase()} sign-up", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Text("${d.name.ifBlank { "Your details" }} · saved ${SimpleDateFormat("d MMM, HH:mm", Locale.UK).format(Date(d.savedAt))}. Pick up from where you stopped.",
+                        color = Selo.Mute, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PrimaryButton("Continue sign-up", Modifier.weight(1f)) { onResumeSignup(d.role) }
+                        TextButton({ RegDraft.clear(ctx); draft = null; app.info("Saved sign-up discarded.") }) { Text("Discard", color = Selo.Red) }
+                    }
+                }
+            }
             // three clear entry points: Log In · Sign Up · Forgot PIN
             var mode by rememberSaveable { mutableStateOf(initialMode) }
             Row(Modifier.fillMaxWidth().background(Selo.Surface, RoundedCornerShape(50)).padding(4.dp)) {
@@ -116,14 +135,23 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
             Text("5-digit PIN", color = Selo.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             var reveal by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { PinBoxes(pin, reveal = reveal, error = error != null, locked = locked) }
+                Box(Modifier.weight(1f).clickable(enabled = !locked) { padOpen = true; keyboard?.hide(); focus.clearFocus() }) {
+                    PinBoxes(pin, reveal = reveal, error = error != null, locked = locked) }
                 IconButton({ reveal = !reveal }) { Icon(if (reveal) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Show PIN", tint = Selo.Red) }
             }
             if (locked) Text("Too many wrong PINs. Try again in ${((app.pinLockedUntil.value - now) / 60_000 + 1)} min, or reset your PIN with your security questions.",
                 color = Selo.Red, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             else ErrorText(error)
-            NumberPad(enabled = !locked && !loading, onDigit = { d -> if (pin.length < 5) { pin += d; error = null } }, onDelete = { pin = pin.dropLast(1) })
-            PrimaryButton("Login", enabled = pin.length == 5 && !locked, loading = loading, onClick = ::login)
+            if (padOpen || pin.length < Validation.PIN_LENGTH)
+                NumberPad(enabled = !locked && !loading, onDigit = { d -> if (pin.length < Validation.PIN_LENGTH) { pin += d; error = null
+                    if (pin.length == Validation.PIN_LENGTH) { padOpen = false; keyboard?.hide(); focus.clearFocus() } } }, onDelete = { pin = pin.dropLast(1); padOpen = true })
+            else Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.CheckCircle, null, tint = Selo.GreenDark, modifier = Modifier.size(18.dp))
+                Text("  PIN entered", color = Selo.GreenDark, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text("Change", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { pin = ""; padOpen = true })
+            }
+            PrimaryButton("Login", enabled = pin.length == Validation.PIN_LENGTH && !locked, loading = loading,
+                whyDisabled = if (locked) "PIN entry is locked. Reset your PIN or wait for the timer." else "Enter all 5 digits of your PIN.", onClick = ::login)
             Row(Modifier.fillMaxWidth()) {
                 Spacer(Modifier.weight(1f))
                 Text(if (switchNumber) "Use saved number" else "Not you? Switch number", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 13.sp,

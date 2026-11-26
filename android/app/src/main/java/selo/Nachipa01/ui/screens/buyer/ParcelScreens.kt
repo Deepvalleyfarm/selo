@@ -185,12 +185,20 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                 }
             }
             ErrorText(error)
+            val stepProblem = when (step) {
+                1 -> when { pickup == null -> "Choose the pickup address."; pickup?.inServiceArea != true -> "The pickup address is outside the cities we serve."
+                    weight.isEmpty() -> "Choose the parcel weight."; desc.trim().length < 3 -> "Say what's inside (at least 3 characters)."; else -> null }
+                2 -> when { rName.trim().length < 2 -> "Enter the receiver's name."; Validation.normaliseMsisdn(rPhone) == null -> "Enter the receiver's Airtel, MTN or Zamtel number."
+                    dropoff == null -> "Choose the delivery address."; dropoff?.inServiceArea != true -> "The delivery address is outside the cities we serve."; sameCity != null -> sameCity; else -> null }
+                else -> when { quote == null -> "Working out the price…"; choice.msisdn == null -> "Choose or enter a number to pay with."
+                    insured && (declared.toDoubleOrNull() ?: 0.0) <= 0 -> "Enter the parcel's value for insurance."; else -> null }
+            }
             val canNext = when (step) {
                 1 -> pickup?.inServiceArea == true && weight.isNotEmpty() && desc.trim().length >= 3
                 2 -> rName.trim().length >= 2 && Validation.normaliseMsisdn(rPhone) != null && dropoff?.inServiceArea == true && sameCity == null
                 else -> quote != null && choice.msisdn != null && (!insured || (declared.toDoubleOrNull() ?: 0.0) > 0)
             }
-            PrimaryButton(if (step < 3) "Next" else "Pay Now ${quote?.let { k(it.totalNgwee) } ?: ""}", enabled = canNext, loading = busy && step == 3 && quote != null,
+            PrimaryButton(if (step < 3) "Next" else "Pay Now ${quote?.let { k(it.totalNgwee) } ?: ""}", whyDisabled = stepProblem ?: "Fill in the details above first.", enabled = canNext, loading = busy && step == 3 && quote != null,
                 color = if (step == 3) Selo.Green else Selo.Red) {
                 if (step < 3) { step++; return@PrimaryButton }
                 busy = true; error = null
@@ -237,7 +245,7 @@ fun ParcelDetailScreen(id: String, onBack: () -> Unit, onOpenCode: (String) -> U
                     NoteBox(x.paymentFailure ?: "Payment didn't go through.", Tone.BRAND)
                     val choice = rememberPaymentChoice(app.session.value?.msisdn, startWithOther = true)
                     PaymentMethodPicker(choice, "Try again with", exclude = x.walletMsisdn)
-                    PrimaryButton("Pay ${k(x.totalNgwee)}", enabled = choice.msisdn != null) { scope.launch { runCatching { app.backend.retryParcelPayment(x.id, choice.msisdn!!) }.onFailure { msg = it.message } } }
+                    PrimaryButton("Pay ${k(x.totalNgwee)}", whyDisabled = "Choose or enter an Airtel, MTN or Zamtel number to pay with.", enabled = choice.msisdn != null) { scope.launch { runCatching { app.backend.retryParcelPayment(x.id, choice.msisdn!!) }.onFailure { msg = it.message } } }
                 } else NoteBox("Approve the mobile money prompt on your phone to pay ${k(x.totalNgwee)}.", Tone.WARN)
                 ParcelStatus.AWAITING_DELIVERY_CODE -> if (!x.iAmSender) {
                     Column(Modifier.fillMaxWidth().background(Selo.Red, RoundedCornerShape(16.dp)).clickable { onOpenCode(x.id) }.padding(16.dp)) {
@@ -331,7 +339,7 @@ private fun UnavailableActions(x: Parcel) {
         done?.let { Text(it, color = Selo.GreenDark, fontWeight = FontWeight.Bold) }
         if (alt) {
             SeloField("Other contact's name", name, { name = it.take(60) }); SeloField("Their phone", phone, { phone = it.take(16) }, keyboard = KeyboardType.Phone)
-            PrimaryButton("Send them a code", enabled = Validation.normaliseMsisdn(phone) != null) { scope.launch { runCatching { app.backend.respondUnavailable("parcel", x.id, "alt_contact", name, phone) }.onSuccess { done = "The rider will send a new code to $name."; alt = false }.onFailure { done = it.message } } }
+            PrimaryButton("Send them a code", whyDisabled = "Enter a valid Airtel, MTN or Zamtel number.", enabled = Validation.normaliseMsisdn(phone) != null) { scope.launch { runCatching { app.backend.respondUnavailable("parcel", x.id, "alt_contact", name, phone) }.onSuccess { done = "The rider will send a new code to $name."; alt = false }.onFailure { done = it.message } } }
         } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton({ alt = true }, Modifier.weight(1f)) { Text("Other contact", color = Selo.Red, fontSize = 12.sp) }
             OutlinedButton({ scope.launch { runCatching { app.backend.respondUnavailable("parcel", x.id, "wait") }.onSuccess { done = "The rider will wait a little longer." }.onFailure { done = it.message } } }, Modifier.weight(1f)) { Text("Ask to wait", color = Selo.Red, fontSize = 12.sp) }

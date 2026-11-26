@@ -190,7 +190,8 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
                     Text(if (profile?.autoSettle != false) "Auto-settle active — daily payout to ${profile?.payoutWallet?.let { walletBadge(it) } ?: "your wallet"} at midnight."
                         else "Auto-settle is off. Withdraw when you're ready.", color = Selo.GreenDark, fontSize = 13.sp)
                     Text(if (profile?.autoSettle != false) "Turn off" else "Turn on", color = Selo.Red, fontWeight = FontWeight.Bold, fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 4.dp).clickable { scope.launch { runCatching { app.backend.updateRiderProfile(mapOf("autoSettle" to (profile?.autoSettle == false))) } } })
+                        modifier = Modifier.padding(top = 4.dp).clickable { scope.launch { app.attempt(if (profile?.autoSettle == false) "Auto-settle turned on" else "Auto-settle turned off") {
+                            app.backend.updateRiderProfile(mapOf("autoSettle" to (profile?.autoSettle == false))) } } })
                 }
             }
             Text("Available now: ${zmw(wallet?.availableNgwee ?: stats.availableNgwee)}" + (wallet?.lockedNgwee?.takeIf { it > 0 }?.let { " · ${zmw(it)} withdrawal in progress" } ?: ""), color = Selo.Mute, fontSize = 12.sp)
@@ -353,7 +354,7 @@ fun ClaimFlow(stats: RiderStats, back: () -> Unit) {
         if (step < 5) Box(Modifier.background(Color.White).padding(12.dp)) {
             val ngwee = ((amount.toDoubleOrNull() ?: 0.0) * 100).toLong()
             val ok = when (step) { 1 -> cat != null; 2 -> ngwee > 0 && desc.trim().length >= 10; 3 -> photo != null || cat?.photoRequired != true; else -> true }
-            PrimaryButton(if (step == 4) "Submit claim" else "Next", enabled = ok, loading = busy) {
+            PrimaryButton(if (step == 4) "Submit claim" else "Next", whyDisabled = "Complete this step first.", enabled = ok, loading = busy) {
                 error = null
                 if (step < 4) step++ else { busy = true
                     scope.launch { runCatching { app.backend.fileClaim(cat!!, ngwee, desc.trim(), photo) }.onSuccess { step = 5 }.onFailure { error = it.message }; busy = false } }

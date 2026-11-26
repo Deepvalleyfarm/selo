@@ -76,12 +76,12 @@ fun ForgotPinScreen(onBack: () -> Unit, onDone: () -> Unit) {
                 3 -> {
                     H("Create a new 5-digit PIN"); PinInput(pin, { pin = it; error = null })
                     ErrorText(error)
-                    PrimaryButton("Next", enabled = pin.length == 5) { error = Validation.pinProblem(pin); if (error == null) step = 4 }
+                    PrimaryButton("Next", whyDisabled = "Enter all 5 digits of your new PIN.", enabled = pin.length == 5) { error = Validation.pinProblem(pin); if (error == null) step = 4 }
                 }
                 4 -> {
                     H("Confirm your new PIN"); PinInput(confirm, { confirm = it; error = null }, error = error != null)
                     ErrorText(error)
-                    PrimaryButton("Set new PIN", enabled = confirm.length == 5, loading = busy) {
+                    PrimaryButton("Set new PIN", whyDisabled = "Re-enter all 5 digits to confirm your new PIN.", enabled = confirm.length == 5, loading = busy) {
                         if (confirm != pin) { mismatches++; confirm = ""
                             error = if (mismatches >= 5) "Too many mismatches. Start again." else "PINs don't match. Try again."
                             if (mismatches >= 5) { step = 1; pin = ""; mismatches = 0 }

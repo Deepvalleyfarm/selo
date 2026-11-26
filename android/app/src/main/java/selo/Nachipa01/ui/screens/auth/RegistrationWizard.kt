@@ -57,7 +57,12 @@ class RegState(val role: Role) {
     fun toggle(group: String, v: String) { val s = chips[group] ?: emptySet(); chips[group] = if (v in s) s - v else s + v }
     fun msisdn() = Validation.normaliseMsisdn(this["mobile"])
     /** Set when the SMS code for [otpFor] was verified; changing the number afterwards needs a new code. */
-    var otpToken by mutableStateOf<String?>(null); var otpFor by mutableStateOf<String?>(null)
+    var otpToken by mutableStateOf<String?>(null); var otpFor by mutableStateOf<String?>(null); var otpAt = 0L
+    /** Set by the wizard: writes the draft to private storage right away (photo picks, ID type changes). */
+    var saver: (() -> Unit)? = null
+    fun autosave() { saver?.invoke() }
+    /** Everything that should trigger an auto-save (read inside snapshotFlow). */
+    fun fingerprint(): String = "${text.toMap()}|${chips.toMap()}|${docs.toMap()}|${questionIds.toList()}|$walletNetwork|$walletHolder|${ticks.toMap()}|${hours.toMap()}|$biometric|$otpToken"
 }
 
 /** One wizard screen = one or more numbered steps of the role's flow. */
@@ -78,6 +83,24 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
     }
     val pages = remember(bank) { pagesFor(role, bank) }
     var index by rememberSaveable { mutableIntStateOf(initialPage) }
+    val ctx = LocalContext.current
+    // Auto-save: restore an unfinished sign-up for this role, then save every change (debounced) and every page move.
+    var restored by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(bank) {
+        if (restored) return@LaunchedEffect
+        restored = true
+        RegDraft.restore(ctx, state, bank)?.let { saved ->
+            // PIN and security answers are never stored: reopen at the security page if they are needed again.
+            val sec = pages.indexOfFirst { it.title == "Security" }
+            index = if (sec in 0 until saved && state.pin.isEmpty()) sec else saved.coerceIn(0, pages.lastIndex)
+            if (state.otpToken != null && state.otpFor != null) app.backend.setPreAuth(state.otpFor, state.otpToken)
+            app.info("Welcome back — we kept what you'd entered. Continue from step ${pages[index].from}.")
+        }
+    }
+    LaunchedEffect(state) {
+        state.saver = { RegDraft.save(ctx, state, index) }
+        androidx.compose.runtime.snapshotFlow { state.fingerprint() to index }.collect { (_, i) -> kotlinx.coroutines.delay(400); if (restored) RegDraft.save(ctx, state, i) }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -89,7 +112,7 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
 
     fun next() {
         error = page.validate(state)
-        if (error != null) return
+        if (error != null) { app.fail(error); return }
         if (!last) { index++; return }
         val msisdn = state.msisdn()!!
         submitting = "Submitting"
@@ -105,7 +128,7 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
                     referralCode = state["referral"].ifBlank { null },
                     kycDocs = state.docs.toMap(), otpToken = state.otpToken,
                 )) { submitting = it }
-            }.onSuccess(onRegistered).onFailure { error = it.message }
+            }.onSuccess { RegDraft.clear(ctx); onRegistered(it) }.onFailure { error = it.message ?: "We couldn't create your account. Check your connection and try again."; app.fail(error) }
             submitting = null
         }
     }
@@ -114,7 +137,8 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
     val titles = mapOf(Role.BUYER to "Buyer profile", Role.SELLER to "Seller profile", Role.AGENT to "Agent profile", Role.RIDER to "Rider application")
     Column(Modifier.fillMaxSize()) {
         SeloHeader(titles[role]!!, "$label · ${page.title}", onBack = ::back, steps = page.to to total(role),
-            trailing = { Text("Autosaved", color = Color.White.copy(alpha = .85f), fontSize = 11.sp) })
+            trailing = { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.CloudDone, null, tint = Color.White.copy(alpha = .85f), modifier = Modifier.size(14.dp))
+                Text(" Autosaved", color = Color.White.copy(alpha = .85f), fontSize = 11.sp) } })
         FormColumn {
             page.body(state)
             ErrorText(error)
@@ -137,7 +161,7 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
     val otp = Page("Confirm your number", 1, 1, { s -> if (s.otpToken == null || s.otpFor != s.msisdn()) "Confirm your number with the SMS code first." else null }) { OtpPage(it) }
     return withOtp(otp, when (role) {
         Role.BUYER -> listOf(
-            Page("Personal information", 1, 1, { s -> req(s, "fullName" to "full name") ?: mobileProblem(s) }) { BuyerPersonal(it) },
+            Page("Personal information", 1, 1, { s -> req(s, "fullName" to "full name") ?: mobileProblem(s) ?: idProblem(s) }) { BuyerPersonal(it) },
             Page("Address & interests", 2, 3, { s -> if (s["lat"].isBlank()) "Choose your delivery address." else null }) { AddressPage(it, "What do you shop for?", buyerCats, "Landmark (helps riders)") },
             sec(4),
             Page("Review & terms", 5, 6, { s -> terms(s, "terms", "privacy") }) { BuyerReview(it) },
@@ -146,20 +170,20 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
             Page("Your business", 1, 1, { s -> req(s, "storeName" to "store name", "fullName" to "your full name") ?: mobileProblem(s) }) { BusinessPage(it, false) },
             Page("Location & categories", 2, 3, { s -> (if (s["lat"].isBlank()) "Set your store location on the map." else null) ?: if ((s.chips["categories"] ?: emptySet()).isEmpty()) "Pick at least one category." else null }) {
                 AddressPage(it, "What do you sell?", sellerCats, "Pickup landmark for riders") },
-            Page("Identity (KYC)", 4, 4, { s -> req(s, "nrc" to "NRC number", "tpin" to "TPIN") ?: docs(s, "nrcFront", "nrcBack", "portrait") }) { KycPage(it, "Business registration\n(corporate only)") },
+            Page("Identity (KYC)", 4, 4, { s -> idProblem(s) ?: req(s, "tpin" to "TPIN") ?: docs(s, "portrait") }) { KycPage(it, "Business registration\n(corporate only)") },
             Page("Payout wallet", 5, 5, ::validateWallet) { WalletPage(it, "Where should we pay you?") },
             sec(6),
             Page("Review, terms & fee", 7, 9, { s -> terms(s, "terms", "fee") }) { SellerReview(it) },
         )
         Role.AGENT -> listOf(
             Page("Agency & hub", 1, 2, { s -> req(s, "storeName" to "agent name", "fullName" to "your full name", "hub" to "operating hub") ?: mobileProblem(s) }) { AgentHubPage(it) },
-            Page("Identity & wallet", 3, 4, { s -> req(s, "nrc" to "NRC number", "tpin" to "TPIN") ?: docs(s, "nrcFront", "nrcBack", "portrait") ?: validateWallet(s) }) {
+            Page("Identity & wallet", 3, 4, { s -> idProblem(s) ?: req(s, "tpin" to "TPIN") ?: docs(s, "portrait") ?: validateWallet(s) }) {
                 KycPage(it, "Agency certificate\n(corporate only)"); WalletPage(it, "Commission wallet") },
             sec(5),
             Page("Agreement & fee", 6, 8, { s -> terms(s, "conduct", "terms") }) { AgentAgreement(it) },
         )
         Role.RIDER -> listOf(
-            Page("You & your NRC", 1, 2, { s -> req(s, "firstName" to "first name", "surname" to "surname", "nrc" to "NRC number") ?: mobileProblem(s) ?: docs(s, "nrcFront", "nrcBack") }) { RiderPersonal(it) },
+            Page("You & your NRC", 1, 2, { s -> req(s, "firstName" to "first name", "surname" to "surname") ?: mobileProblem(s) ?: idProblem(s) }) { RiderPersonal(it) },
             Page("Licence & photo", 3, 4, { s -> docs(s, "licenceFront", "licenceBack", "portrait") }) { RiderLicence(it) },
             Page("Your vehicle", 5, 5, { s -> req(s, "make" to "make", "model" to "model", "plate" to "number plate") ?: docs(s, "vehicle") }) { RiderVehicle(it) },
             Page("Area & hours", 6, 7, { s -> req(s, "area" to "home area") ?: if (s.hours.none { it.value }) "Choose at least one working day." else null }) { RiderArea(it) },
@@ -178,7 +202,8 @@ private fun withOtp(otp: Page, pages: List<Page>) = listOf(pages.first(), Page(o
 private fun OtpPage(s: RegState) {
     val app = LocalAppState.current
     val m = s.msisdn() ?: run { ErrorText("Go back and enter a valid mobile number."); return }
-    OtpVerification(m, verified = s.otpToken != null && s.otpFor == m) { token -> s.otpToken = token; s.otpFor = m; app.backend.setPreAuth(m, token) }
+    OtpVerification(m, verified = s.otpToken != null && s.otpFor == m) { token -> s.otpToken = token; s.otpFor = m; s.otpAt = System.currentTimeMillis(); app.backend.setPreAuth(m, token)
+        s.autosave(); app.ok("Number verified") }
 }
 
 /* ============================================================ validation */
@@ -200,6 +225,10 @@ private fun validateSecurity(s: RegState): String? {
     if (s.pin != s.pinConfirm) return "PINs don't match. Try again."
     return null
 }
+/** ID type, number (format checked) and the photos that type needs. */
+private fun idProblem(s: RegState): String? = Validation.idProblem(s["idType"], s["idNumber"])
+    ?: Validation.idPhotos(s["idType"]).firstOrNull { it.first !in s.docs }?.let { "Add a photo of your ${it.second.lowercase()} — take one or choose it from your gallery." }
+
 private fun docLabel(k: String) = mapOf("nrcFront" to "NRC (front)", "nrcBack" to "NRC (back)", "portrait" to "face (portrait)",
     "licenceFront" to "driver's licence (front)", "licenceBack" to "driver's licence (back)", "vehicle" to "vehicle")[k] ?: k
 
@@ -216,21 +245,22 @@ private val sellerCats = listOf("Fresh produce", "Groceries", "Fast food", "Elec
 
 @Composable
 private fun BuyerPersonal(s: RegState) {
-    val pick = rememberPhotoCapture { s.docs["profilePhoto"] = it }
+    val pick = rememberPhotoSource("Profile photo") { s.docs["profilePhoto"] = it; s.autosave() }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pick() }) {
         Box(Modifier.size(60.dp).background(if ("profilePhoto" in s.docs) Selo.Green else Selo.RedTint, CircleShape), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.PhotoCamera, null, tint = if ("profilePhoto" in s.docs) Color.White else Selo.Red)
         }
-        Spacer(Modifier.width(12.dp)); Column { H("Profile photo", 14); Sub("Optional · camera") }
+        Spacer(Modifier.width(12.dp)); Column { H("Profile photo", 14); Sub("Optional · camera or gallery") }
     }
     F(s, "fullName", "Full name *")
     MobileField(s)
     F(s, "email", "Email (optional)", KeyboardType.Email)
+    IdentitySection(s)
     Text("Gender", fontSize = 12.sp, color = Selo.Mute, fontWeight = FontWeight.Bold)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("Female", "Male", "Prefer not to say").forEach { g -> SeloChip(g, s["gender"] == g) { s.set("gender", g) } }
     }
-    NoteBox("No SMS code is sent. Your number is confirmed the first time you log in with your PIN.")
+    NoteBox("Next we send an SMS code to confirm this number is yours.")
 }
 
 @Composable
@@ -312,7 +342,7 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("Individual", "Corporate").forEach { t -> SeloChip(t, (s["businessType"].ifBlank { "Individual" }) == t) { s.set("businessType", t) } }
     }
-    val pick = rememberPhotoCapture { s.docs["logo"] = it }
+    val pick = rememberPhotoSource("Business logo") { s.docs["logo"] = it; s.autosave() }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pick() }) {
         Box(Modifier.size(58.dp).background(if ("logo" in s.docs) Selo.Green else Selo.RedTint, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
             Icon(Icons.Outlined.Storefront, null, tint = if ("logo" in s.docs) Color.White else Selo.Red)
@@ -326,12 +356,35 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
     NoteBox("This number can't already be registered as a Buyer, Agent or Rider.")
 }
 
+/**
+ * Identity on every sign-up form: NRC, passport or driver's licence. NRC numbers are formatted as XXXXXX/XX/X while
+ * typing; photos come from the live camera or the gallery.
+ */
+@Composable
+private fun IdentitySection(s: RegState) {
+    H("Your ID *", 14)
+    val type = s["idType"].ifBlank { "NRC" }
+    LaunchedEffect(Unit) { if (s["idType"].isBlank()) s.set("idType", "NRC") }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Validation.ID_TYPES.forEach { t -> SeloChip(t, type == t) {
+            if (t != type) { s.set("idType", t); s.set("idNumber", Validation.formatIdNumber(t, s["idNumber"])); s.docs.remove("idFront"); s.docs.remove("idBack"); s.autosave() } } }
+    }
+    val number = s["idNumber"]
+    val complete = when (type) { "NRC" -> number.length == 11; else -> number.length >= 5 }
+    SeloField(when (type) { "NRC" -> "NRC number *"; "Passport" -> "Passport number *"; else -> "Driver's licence number *" }, number,
+        { s.set("idNumber", Validation.formatIdNumber(type, it)); if (type == "NRC") s.set("nrc", Validation.formatIdNumber(type, it)) },
+        keyboard = if (type == "NRC") KeyboardType.Number else KeyboardType.Ascii, placeholder = when (type) { "NRC" -> "XXXXXX/XX/X"; "Passport" -> "e.g. ZN123456"; else -> "As printed on the licence" },
+        error = if (complete) Validation.idProblem(type, number) else null)
+    if (type == "NRC") Sub("Type the 9 digits — the slashes are added for you.")
+    DocGrid(s, Validation.idPhotos(type))
+}
+
 @Composable
 private fun DocGrid(s: RegState, items: List<Pair<String, String>>) {
     items.chunked(2).forEach { row ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { (key, label) ->
-                val pick = rememberPhotoCapture { s.docs[key] = it }
+                val pick = rememberPhotoSource(label) { s.docs[key] = it; s.autosave() }
                 DocTile(label, key in s.docs, Modifier.weight(1f)) { pick() }
             }
             if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -341,11 +394,10 @@ private fun DocGrid(s: RegState, items: List<Pair<String, String>>) {
 
 @Composable
 private fun KycPage(s: RegState, corporateDoc: String) {
-    Sub("Take clear photos in good light. Only our compliance team can see these.")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        F(s, "nrc", "NRC number *", m = Modifier.weight(1f), ph = "123456/10/1"); F(s, "tpin", "TPIN *", KeyboardType.Number, Modifier.weight(1f))
-    }
-    DocGrid(s, listOf("nrcFront" to "NRC front", "nrcBack" to "NRC back", "portrait" to "Portrait selfie", "businessReg" to corporateDoc))
+    Sub("Take clear photos in good light, or choose saved photos from your gallery. Only our compliance team can see these.")
+    IdentitySection(s)
+    F(s, "tpin", "TPIN *", KeyboardType.Number)
+    DocGrid(s, listOf("portrait" to "Portrait selfie", "businessReg" to corporateDoc))
 }
 
 @Composable
@@ -429,8 +481,7 @@ private fun RiderPersonal(s: RegState) {
     F(s, "firstName", "First name *")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { F(s, "otherName", "Other name", m = Modifier.weight(1f)); F(s, "surname", "Surname *", m = Modifier.weight(1f)) }
     MobileField(s)
-    F(s, "nrc", "NRC number *", ph = "123456/10/1")
-    DocGrid(s, listOf("nrcFront" to "NRC front", "nrcBack" to "NRC back"))
+    IdentitySection(s)
     NoteBox("Your name and ID are locked once verified. Contact support to change them later.")
     LaunchedEffect(s["firstName"], s["surname"]) { s.set("fullName", listOf(s["firstName"], s["otherName"], s["surname"]).filter { it.isNotBlank() }.joinToString(" ")) }
 }
@@ -440,7 +491,7 @@ private fun RiderLicence(s: RegState) {
     H("Driver's licence", 14)
     DocGrid(s, listOf("licenceFront" to "Licence front", "licenceBack" to "Licence back"))
     H("Profile photo", 14)
-    val pick = rememberPhotoCapture { s.docs["portrait"] = it }
+    val pick = rememberPhotoSource("Profile photo") { s.docs["portrait"] = it; s.autosave() }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(80.dp).background(if ("portrait" in s.docs) Selo.Green else Color(0xFFE9E3DC), CircleShape)
             .border(2.5.dp, Selo.Red, CircleShape).clickable { pick() }, contentAlignment = Alignment.Center) {

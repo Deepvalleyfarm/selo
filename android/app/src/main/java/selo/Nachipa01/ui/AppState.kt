@@ -99,6 +99,18 @@ class AppState(val backend: Backend) : ViewModel() {
 
     // ---------------- app-wide toast and navigation requests (product buttons live deep inside lists and sheets)
     val toast = mutableStateOf<String?>(null)
+    /** "ok" (green tick), "error" (red, stays longer) or "info". Set through [ok] / [fail] / [info]. */
+    val toastKind = mutableStateOf("info")
+    fun ok(msg: String) { toastKind.value = "ok"; toast.value = msg }
+    fun fail(msg: String?) { toastKind.value = "error"; toast.value = msg?.takeIf { it.isNotBlank() } ?: "Something went wrong. Please try again." }
+    fun info(msg: String) { toastKind.value = "info"; toast.value = msg }
+    /**
+     * Runs a user action and always tells the user how it went: [okMsg] on success, the server's reason on failure.
+     * Returns the result, or null when it failed.
+     */
+    suspend fun <T> attempt(okMsg: String?, block: suspend () -> T): T? = try {
+        block().also { if (okMsg != null) ok(okMsg) }
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { fail(e.message); null }
     val navRequest = mutableStateOf<String?>(null)
     /** Buy: put the item in the cart if it isn't there, then open checkout with just that item selected. */
     fun buyNow(l: selo.Nachipa01.data.model.Listing) {

@@ -50,6 +50,8 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
   if (qs.some((q) => normaliseAnswer(String(q.answer ?? "")).length < 2)) throw new HttpsError("invalid-argument", "Answers must be at least 2 characters.");
 
   const profile = (d.profile ?? {}) as Record<string, unknown>;
+  const id = identityOf(profile);
+  if (typeof id === "string") throw new HttpsError("invalid-argument", id);
   const uid = randomUUID();
   const status = role === "BUYER" ? "ACTIVE" : role === "RIDER" ? "PENDING_VERIFICATION" : "PENDING_KYC";
   const fullName = String(profile.fullName ?? [profile.firstName, profile.otherName, profile.surname].filter(Boolean).join(" ")).slice(0, 120);
@@ -68,8 +70,13 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
 
   await db.runTransaction(async (tx) => {
     const idx = db.doc(`msisdnIndex/${msisdn}`);
-    if ((await tx.get(idx)).exists) throw new HttpsError("already-exists", "This number is already registered. Log in or contact support.");
+    const idRef = db.doc(`idIndex/${id.key}`);
+    const [idxSnap, idSnap] = await Promise.all([tx.get(idx), tx.get(idRef)]);
+    if (idxSnap.exists) throw new HttpsError("already-exists", "This number is already registered. Log in or contact support.");
+    if (idSnap.exists) throw new HttpsError("already-exists", `This ${id.idType} number is already registered to another account. Contact support if this is you.`);
     tx.create(idx, { uid, role, createdAt: FieldValue.serverTimestamp() });
+    tx.create(idRef, { uid, idType: id.idType, createdAt: FieldValue.serverTimestamp() });
+    tx.create(db.doc(`users/${uid}/private/kyc`), { idType: id.idType, idNumber: id.idNumber, tpin: profile.tpin ? String(profile.tpin).slice(0, 20) : null, createdAt: FieldValue.serverTimestamp() });
     tx.create(db.doc(`users/${uid}`), {
       role, msisdn, msisdnVerified, fullName, firstName: String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
       accountStatus: status, kycStatus: role === "BUYER" ? "NOT_REQUIRED" : "SUBMITTED",
@@ -243,3 +250,16 @@ export const user_registerFcmToken = onCall(async (req) => {
   await db.doc(`users/${uid}/private/devices`).set({ fcmTokens: FieldValue.arrayUnion(t) }, { merge: true });
   return { ok: true };
 });
+
+
+/** Sign-up identity: NRC (XXXXXX/XX/X), passport or driver's licence. Returns an error message or the cleaned ID. */
+export function identityOf(p: Record<string, unknown>): string | { idType: string; idNumber: string; key: string } {
+  const type = String(p.idType ?? (p.nrc ? "NRC" : ""));
+  const raw = String(p.idNumber ?? p.nrc ?? "").trim().toUpperCase();
+  if (!["NRC", "Passport", "Driver's licence"].includes(type)) return "Choose your ID type: NRC, passport or driver's licence.";
+  if (!raw) return `Enter your ${type} number.`;
+  if (type === "NRC" && !/^\d{6}\/\d{2}\/\d$/.test(raw)) return "Enter your NRC number as XXXXXX/XX/X (for example 123456/78/1).";
+  if (type === "Passport" && !/^[A-Z0-9]{6,9}$/.test(raw)) return "Enter your passport number as printed (6–9 letters and digits, e.g. ZN123456).";
+  if (type === "Driver's licence" && !/^[A-Z0-9-]{5,15}$/.test(raw)) return "Enter your driver's licence number as printed (5–15 letters and digits).";
+  return { idType: type, idNumber: raw, key: `${type.replace(/\W/g, "")}_${raw.replace(/\W/g, "")}` };
+}

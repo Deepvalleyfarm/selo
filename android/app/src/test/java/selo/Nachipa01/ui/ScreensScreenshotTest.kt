@@ -108,6 +108,13 @@ class ScreensScreenshotTest {
         androidx.compose.foundation.layout.Row(androidx.compose.ui.Modifier.fillMaxSize().background(selo.Nachipa01.ui.theme.Selo.Surface).padding(10.dp),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
             items.forEach { l -> selo.Nachipa01.ui.screens.discover.ListingTile(l, androidx.compose.ui.Modifier.weight(1f)) {} } } }
+    @Test fun a8_loginPinEntered() = shot("A8-login-pin-entered", prep = { s -> s.rememberedRole.value = Role.BUYER; s.rememberedFullName.value = "Mwila Chanda" }) {
+        WelcomeScreen({}, {}, {}, previewPin = "24680") }
+    @Test fun a9_signupId() = shot("A9-signup-id-nrc") { RegistrationWizard(Role.BUYER, {}, {}) }
+    @Test fun a10_resume() = shot("A10-continue-signup", prep = { _ ->
+        org.robolectric.RuntimeEnvironment.getApplication().getSharedPreferences("selo_reg_draft", 0).edit()
+            .putString("draft", """{"role":"SELLER","page":3,"savedAt":${System.currentTimeMillis()},"text":{"storeName":"Mama Bupe's Veg"}}""").commit() }) {
+        WelcomeScreen({}, {}, {}, initialMode = "signup") }
     @Test fun w2_earnings() = shot("W2-rider-earnings-withdraw", Role.RIDER, advance = 1_500) { RiderShell("earnings") {} }
     @Test fun d0_seller() = shot("D0-seller-dashboard", Role.SELLER) { SellerShell(rememberNavController()) {} }
     @Test fun d1_add() = shot("D1-add-listing", Role.SELLER) { AddListingScreen({}, {}, {}) }

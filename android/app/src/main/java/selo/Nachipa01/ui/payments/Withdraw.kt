@@ -37,7 +37,7 @@ fun rememberWalletStatus(key: Any? = Unit): State<WalletStatus?> {
 @Composable
 fun WithdrawButton(status: WalletStatus?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val label = when { status == null -> "Withdraw"; status.active != null -> "Withdrawal in progress"; else -> "Withdraw ${Fees.formatK(status.availableNgwee)}" }
-    PrimaryButton(label, modifier, enabled = status != null && status.block == null, onClick = onClick)
+    PrimaryButton(label, modifier, whyDisabled = status?.block ?: "Checking your balance…", enabled = status != null && status.block == null, onClick = onClick)
 }
 
 /**

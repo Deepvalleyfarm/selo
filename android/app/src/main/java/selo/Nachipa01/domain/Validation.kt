@@ -44,4 +44,37 @@ object Validation {
 
     fun answerProblem(answer: String): String? =
         if (normaliseAnswer(answer).length < 2) "Answer must be at least 2 characters." else null
+
+    /* ---------------- sign-up identity (NRC · passport · driver's licence) */
+    val ID_TYPES = listOf("NRC", "Passport", "Driver's licence")
+
+    /** Formats NRC input as XXXXXX/XX/X while the user types digits only. */
+    fun formatNrc(raw: String): String {
+        val d = raw.filter(Char::isDigit).take(9)
+        return buildString {
+            append(d.take(6))
+            if (d.length > 6) append('/').append(d.substring(6, minOf(8, d.length)))
+            if (d.length > 8) append('/').append(d[8])
+        }
+    }
+    fun formatIdNumber(type: String, raw: String): String = when (type) {
+        "NRC" -> formatNrc(raw)
+        "Passport" -> raw.uppercase().filter { it.isLetterOrDigit() }.take(9)
+        else -> raw.uppercase().filter { it.isLetterOrDigit() || it == '-' }.take(15)
+    }
+    /** Same rules as the server (auth.ts identityOf). */
+    fun idProblem(type: String, number: String): String? = when {
+        type !in ID_TYPES -> "Choose your ID type: NRC, passport or driver's licence."
+        number.isBlank() -> "Enter your $type number."
+        type == "NRC" && !Regex("^\\d{6}/\\d{2}/\\d$").matches(number) -> "Enter your NRC number as XXXXXX/XX/X (for example 123456/78/1)."
+        type == "Passport" && !Regex("^[A-Z0-9]{6,9}$").matches(number) -> "Enter your passport number as printed (6–9 letters and digits, e.g. ZN123456)."
+        type == "Driver's licence" && !Regex("^[A-Z0-9-]{5,15}$").matches(number) -> "Enter your driver's licence number as printed (5–15 letters and digits)."
+        else -> null
+    }
+    /** Photos each ID type needs: NRC and licence front + back, passport photo page. */
+    fun idPhotos(type: String): List<Pair<String, String>> = when (type) {
+        "Passport" -> listOf("idFront" to "Passport photo page")
+        "Driver's licence" -> listOf("idFront" to "Licence front", "idBack" to "Licence back")
+        else -> listOf("idFront" to "NRC front", "idBack" to "NRC back")
+    }
 }

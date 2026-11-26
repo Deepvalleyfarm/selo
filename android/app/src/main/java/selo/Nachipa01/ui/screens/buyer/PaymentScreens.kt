@@ -225,7 +225,7 @@ fun EscrowLockedScreen(orderId: String, onTrack: (String) -> Unit) {
         }
         if (!failed) {
             NoteBox("Not delivered? Funds return to your wallet automatically. If no rider accepts in ${cfg.broadcastTimeoutMin} minutes you get a full refund.")
-            PrimaryButton("Track my order", enabled = locked) { onTrack(orderId) }
+            PrimaryButton("Track my order", whyDisabled = "Waiting for your payment to be confirmed…", enabled = locked) { onTrack(orderId) }
         }
     }
 }
@@ -290,7 +290,7 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
                     }
                     OrderState.DELIVERED -> {
                         NoteBox("Delivered and confirmed with your code. The seller and rider have been paid from escrow.", Tone.OK, Icons.Outlined.CheckCircle)
-                        PrimaryButton("Confirm receipt", color = Selo.Green) { scope.launch { runCatching { app.backend.confirmReceipt("order", o.id) } } }
+                        PrimaryButton("Confirm receipt", color = Selo.Green) { scope.launch { app.attempt("Receipt confirmed. Thank you!") { app.backend.confirmReceipt("order", o.id) } } }
                     }
                     OrderState.COMPLETED -> NoteBox("Completed. Thank you for using Selo Escrow.", Tone.OK, Icons.Outlined.CheckCircle)
                     OrderState.DELIVERY_FAILED -> NoteBox("The delivery couldn't be completed. Support will contact you about your refund.", Tone.BRAND)

@@ -208,7 +208,7 @@ fun PhotoPickScreen(onBack: () -> Unit, onDone: () -> Unit) {
             }
             ReorderableThumbs(photos)
             if (photos.size > 1) Sub("Long-press a photo and drag it left or right to change the order.")
-            PrimaryButton("Continue", enabled = photos.isNotEmpty()) { app.listingMediaType.value = "photo"; onDone() }
+            PrimaryButton("Continue", whyDisabled = "Add at least one photo first.", enabled = photos.isNotEmpty()) { app.listingMediaType.value = "photo"; onDone() }
         }
     }
 }
@@ -391,7 +391,7 @@ fun ReviewListingScreen(onBack: () -> Unit, onDone: () -> Unit, onPreview: () ->
                 }
             }
             if (pending > 0) Text("$pending field${if (pending == 1) "" else "s"} still to check", color = Selo.AmberDark, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            PrimaryButton("Preview listing", enabled = f.allReviewed && f.title.isNotBlank() && (f.price.toDoubleOrNull() ?: 0.0) > 0 && f.category.isNotBlank()) { onPreview() }
+            PrimaryButton("Preview listing", whyDisabled = when { f.title.isBlank() -> "Add a title."; (f.price.toDoubleOrNull() ?: 0.0) <= 0 -> "Enter a price above K0."; f.category.isBlank() -> "Choose a category."; else -> "Review each AI-filled field (tick them) before previewing." }, enabled = f.allReviewed && f.title.isNotBlank() && (f.price.toDoubleOrNull() ?: 0.0) > 0 && f.category.isNotBlank()) { onPreview() }
         }
     }
 }

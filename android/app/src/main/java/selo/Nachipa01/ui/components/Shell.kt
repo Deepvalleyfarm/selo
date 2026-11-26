@@ -160,14 +160,20 @@ private fun advertIcon(cat: String): ImageVector = when (cat) {
     else -> Icons.Outlined.Eco
 }
 
-/** Five paid adverts sliding every 3 s (welcome screen). Adverts are booked in the back office. */
+const val BANNER_INTERVAL_MS = 6_000L
+
+/** Paid adverts on the welcome screen, sliding at a moderate pace (6 s per banner, gentle 900 ms glide). Pauses while the user swipes. */
 @Composable
 fun AdvertCarousel(ads: List<Advert>, onOpen: (Advert) -> Unit) {
     if (ads.isEmpty()) return
     val pager = rememberPagerState { ads.size }
     val scope = rememberCoroutineScope()
     LaunchedEffect(ads.size) {
-        while (true) { delay(3000); pager.animateScrollToPage((pager.currentPage + 1) % ads.size) }
+        while (true) {
+            delay(BANNER_INTERVAL_MS)
+            if (!pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % ads.size,
+                animationSpec = androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+        }
     }
     Column(Modifier.padding(horizontal = 16.dp)) {
         HorizontalPager(pager, pageSpacing = 12.dp, modifier = Modifier.clip(RoundedCornerShape(18.dp))) { page ->

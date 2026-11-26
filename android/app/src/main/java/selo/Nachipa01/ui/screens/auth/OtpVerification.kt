@@ -123,7 +123,7 @@ fun OtpVerification(msisdn: String, verified: Boolean, onVerified: (token: Strin
     }
     ErrorText(err)
     if (challenge != null) Text(if (left > 0) "Code expires in %d:%02d".format(left / 60, left % 60) else "Code expired", color = if (left > 0) Selo.Mute else Selo.Red, fontSize = 13.sp)
-    PrimaryButton("Verify →", loading = verifying, enabled = code.length == 6 && challenge != null) { verify(code) }
+    PrimaryButton("Verify →", loading = verifying, whyDisabled = if (challenge == null) "We're still sending your code…" else "Enter all 6 digits from the SMS.", enabled = code.length == 6 && challenge != null) { verify(code) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Didn't receive it?", color = Selo.Mute, fontSize = 13.sp)
         TextButton({ send() }, enabled = !sending && left == 0) { Text(if (sending) "Sending…" else "Resend code", color = if (left == 0) Selo.Red else Selo.Mute, fontWeight = FontWeight.Bold) }

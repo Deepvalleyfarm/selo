@@ -220,7 +220,7 @@ fun PromotionStatusScreen(promoId: String, onDone: () -> Unit) {
             if (failed) {
                 PaymentMethodPicker(choice, "Try again with", exclude = p.walletMsisdn)
                 ErrorText(error)
-                PrimaryButton("Pay ${Fees.formatK(p.priceNgwee)}" + (choice.operator?.let { " with ${it.label}" } ?: ""), loading = retrying, enabled = choice.msisdn != null) {
+                PrimaryButton("Pay ${Fees.formatK(p.priceNgwee)}" + (choice.operator?.let { " with ${it.label}" } ?: ""), loading = retrying, whyDisabled = "Choose or enter an Airtel, MTN or Zamtel number to pay with.", enabled = choice.msisdn != null) {
                     retrying = true; error = null
                     scope.launch { runCatching { app.backend.retryPromotionPayment(p.id, choice.msisdn!!) }.onFailure { error = it.message }; retrying = false }
                 }
