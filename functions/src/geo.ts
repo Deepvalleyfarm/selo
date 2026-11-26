@@ -23,9 +23,9 @@ export const normLabel = (s: string) => s.toLowerCase().normalize("NFKD").replac
 export const searchTokens = (s: string) => [...new Set(normLabel(s).split(" ").filter((w) => w.length >= 2))].slice(0, 20)
   .flatMap((w) => [w, ...Array.from({ length: Math.max(0, Math.min(w.length, 8) - 2) }, (_, i) => w.slice(0, i + 2))]).filter((v, i, a) => a.indexOf(v) === i);
 
-export interface Suggestion { id: string; label: string; secondary: string; source: "store" | "google" | "gazetteer"; lat?: number; lng?: number }
+export interface Suggestion { id: string; label: string; secondary: string; source: "store" | "google" | "gazetteer"; lat?: number; lng?: number; distanceM?: number | null }
 export interface Place { id: string; label: string; address: string; lat: number; lng: number; cityId: string | null; cityName: string | null; neighbourhood: string | null;
-  inServiceArea: boolean; approximate: boolean; placeId?: string | null }
+  inServiceArea: boolean; approximate: boolean; placeId?: string | null; landmark?: string | null }
 
 function placeFor(label: string, address: string, at: LL, id: string, approximate: boolean, neighbourhood?: string | null, placeId?: string | null): Place {
   const city = cityOf(at);
@@ -75,11 +75,19 @@ export async function autocomplete(input: string, who: string, cityId?: string |
     const city = cityId ? cityById(cityId) : null;
     const bias = near ?? (city ? { lat: city.lat, lng: city.lng } : null);
     const limitOk = await userWithinLimit(who, "places_autocomplete", Number(cfg.mapsUserAutocompletePerHour ?? 0));
-    const preds = limitOk ? await placesAutocomplete(q, cfg, { bias, radiusM: (city?.radiusKm ?? 25) * 1000, sessionToken }) : null;
+    const preds = limitOk ? await placesAutocomplete(q, cfg, { bias, radiusM: (city?.radiusKm ?? 25) * 1000, sessionToken, origin: near ?? null }) : null;
     degraded = preds === null;
-    google = (preds ?? []).map((p) => ({ id: `g:${p.placeId}`, label: p.primary, secondary: p.secondary, source: "google" as const }));
+    google = (preds ?? []).map((p) => ({ id: `g:${p.placeId}`, label: p.primary, secondary: p.secondary, source: "google" as const, distanceM: p.distanceM ?? null }));
   }
-  const merged = [...fromStore, ...google, ...gazetteer(q, cityId)];
+  // Straight-line distance from the user for every suggestion we know the position of.
+  const withDist = (s: Suggestion): Suggestion => {
+    if (s.distanceM != null || !near) return s;
+    if (s.lat != null && s.lng != null) return { ...s, distanceM: Math.round(haversineKm(near, { lat: s.lat, lng: s.lng }) * 1000) };
+    if (s.id.startsWith("nb:")) { const [, cid, nb] = s.id.split(":"); const c = cityById(cid);
+      if (c) { const p = nb ? neighbourhoodFallback(c, nb) : { lat: c.lat, lng: c.lng }; return { ...s, distanceM: Math.round(haversineKm(near, p) * 1000) }; } }
+    return s;
+  };
+  const merged = [...fromStore, ...google, ...gazetteer(q, cityId)].map(withDist);
   const seen = new Set<string>();
   return { suggestions: merged.filter((s) => { const k = normLabel(s.label + s.secondary); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10), degraded };
 }
@@ -122,9 +130,10 @@ export async function reverse(at: LL): Promise<Place> {
   const pinId = `pin:${at.lat.toFixed(6)},${at.lng.toFixed(6)}`;
   const near = await db.collection("addresses").where("cell", "==", `${at.lat.toFixed(3)},${at.lng.toFixed(3)}`).limit(30).get().catch(() => null);
   const best = near?.docs.map((d) => ({ d, m: haversineM(at, { lat: d.get("lat"), lng: d.get("lng") }) })).sort((a, b) => a.m - b.m)[0];
-  if (best && best.m <= 25) return placeFor(best.d.get("label"), best.d.get("address"), at, pinId, false, best.d.get("neighbourhood"), best.d.get("placeId") ?? null);
+  if (best && best.m <= 25) return { ...placeFor(best.d.get("label"), best.d.get("address"), at, pinId, false, best.d.get("neighbourhood"), best.d.get("placeId") ?? null),
+    landmark: best.m <= 10 ? best.d.get("label") : (best.d.get("landmark") ?? null) };
   const g = await reverseGeocode(at, await loadConfig());
-  if (g) return placeFor(g.address.split(",")[0], g.address, at, pinId, false, null, g.placeId);
+  if (g) return { ...placeFor(g.landmark ?? g.address.split(",")[0], g.address, at, pinId, false, null, g.placeId), landmark: g.landmark ?? null };
   const nb = nearestNeighbourhood(at); const city = cityOf(at);
   const label = nb ? `Pinned location near ${nb.name}` : "Pinned location";
   return placeFor(label, city ? `${nb?.name ? nb.name + ", " : ""}${city.name}` : `${at.lat.toFixed(5)}, ${at.lng.toFixed(5)}`, at, pinId, false, nb?.name ?? null);

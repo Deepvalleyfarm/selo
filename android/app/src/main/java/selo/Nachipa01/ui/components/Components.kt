@@ -136,7 +136,10 @@ fun SeloField(
             value = if (phone) MsisdnInput.national(value) else value, onValueChange = { v -> if (phone) onChange(MsisdnInput.full(v)) else onChange(v) },
             label = { Text(label) }, singleLine = singleLine,
             // always visible (a Material prefix hides until focus): users see +260 and type only their number
-            leadingIcon = if (phone) { { Text("+260", fontWeight = FontWeight.Bold, color = Selo.Ink, modifier = Modifier.padding(start = 14.dp, end = 2.dp)) } } else null,
+            // operator logo appears as soon as the prefix identifies Airtel, MTN or Zamtel
+            leadingIcon = if (phone) { { Row(Modifier.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                selo.Nachipa01.domain.Operator.detect(value)?.let { selo.Nachipa01.ui.payments.OperatorMark(it, 24.dp); Spacer(Modifier.width(6.dp)) }
+                Text("+260", fontWeight = FontWeight.Bold, color = Selo.Ink) } } } else null,
             placeholder = (if (phone) "97 123 4567" else placeholder)?.let { { Text(it, color = Selo.Mute) } },
             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), isError = (error ?: phoneError) != null,
             keyboardOptions = KeyboardOptions(keyboardType = keyboard),
@@ -366,3 +369,16 @@ fun FormColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.(
 
 @Composable
 fun Modifier.verticalScrollable(): Modifier = this.then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()))
+
+
+/** Round profile picture with initials fallback; tap to change when [onClick] is set. */
+@Composable
+fun Avatar(url: String?, name: String, size: androidx.compose.ui.unit.Dp = 42.dp, onClick: (() -> Unit)? = null) {
+    Box(Modifier.size(size).clip(CircleShape).background(Selo.Red).let { if (onClick != null) it.clickable(onClick = onClick) else it }, contentAlignment = Alignment.Center) {
+        val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
+        Text(initials.ifBlank { "?" }, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = (size.value * .34f).sp)
+        if (!url.isNullOrBlank()) coil3.compose.AsyncImage(url, name, Modifier.fillMaxSize().clip(CircleShape), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        if (onClick != null) Box(Modifier.align(Alignment.BottomEnd).size(size * .32f).background(Color.White, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.PhotoCamera, "Change picture", tint = Selo.Red, modifier = Modifier.size(size * .2f)) }
+    }
+}

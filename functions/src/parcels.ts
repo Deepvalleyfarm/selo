@@ -31,7 +31,7 @@ function move(tx: Transaction, id: string, from: ParcelStatus, to: ParcelStatus,
   tx.set(db.collection(`parcels/${id}/timeline`).doc(), { event: event ?? to, from, to, at: FieldValue.serverTimestamp() });
 }
 
-interface Stop { label: string; address: string; lat: number; lng: number; neighbourhood: string; addressId?: string | null }
+interface Stop { label: string; address: string; lat: number; lng: number; neighbourhood: string; addressId?: string | null; landmark?: string | null }
 function stop(v: any, field: string): Stop {
   if (!v || !isLL(v)) throw new HttpsError("invalid-argument", `Choose the ${field} on the map or from the suggestions.`);
   const at = { lat: Number(v.lat), lng: Number(v.lng) };
@@ -39,7 +39,8 @@ function stop(v: any, field: string): Stop {
   if (!city) throw new HttpsError("failed-precondition", `That ${field} is outside the cities we serve.`);
   const nb = typeof v.neighbourhood === "string" && city.neighbourhoods.includes(v.neighbourhood) ? v.neighbourhood : null;
   return { label: String(v.label ?? "").slice(0, 80), address: String(v.address ?? v.label ?? "").slice(0, 200), ...at,
-    neighbourhood: nb ?? nearestNb(at), addressId: typeof v.addressId === "string" ? v.addressId : null };
+    neighbourhood: nb ?? nearestNb(at), addressId: typeof v.addressId === "string" ? v.addressId : null,
+    landmark: typeof v.landmark === "string" && v.landmark.trim() ? v.landmark.trim().slice(0, 80) : null };
 }
 function nearestNb(at: LL) { return nearestNeighbourhood(at)?.name ?? cityOf(at)!.name; }
 
@@ -157,6 +158,15 @@ export async function onParcelCollection(reference: string, ok: boolean, status:
       writeLedger(tx, { kind: "parcel", orderId: id, type: "HELD", leg, party: "escrow", amountNgwee: amount, ref: reference });
     H("delivery_fee", p.fees.deliveryNgwee); H("sending_fee", p.fees.sendingNgwee - (p.creditAppliedNgwee ?? 0)); H("insurance", p.fees.insuranceNgwee);
   });
+  {
+    const { issueReceipt } = await import("./payments/receipts");
+    await issueReceipt({ reference, kind: "parcel", refId: id, payerUid: p.senderUid, payerName: p.senderName ?? "", payerMsisdn: p.senderMsisdn ?? "",
+      onBehalfOf: { type: "rider", name: "your SeloNaChipa delivery rider" },
+      lines: [{ label: `Parcel delivery ${p.pickup?.neighbourhood ?? ""} → ${p.dropoff?.neighbourhood ?? ""} (${p.distanceKm} km)`, amountNgwee: p.fees.deliveryNgwee, onBehalfOf: "the delivery rider" },
+        { label: "Sending fee", amountNgwee: p.fees.sendingNgwee - (p.creditAppliedNgwee ?? 0), onBehalfOf: "SeloNaChipa" },
+        ...(p.fees.insuranceNgwee ? [{ label: "Parcel insurance", amountNgwee: p.fees.insuranceNgwee, onBehalfOf: "SeloNaChipa" }] : [])],
+      totalNgwee: p.fees.totalNgwee, walletMsisdn: p.attemptWallets?.[reference] ?? p.walletMsisdn ?? "" }).catch(() => undefined);
+  }
   await notify(p.senderUid, "Payment received", `K${(p.fees.totalNgwee / 100).toFixed(2)} is held safely in escrow. ${p.scheduledFor ? "We'll find a rider 30 minutes before your scheduled time." : "Finding a rider now."}`,
     "PAYMENT_CONFIRMED", `selo://parcels/${id}`);
   if (!p.scheduledFor) await broadcastParcel(id);
@@ -249,6 +259,7 @@ export const rider_acceptParcel = onCall(async (req) => {
     return p;
   });
   const eta = p.etaMin ? ` ETA about ${p.etaMin} min.` : "";
+  await (await import("./payments/receipts")).setReceiptParty(id, { type: "rider", name: `rider ${rider.fullName ?? ""}`.trim(), uid }).catch(() => undefined);
   await notify(p.senderUid, "Rider on the way", `${rider.fullName} (${rider.vehicleDetails?.plate ?? "plate pending"}) is coming to collect your parcel.${eta}`, "RIDER_ASSIGNED", `selo://parcels/${id}`);
   return { ok: true };
 });

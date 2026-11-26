@@ -35,7 +35,7 @@ import selo.Nachipa01.domain.route.LatLng as DLatLng
  * zoomed out. One Firestore query per screen visit; no Google web-service calls.
  */
 @Composable
-fun ShopsMapScreen(onBack: () -> Unit) {
+fun ShopsMapScreen(onBack: () -> Unit, onOpenShop: (String) -> Unit = {}) {
     val app = LocalAppState.current
     val ctx = LocalContext.current
     val lusaka = Cities.byId("lusaka")!!
@@ -58,14 +58,16 @@ fun ShopsMapScreen(onBack: () -> Unit) {
         Box(Modifier.fillMaxWidth().weight(1f)) {
             SeloMap(scene, Modifier.fillMaxSize(), remember { MapCallbacks(onPinClick = { p -> picked = stores?.firstOrNull { it.sellerUid == p.id } }) }) {
                 LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(sorted, key = { it.sellerUid }) { s -> StoreRow(s, me) { picked = s } }
+                    items(sorted, key = { it.sellerUid }) { s -> StoreRow(s, me) { onOpenShop(s.sellerUid) } }
                 }
             }
             if (stores == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Selo.Red)
             err?.let { Text(it, color = Selo.Red, modifier = Modifier.align(Alignment.TopCenter).padding(12.dp).background(Color.White, RoundedCornerShape(8.dp)).padding(8.dp)) }
             if (stores?.isEmpty() == true && err == null) Text("No shops on SeloNaChipa near you yet.", modifier = Modifier.align(Alignment.Center).background(Color.White, RoundedCornerShape(8.dp)).padding(12.dp))
         }
-        picked?.let { s -> Column(Modifier.fillMaxWidth().background(Color.White).navigationBarsPadding().padding(16.dp)) { StoreRow(s, me) {} } }
+        picked?.let { s -> Column(Modifier.fillMaxWidth().background(Color.White).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            StoreRow(s, me) { onOpenShop(s.sellerUid) }
+            PrimaryButton("See products") { onOpenShop(s.sellerUid) } } }
     }
 }
 

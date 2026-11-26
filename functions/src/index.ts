@@ -17,3 +17,5 @@ export * from "./beem/beem-admin.controller";
 export * from "./payments/jobs";
 export * from "./payments/tx-monitor";
 export * from "./studio/studio";
+export * from "./payments/receipts";
+export * from "./shops";

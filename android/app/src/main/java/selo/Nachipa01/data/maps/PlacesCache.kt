@@ -32,7 +32,8 @@ object PlacesCache {
             val o = JSONObject(raw)
             if (System.currentTimeMillis() - o.getLong("at") > TTL_MS) return null
             val a = o.getJSONArray("v")
-            List(a.length()) { i -> a.getJSONObject(i).let { s -> AddressSuggestion(s.getString("id"), s.getString("label"), s.getString("secondary"), s.getString("source")) } }
+            List(a.length()) { i -> a.getJSONObject(i).let { s -> AddressSuggestion(s.getString("id"), s.getString("label"), s.getString("secondary"), s.getString("source"),
+                if (s.has("d")) s.getInt("d") else null) } }
                 .also { mem[k] = o.getLong("at") to it }
         }.getOrNull()
     }
@@ -40,7 +41,7 @@ object PlacesCache {
     @Synchronized fun put(query: String, cityId: String?, v: List<AddressSuggestion>) {
         val k = key(query, cityId); val now = System.currentTimeMillis()
         mem[k] = now to v
-        val arr = JSONArray(v.map { s -> JSONObject().put("id", s.id).put("label", s.label).put("secondary", s.secondary).put("source", s.source) })
+        val arr = JSONArray(v.map { s -> JSONObject().put("id", s.id).put("label", s.label).put("secondary", s.secondary).put("source", s.source).apply { s.distanceM?.let { put("d", it) } } })
         ctx?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()?.putString(k, JSONObject().put("at", now).put("v", arr).toString())?.apply()
     }
 

@@ -49,17 +49,18 @@ fun HomeBand(title: String, subtitle: String, badge: (@Composable () -> Unit)? =
 data class QuickAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)
 
 @Composable
-fun WalletCard(tag: String, caption: String, balanceNgwee: Long, actions: List<QuickAction>, modifier: Modifier = Modifier) {
+fun WalletCard(tag: String, caption: String, balanceNgwee: Long?, actions: List<QuickAction>, modifier: Modifier = Modifier) {
     var hidden by remember { mutableStateOf(true) }
     Box(modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp)).background(Color.White, RoundedCornerShape(16.dp))) {
         Text(tag, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.background(Selo.Red, RoundedCornerShape(topStart = 16.dp, bottomEnd = 12.dp)).padding(horizontal = 10.dp, vertical = 4.dp))
-        Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(caption, color = Selo.Mute, fontSize = 12.sp)
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
-                Text(if (hidden) "ZMW ••••••" else Fees.formatK(balanceNgwee).replace("K ", "ZMW "), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
+        Column(Modifier.fillMaxWidth().padding(top = if (balanceNgwee == null) 28.dp else 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(caption, color = Selo.Mute, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp))
+            // Buyers have no balance (they pay with mobile money): the card is just their shortcuts.
+            if (balanceNgwee != null) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 6.dp)) {
+                Text(if (hidden) "ZMW ••••••" else Fees.formatK(balanceNgwee ?: 0).replace("K ", "ZMW "), fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
                 IconButton({ hidden = !hidden }) { Icon(if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, "Show balance", tint = Selo.Red) }
-            }
+            } else Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = Selo.Line)
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 actions.forEachIndexed { i, a ->

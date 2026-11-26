@@ -298,7 +298,10 @@ class DemoRider(private val scope: CoroutineScope, private val cfg: PlatformConf
                 "arrive", 0, 0, listOf(to, to), leg)
             cur = to
         }
-        return selo.Nachipa01.domain.route.Directions(out, out.sumOf { it.distanceM }, out.sumOf { it.durationS }, "demo")
+        // demo traffic: mostly free-flowing with a slow stretch, like a real Lusaka afternoon
+        val speeds = listOf("NORMAL", "NORMAL", "SLOW", "NORMAL", "SLOW", "NORMAL")
+        val traffic = out.filter { it.path.size > 1 }.mapIndexed { i, st -> selo.Nachipa01.domain.route.TrafficSegment(st.path, speeds[i % speeds.size]) }
+        return selo.Nachipa01.domain.route.Directions(out, out.sumOf { it.distanceM }, out.sumOf { it.durationS }, "demo", traffic, "moderate", 180, 2)
     }
 
     /** Lets a test or the demo accept a second job straight away to show a combined route. */

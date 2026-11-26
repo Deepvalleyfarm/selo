@@ -110,6 +110,22 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
     var scheduleHour by rememberSaveable { mutableIntStateOf(10) }
     var quote by remember { mutableStateOf<ParcelQuoteResult?>(null) }
     var busy by remember { mutableStateOf(false) }
+    // The sender's current position is always located: it pre-fills "From" (changeable to any other pickup point,
+    // e.g. when booking for someone elsewhere) and gives "distance from you" for the delivery point.
+    var myPos by remember { mutableStateOf(LastFix.fresh()) }
+    var locating by remember { mutableStateOf(false) }
+    val locator = rememberLocator()
+    LaunchedEffect(Unit) {
+        if (pickup != null) return@LaunchedEffect
+        locating = true
+        locator.locate { at, problem ->
+            locating = false
+            if (at == null) { app.info(problem ?: "Couldn't find you — choose the pickup point."); return@locate }
+            myPos = at
+            scope.launch { runCatching { app.backend.reverseGeocode(at.first, at.second) }.onSuccess { p ->
+                if (pickup == null && p.inServiceArea) { pickup = p; app.ok("Pickup set to your current location") } } }
+        }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     val choice = rememberPaymentChoice(app.session.value?.msisdn)
     val sameCity = if (pickup != null && dropoff != null) Cities.sameCityProblem(pickup!!.lat, pickup!!.lng, dropoff!!.lat, dropoff!!.lng) else null
@@ -129,7 +145,10 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
         FormColumn {
             when (step) {
                 1 -> {
-                    AddressField("Pickup", pickup, { pickup = it })
+                    if (locating && pickup == null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Selo.Red); Text("  Finding your current location…", color = Selo.Mute, fontSize = 13.sp) }
+                    AddressField("From (pickup)", pickup, { pickup = it })
+                    Text("Sending from somewhere else? Tap Change and search or pick any pickup point.", color = Selo.Mute, fontSize = 12.sp)
                     Text("Weight", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         WEIGHT_BANDS.forEach { w -> SeloChip(w, weight == w) { weight = w } }
@@ -147,7 +166,11 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                     val m = Validation.normaliseMsisdn(rPhone)
                     SeloField("Receiver's phone", rPhone, { rPhone = it.take(16) }, keyboard = KeyboardType.Phone, placeholder = "097 123 4567",
                         error = if (rPhone.length >= 10 && m == null) "Enter an Airtel, MTN or Zamtel number (+260)." else null)
-                    AddressField("Delivery address", dropoff, { dropoff = it }, cityId = pickup?.cityId, icon = Icons.Outlined.Flag, problem = sameCity)
+                    AddressField("To (delivery)", dropoff, { dropoff = it }, cityId = pickup?.cityId, icon = Icons.Outlined.Flag, problem = sameCity)
+                    val d = dropoff; val me = myPos
+                    if (d != null && me != null) Text("≈ %.1f km from where you are now · the fee uses the road distance From → To".format(
+                        selo.Nachipa01.domain.route.Geo.km(selo.Nachipa01.domain.route.LatLng(me.first, me.second), selo.Nachipa01.domain.route.LatLng(d.lat, d.lng))),
+                        color = Selo.Mute, fontSize = 12.sp)
                     SeloField("Delivery instructions (optional)", instructions, { instructions = it.take(300) }, placeholder = "e.g. Blue gate, call on arrival")
                     NoteBox("The receiver will get a 5-digit delivery code. They must give it to the rider to complete delivery.", Tone.WARN, Icons.Outlined.Pin)
                 }
@@ -291,6 +314,7 @@ fun ParcelDetailScreen(id: String, onBack: () -> Unit, onOpenCode: (String) -> U
             // actions
             if (x.iAmSender && x.status in listOf(ParcelStatus.PENDING_PAYMENT, ParcelStatus.AWAITING_RIDER)) OutlineButton("Cancel parcel") { sheet = "cancel" }
             if (x.iAmSender && x.status in listOf(ParcelStatus.PENDING_PAYMENT, ParcelStatus.AWAITING_RIDER, ParcelStatus.RIDER_ASSIGNED)) OutlineButton("Change receiver's number") { sheet = "receiver" }
+            if (x.iAmSender && x.paymentStatus == "PAID") OutlineButton("Payment receipt") { app.navRequest.value = "receipt/${x.id}" }
             if (x.status == ParcelStatus.DELIVERED && !x.iAmSender) PrimaryButton("Confirm receipt", color = Selo.Green) { scope.launch { runCatching { app.backend.confirmReceipt("parcel", x.id) }.onSuccess { msg = "Thanks! Delivery confirmed." } } }
             if (x.status in listOf(ParcelStatus.DELIVERED, ParcelStatus.COMPLETED)) OutlineButton("Rate the rider") { sheet = "rate" }
             if (x.status in listOf(ParcelStatus.DELIVERED, ParcelStatus.COMPLETED, ParcelStatus.DELIVERY_FAILED, ParcelStatus.IN_TRANSIT, ParcelStatus.AWAITING_DELIVERY_CODE)) OutlineButton("Report an issue") { sheet = "issue" }

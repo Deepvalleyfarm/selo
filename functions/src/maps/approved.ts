@@ -60,8 +60,9 @@ export const MAPS_DEFAULTS = {
   mapsAutocompleteMinChars: 3, mapsAutocompleteDebounceMs: 500, mapsReversePerPickerSession: 5,
   // Kill switches: off = the platform falls back to the address store, the gazetteer and straight-line distance.
   mapsAutocompleteEnabled: true, mapsGeocodingEnabled: true, mapsRoutesEnabled: true,
-  // TRAFFIC_AWARE moves Compute Routes to the Pro SKU (≈2× price). Off by default.
-  routesTrafficAware: false,
+  // Live traffic on rider routes (congestion colours + traffic ETA). TRAFFIC_AWARE is the Compute Routes Pro SKU
+  // (≈2× price); switch off here to go back to Essentials. Fee distances (Route Matrix) never use traffic.
+  routesTrafficAware: true,
   // Daily caps (UTC) per SKU; 0 = unlimited. At 80% an ops alert is raised, at 100% calls degrade to fallbacks.
   mapsDailyCapAutocomplete: 20_000, mapsDailyCapGeocoding: 6_000, mapsDailyCapRoutes: 12_000, mapsDailyCapRouteMatrix: 15_000,
   // Per user per hour (cache misses only) and per rider rerouting rules

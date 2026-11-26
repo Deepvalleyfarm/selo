@@ -30,6 +30,15 @@ fun AgentHomeScreen(onLogout: () -> Unit, onAddListing: () -> Unit) {
         HomeBand("Welcome, ${u?.firstName ?: ""}", "Agent account · ${u?.area ?: ""}",
             badge = { StatusChip(if (approved) "Verified" else "Pending", if (approved) Tone.OK else Tone.WARN) })
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Selo Ledger: commission balance, withdrawn in full to the agent's mobile money wallet
+            var withdrawing by remember { mutableStateOf(false) }
+            var walletKey by remember { mutableIntStateOf(0) }
+            val wallet by selo.Nachipa01.ui.payments.rememberWalletStatus(walletKey)
+            if (withdrawing) wallet?.let { w -> selo.Nachipa01.ui.payments.WithdrawSheet(w, null) { withdrawing = false; walletKey++ } }
+            WalletCard("Selo Ledger", "Your commission balance", wallet?.availableNgwee ?: 0, listOf(
+                QuickAction(Icons.Outlined.Payments, if (wallet?.active != null) "In progress" else "Withdraw") {
+                    val b = wallet?.block; if (b == null && wallet != null) withdrawing = true else app.fail(b ?: "Checking your balance…") },
+                QuickAction(Icons.Outlined.Receipt, "Receipts") { app.navRequest.value = "receipts" }))
             if (!approved) {
                 NoteBox("Verification in progress · 24–48 h", Tone.WARN)
                 SeloCard {

@@ -74,6 +74,7 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
     pickupGeo: pickGeo, dropoff, dropoffGeo: dropGeo,
     pickupLocation: pickGeo ? { address: seller.location?.address ?? seller.landmark ?? seller.area ?? "", latitude: pickGeo.lat, longitude: pickGeo.lng } : null,
     deliveryLocation: dropGeo ? { address: dropoff, latitude: dropGeo.lat, longitude: dropGeo.lng } : null,
+    dropoffLandmark: typeof req.data?.dropoffLandmark === "string" ? req.data.dropoffLandmark.slice(0, 80) : null,
     etaMinutes: (route?.durationMin ?? 20) + 10, deliveryFee: q.deliveryNgwee / 100, distanceApproximate: route?.approximate ?? true, addressId: req.data?.addressId ?? null, zoneName: seller.area ?? "", walletMsisdn: wallet,
     state: "INITIATED", feeSnapshot: feeSnapshot(cfg), isParcel: false, riderUid: null, notifiedRiders: [],
     sellerPayoutStatus: "HELD", riderPayoutStatus: "HELD", timeline: { INITIATED: FieldValue.serverTimestamp() },
@@ -213,7 +214,17 @@ export async function processLipilaEvent(referenceId: string, status: string, me
     else if (referenceId.startsWith("SELO-COL-PCL-")) { const { onParcelCollection } = await import("./parcels"); await onParcelCollection(referenceId, ok, status, message); }
     else if (referenceId.startsWith("SELO-COL-")) await onCollection(referenceId, ok, status, message);
     else if (referenceId.startsWith("SELO-BST-") || referenceId.startsWith("SELO-STY-")) await onPromoCollection(referenceId, ok, status, message);
-    else if (referenceId.startsWith("SELO-REG-")) await db.doc(`registrationFees/${referenceId}`).update({ status: ok ? "PAID" : "FAILED" });
+    else if (referenceId.startsWith("SELO-REG-")) {
+      await db.doc(`registrationFees/${referenceId}`).update({ status: ok ? "PAID" : "FAILED" });
+      if (ok) {
+        const f = (await db.doc(`registrationFees/${referenceId}`).get()).data();
+        const u = f ? (await db.doc(`users/${f.uid}`).get()).data() ?? {} : {};
+        if (f) await (await import("./payments/receipts")).issueReceipt({ reference: referenceId, kind: "registration", refId: referenceId, payerUid: f.uid,
+          payerName: u.storeName ?? u.fullName ?? "", payerMsisdn: u.msisdn ?? "", onBehalfOf: { type: "selonachipa", name: "SeloNaChipa" },
+          lines: [{ label: `${String(u.role ?? "").toLowerCase() === "agent" ? "Agent" : "Seller"} registration fee (one-time)`, amountNgwee: f.amountNgwee }],
+          totalNgwee: f.amountNgwee, walletMsisdn: u.payoutWallet ?? "" }).catch(() => undefined);
+      }
+    }
     else {
       // Callback carrying only Lipila's own references: try withdrawals by Lipila identifier, then legacy payouts.
       const { applyLipilaStatus } = await import("./payments/withdrawals");
@@ -257,6 +268,18 @@ async function onCollection(reference: string, ok: boolean, status: string, mess
       operator: operatorLabel(o.walletMsisdn), lipilaRef: reference, at: FieldValue.serverTimestamp() });
   });
   await notify(o.buyerUid, "Payment successful", "Funds secured in escrow.", "PAYMENT_CONFIRMED", `selo://orders/${orderId}`);
+  {
+    const { issueReceipt } = await import("./payments/receipts");
+    const agent = o.agentUid ? (await db.doc(`users/${o.agentUid}`).get()).get("fullName") as string | undefined : undefined;
+    const seller = o.sellerName || "the seller";
+    await issueReceipt({ reference, kind: "order", refId: orderId, payerUid: o.buyerUid, payerName: o.buyerName ?? "", payerMsisdn: o.buyerMsisdn ?? "",
+      onBehalfOf: { type: o.agentUid ? "agent" : "seller", name: seller, uid: o.sellerUid, via: agent ? `agent ${agent}` : null },
+      lines: [...(o.items ?? []).map((i: { title: string; qty: number; unitNgwee: number }) => ({ label: `${i.title} × ${i.qty}`, amountNgwee: i.qty * i.unitNgwee, onBehalfOf: seller })),
+        ...(o.deliveryNgwee ? [{ label: `Delivery (${o.distanceKm ?? "—"} km)`, amountNgwee: o.deliveryNgwee, onBehalfOf: "the delivery rider" }] : []),
+        ...(o.serviceFeeNgwee ? [{ label: "Service fee", amountNgwee: o.serviceFeeNgwee, onBehalfOf: "SeloNaChipa" }] : []),
+        ...(o.processingFeeNgwee ? [{ label: "Transaction fee", amountNgwee: o.processingFeeNgwee, onBehalfOf: "SeloNaChipa" }] : [])],
+      totalNgwee: o.totalNgwee, walletMsisdn: o.attemptWallets?.[reference] ?? o.walletMsisdn ?? "" }).catch((e) => logger.warn("receipt failed", orderId, String(e)));
+  }
   await sendTemplate("ORDER_CONFIRMED", o.buyerMsisdn, [orderId, o.sellerName ?? "your seller"], orderId);
   if (!o.isParcel) await notify(o.sellerUid, "New order", `${o.items.map((i: { title: string; qty: number }) => `${i.title} × ${i.qty}`).join(", ")} · escrow held`, "NEW_ORDER", `selo://seller/orders/${orderId}`);
   await db.runTransaction(async (tx) => move(tx, orderId, "ESCROW_LOCKED", "BROADCASTING"));

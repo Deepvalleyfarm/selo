@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -129,25 +130,44 @@ data class MapStop(val at: LatLng, val type: StopType, val number: Int, val done
  * for turn-by-turn.
  */
 @Composable
-fun RouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null, schematic: Boolean = false) {
-    if (schematic || !selo.Nachipa01.ui.maps.Maps.enabled) { SchematicRouteMap(path, stops, rider, modifier, follow, heading); return }
+fun RouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null, schematic: Boolean = false,
+             traffic: List<TrafficSegment> = emptyList(), etaMin: Int? = null) {
+    if (schematic || !selo.Nachipa01.ui.maps.Maps.enabled) { SchematicRouteMap(path, stops, rider, modifier, follow, heading, traffic, etaMin); return }
     val g = { p: LatLng -> com.google.android.gms.maps.model.LatLng(p.lat, p.lng) }
-    val pins = stops.map { s -> selo.Nachipa01.ui.maps.MapPin("${s.type}:${s.number}:${s.at.lat}", g(s.at),
-        if (s.done) selo.Nachipa01.ui.maps.PinKind.DONE else if (s.type == StopType.PICKUP) selo.Nachipa01.ui.maps.PinKind.PICKUP else selo.Nachipa01.ui.maps.PinKind.DROPOFF,
-        label = s.number.takeIf { it > 0 }?.toString()) } +
-        listOfNotNull(rider?.let { selo.Nachipa01.ui.maps.MapPin("rider", g(it), selo.Nachipa01.ui.maps.PinKind.RIDER, rotation = (heading ?: 0.0).toFloat()) })
-    val lines = if (path.size >= 2) listOf(selo.Nachipa01.ui.maps.MapLine("route", path.map(g), android.graphics.Color.rgb(200, 16, 46), 6f)) else emptyList()
+    val open = stops.filter { !it.done }
+    val dest = open.maxByOrNull { it.number }?.at ?: path.lastOrNull()
+    // Yango-style: ring at the start and end, numbered pins only for stops in between, red ETA bubble over the end,
+    // the rider as a car, and the route coloured by live traffic (green free-flowing · yellow slow · red jam).
+    val pins = buildList {
+        (rider ?: path.firstOrNull())?.let { if (rider == null) add(selo.Nachipa01.ui.maps.MapPin("start", g(it), selo.Nachipa01.ui.maps.PinKind.RING)) }
+        stops.filter { it.at != dest || it.done }.forEach { s -> add(selo.Nachipa01.ui.maps.MapPin("${s.type}:${s.number}:${s.at.lat}", g(s.at),
+            if (s.done) selo.Nachipa01.ui.maps.PinKind.DONE else if (s.type == StopType.PICKUP) selo.Nachipa01.ui.maps.PinKind.PICKUP else selo.Nachipa01.ui.maps.PinKind.DROPOFF,
+            label = s.number.takeIf { it > 0 }?.toString())) }
+        dest?.let { add(selo.Nachipa01.ui.maps.MapPin("end", g(it), selo.Nachipa01.ui.maps.PinKind.RING))
+            if (etaMin != null) add(selo.Nachipa01.ui.maps.MapPin("eta", g(it), selo.Nachipa01.ui.maps.PinKind.ETA, label = etaMin.coerceAtLeast(1).toString())) }
+        rider?.let { add(selo.Nachipa01.ui.maps.MapPin("rider", g(it), selo.Nachipa01.ui.maps.PinKind.CAR, rotation = (heading ?: 0.0).toFloat())) }
+    }
+    val lines = buildList {
+        if (path.size >= 2) add(selo.Nachipa01.ui.maps.MapLine("route", path.map(g), if (traffic.isEmpty()) trafficColor("NORMAL") else android.graphics.Color.rgb(189, 189, 189), 6f))
+        traffic.forEachIndexed { i, t -> if (t.path.size >= 2) add(selo.Nachipa01.ui.maps.MapLine("t$i", t.path.map(g), trafficColor(t.speed), 6.5f)) }
+    }
     val fitKey = "${stops.size}:${path.size}:${path.firstOrNull()}:${path.lastOrNull()}"
     val camera = if (follow && rider != null) selo.Nachipa01.ui.maps.MapCamera.Follow(g(rider), (heading ?: 0.0).toFloat())
-        else selo.Nachipa01.ui.maps.MapCamera.Fit((path.ifEmpty { stops.map { it.at } } + listOfNotNull(rider)).map(g), fitKey)
+        else selo.Nachipa01.ui.maps.MapCamera.Fit((path.ifEmpty { stops.map { it.at } } + listOfNotNull(rider)).map(g), fitKey, paddingDp = 64)
     selo.Nachipa01.ui.maps.SeloMap(selo.Nachipa01.ui.maps.MapScene(pins, lines, camera), modifier.clip(RoundedCornerShape(if (follow) 0.dp else 14.dp))) {
-        SchematicRouteMap(path, stops, rider, modifier, follow, heading)
+        SchematicRouteMap(path, stops, rider, modifier, follow, heading, traffic, etaMin)
     }
+}
+
+/** Live-traffic colours (match the legend in the route card). */
+fun trafficColor(speed: String): Int = when (speed) {
+    "TRAFFIC_JAM" -> android.graphics.Color.rgb(229, 72, 77); "SLOW" -> android.graphics.Color.rgb(242, 201, 76); else -> android.graphics.Color.rgb(108, 203, 118)
 }
 
 /** Drawn stand-in used for tiny previews (no route yet), tests, and builds without a Maps key. */
 @Composable
-fun SchematicRouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null) {
+fun SchematicRouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, modifier: Modifier = Modifier, follow: Boolean = false, heading: Double? = null,
+                      traffic: List<TrafficSegment> = emptyList(), etaMin: Int? = null) {
     val pulse = rememberInfiniteTransition(label = "pulse").animateFloat(0.4f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "p")
     Canvas(modifier.clip(RoundedCornerShape(if (follow) 0.dp else 14.dp)).background(Color(0xFFEFF1EC))) {
         val pts = if (follow && rider != null) listOf(LatLng(rider.lat - 0.004, rider.lng - 0.004), LatLng(rider.lat + 0.004, rider.lng + 0.004))
@@ -169,8 +189,14 @@ fun SchematicRouteMap(path: List<LatLng>, stops: List<MapStop>, rider: LatLng?, 
         if (path.size >= 2) {
             val p = Path().apply { moveTo(o(path[0]).x, o(path[0]).y); path.drop(1).forEach { lineTo(o(it).x, o(it).y) } }
             drawPath(p, Color.White, style = Stroke(11.dp.toPx() / 2, cap = StrokeCap.Round))
-            drawPath(p, Selo.Red, style = Stroke(4.dp.toPx(), cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(18f, 12f))))
+            drawPath(p, if (traffic.isEmpty()) Color(trafficColor("NORMAL")) else Color(0xFFBDBDBD), style = Stroke(5.dp.toPx(), cap = StrokeCap.Round))
         }
+        traffic.forEach { t -> if (t.path.size >= 2) drawPath(Path().apply { moveTo(o(t.path[0]).x, o(t.path[0]).y); t.path.drop(1).forEach { lineTo(o(it).x, o(it).y) } },
+            Color(trafficColor(t.speed)), style = Stroke(5.5.dp.toPx(), cap = StrokeCap.Round)) }
+        if (etaMin != null) path.lastOrNull()?.let { e -> val c = o(e)
+            drawRoundRect(Color(0xFFE5322D), Offset(c.x - 22.dp.toPx(), c.y - 58.dp.toPx()), androidx.compose.ui.geometry.Size(44.dp.toPx(), 44.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(12.dp.toPx()))
+            drawContext.canvas.nativeCanvas.drawText("$etaMin min", c.x, c.y - 30.dp.toPx(), android.graphics.Paint().apply { color = android.graphics.Color.WHITE
+                textAlign = android.graphics.Paint.Align.CENTER; textSize = 13.dp.toPx(); isFakeBoldText = true; isAntiAlias = true }) }
         stops.forEach { s -> if (s.type == StopType.PICKUP) pin(o(s.at), s.done) else flag(o(s.at), s.done) }
         rider?.let { r ->
             val c = o(r)

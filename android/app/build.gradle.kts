@@ -29,8 +29,8 @@ android {
         applicationId = "selo.Nachipa01"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "6.6.0"
+        versionCode = 9
+        versionName = "6.7.0"
         vectorDrawables { useSupportLibrary = true }
         // Named Firestore database shared with the web back office
         buildConfigField("String", "FIRESTORE_DB_ID", "\"ai-studio-611c950c-febe-47c1-afff-35dcb0788339\"")
@@ -116,6 +116,8 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     // SMS Retriever / SMS User Consent: auto-read the Beem OTP (no SMS permission needed)
     implementation("com.google.android.gms:play-services-auth-api-phone:18.1.0")
+    // Fused location (on-device, free): reliable "use my location" with a GPS-on prompt
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
 
     // Firebase BoM from the Firebase console; versions come from the BoM

@@ -226,6 +226,7 @@ fun EscrowLockedScreen(orderId: String, onTrack: (String) -> Unit) {
         if (!failed) {
             NoteBox("Not delivered? Funds return to your wallet automatically. If no rider accepts in ${cfg.broadcastTimeoutMin} minutes you get a full refund.")
             PrimaryButton("Track my order", whyDisabled = "Waiting for your payment to be confirmed…", enabled = locked) { onTrack(orderId) }
+            if (locked) OutlineButton("View receipt") { app.navRequest.value = "receipt/$orderId" }
         }
     }
 }

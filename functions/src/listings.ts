@@ -123,7 +123,7 @@ export const listing_publish = onCall({ timeoutSeconds: 120 }, async (req) => {
   const discountNgwee = Math.min(priceNgwee, Math.max(0, Math.round(Number(d.discountNgwee) || 0)));
   const status = d.asDraft || !approved ? "draft" : "pending_review";
   await db.doc(`listings/${listingId}`).set({
-    sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "", sellerVerified: seller.kycStatus === "VERIFIED",
+    sellerUid, sellerName: (await import("./shops")).businessName(seller), sellerVerified: seller.kycStatus === "VERIFIED",
     agentUid: role === "AGENT" ? uid : null, shard,
     title: str(d.title, "title", 80), description: String(d.description ?? "").slice(0, 1200), priceNgwee, discountPct, discountNgwee,
     category: CATEGORIES.includes(d.category) ? d.category : "Other", condition: CONDITIONS.includes(d.condition) ? d.condition : "Good",

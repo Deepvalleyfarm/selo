@@ -94,17 +94,25 @@ fun AddressField(
         delay(cfg.mapsAutocompleteDebounceMs.toLong())
         searching = true
         val slowJob = launch { delay(2_500); slow = true }
-        runCatching { app.backend.addressSuggestions(query, cityId) }
+        // Distances "from you": use a recent fix if we have one, or quietly get one when location is already allowed.
+        val near = LastFix.fresh() ?: if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+            kotlinx.coroutines.withTimeoutOrNull(4_000) { currentLocation(ctx) } else null
+        runCatching { app.backend.addressSuggestions(query, cityId, near?.first, near?.second) }
             .onSuccess { results = it }.onFailure { searchError = "Search isn't responding. Pick the spot on the map instead."; results = emptyList() }
         slowJob.cancel(); searching = false; slow = false
     }
-    val askLocation = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
-        if (r.values.any { it }) scope.launch { resolving = true; locError = null
-            val at = currentLocation(ctx)
-            if (at == null) locError = "We couldn't get your location. Turn on GPS or pick on the map."
-            else runCatching { app.backend.reverseGeocode(at.first, at.second) }.onSuccess(::confirm).onFailure { locError = it.message }
-            resolving = false }
-        else locError = "Location permission denied. Search for the address or pick it on the map."
+    val locator = rememberLocator()
+    fun useMyLocation() {
+        resolving = true; locError = null
+        locator.locate { at, problem ->
+            if (at == null) { resolving = false; locError = problem; app.fail(problem); return@locate }
+            scope.launch {
+                runCatching { app.backend.reverseGeocode(at.first, at.second) }
+                    .onSuccess { confirm(it); app.ok("Location found${it.landmark?.let { l -> " · near $l" } ?: ""}") }
+                    .onFailure { locError = it.message; app.fail(it.message) }
+                resolving = false
+            }
+        }
     }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -117,6 +125,7 @@ fun AddressField(
                 Column(Modifier.weight(1f).padding(start = 10.dp)) {
                     Text(value.short, fontWeight = FontWeight.Bold, maxLines = 1)
                     Text(listOfNotNull(value.address.takeIf { it != value.label }, value.cityName).joinToString(" · "), color = Selo.Mute, fontSize = 12.sp, maxLines = 2)
+                    value.landmark?.let { Text("Landmark: $it", color = Selo.Teal, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                     if (value.approximate) Text("Approximate position — drag the pin on the map for accuracy", color = Selo.AmberDark, fontSize = 11.sp)
                 }
                 TextButton({ editing = true }) { Text("Change", color = Selo.Red) }
@@ -137,14 +146,17 @@ fun AddressField(
                         runCatching { app.backend.placeDetails(s.id) }.onSuccess(::confirm).onFailure { searchError = it.message ?: "Couldn't load that address." }; resolving = false } }
                         .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(when (s.source) { "store" -> Icons.Outlined.History; "gazetteer" -> Icons.Outlined.Map; else -> Icons.Outlined.Place }, null, tint = Selo.Mute, modifier = Modifier.size(18.dp))
-                        Column(Modifier.padding(start = 10.dp)) { Text(s.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp); Text(s.secondary, color = Selo.Mute, fontSize = 12.sp, maxLines = 1) }
+                        Column(Modifier.padding(start = 10.dp).weight(1f)) { Text(s.label, fontWeight = FontWeight.SemiBold, fontSize = 14.sp); Text(s.secondary, color = Selo.Mute, fontSize = 12.sp, maxLines = 1) }
+                        s.distanceM?.let { d -> Column(horizontalAlignment = Alignment.End) {
+                            Text(if (d < 1000) "$d m" else "%.1f km".format(d / 1000.0), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("from you", color = Selo.Mute, fontSize = 10.sp) } }
                     }
                 }
             } else if (!searching && query.trim().length >= cfg.mapsAutocompleteMinChars && searchError == null)
                 Text("No matches. Try a nearby landmark, or pick the spot on the map.", color = Selo.Mute, fontSize = 12.sp)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip({ askLocation.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) },
-                    { Text("Use my location") }, leadingIcon = { Icon(Icons.Outlined.MyLocation, null, Modifier.size(16.dp), tint = Selo.Red) })
+                AssistChip({ useMyLocation() },
+                    { Text(if (resolving) "Finding you…" else "Use my location") }, leadingIcon = { Icon(Icons.Outlined.MyLocation, null, Modifier.size(16.dp), tint = Selo.Red) })
                 AssistChip({ mapOpen = true }, { Text("Pick on map") }, leadingIcon = { Icon(Icons.Outlined.PinDrop, null, Modifier.size(16.dp), tint = Selo.Red) })
                 if (showSaved) saved.forEach { a -> AssistChip({ confirm(a.place) }, { Text(a.nickname) }, leadingIcon = { Icon(Icons.Outlined.Bookmark, null, Modifier.size(16.dp), tint = Selo.Red) }) }
                 if (value != null) AssistChip({ editing = false }, { Text("Keep ${value.short.take(18)}") })
@@ -156,24 +168,6 @@ fun AddressField(
         msg?.let { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.ErrorOutline, null, tint = Selo.Red, modifier = Modifier.size(16.dp)); Text("  $it", color = Selo.Red, fontSize = 12.sp) } }
     }
     if (mapOpen) MapPicker(initial = value, cityId = cityId, onDismiss = { mapOpen = false }, onConfirm = { mapOpen = false; confirm(it) })
-}
-
-/** One-shot current location (GPS, then network). Null if unavailable or not permitted. */
-@SuppressLint("MissingPermission")
-suspend fun currentLocation(ctx: Context): Pair<Double, Double>? {
-    if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
-    val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
-    providers.forEach { p -> runCatching { lm.getLastKnownLocation(p) }.getOrNull()?.takeIf { System.currentTimeMillis() - it.time < 120_000 }?.let { return it.latitude to it.longitude } }
-    val p = providers.firstOrNull() ?: return null
-    return withTimeoutOrNull(10_000) {
-        suspendCancellableCoroutine { cont ->
-            val sig = androidx.core.os.CancellationSignal()
-            cont.invokeOnCancellation { sig.cancel() }
-            LocationManagerCompat.getCurrentLocation(lm, p, sig, ContextCompat.getMainExecutor(ctx)) { loc -> if (cont.isActive) cont.resume(loc?.let { it.latitude to it.longitude }) }
-        }
-    }
 }
 
 /**

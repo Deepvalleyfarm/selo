@@ -2,7 +2,9 @@ package selo.Nachipa01.data.model
 
 /* ------------------------------------------------------------------ shared address system */
 
-data class AddressSuggestion(val id: String, val label: String, val secondary: String, val source: String)
+data class AddressSuggestion(val id: String, val label: String, val secondary: String, val source: String,
+    /** Straight-line distance from the user's current position, when known. */
+    val distanceM: Int? = null)
 
 /** Lipila withdrawal states: PENDING / SUBMITTED wait for the provider; COMPLETED, FAILED or MANUAL_REVIEW. */
 data class WithdrawOutcome(val id: String, val status: String, val amountNgwee: Long, val message: String)
@@ -11,6 +13,15 @@ data class WalletStatus(val availableNgwee: Long, val lockedNgwee: Long, val min
 
 /** Beem OTP challenge: Beem's pinId for this number and how long the PIN is valid. */
 data class OtpChallenge(val pinId: String, val expiresInSec: Int)
+
+/** A receipt issued by SeloNaChipa on behalf of a seller, agent or rider (see functions/src/payments/receipts.ts). */
+data class ReceiptLine(val label: String, val amountNgwee: Long, val onBehalfOf: String?)
+data class Receipt(val id: String, val number: String, val kind: String, val refId: String, val issuerNote: String, val payerName: String, val onBehalfOf: String,
+                   val lines: List<ReceiptLine>, val totalNgwee: Long, val method: String, val wallet: String, val paidAt: Long, val paymentReference: String, val token: String)
+
+/** Public shop page: registered business name, logo, banner and the shop's live products. */
+data class ShopProfile(val sellerUid: String, val name: String, val verified: Boolean, val photoUrl: String?, val bannerUrl: String?,
+                       val address: String, val listings: List<Listing>)
 
 /** stores/{sellerUid}: public store marker. */
 data class StoreLocation(val sellerUid: String, val name: String, val address: String, val lat: Double, val lng: Double)
@@ -22,6 +33,8 @@ data class Place(
     val inServiceArea: Boolean = true, val approximate: Boolean = false, val addressId: String? = null,
     /** Google place id when the point came from Places autocomplete (lets the server skip re-geocoding). */
     val placeId: String? = null,
+    /** A building or named place within 10 m of the point — shown to riders. */
+    val landmark: String? = null,
 ) {
     val short get() = label.ifBlank { address }
 }

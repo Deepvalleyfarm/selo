@@ -68,6 +68,7 @@ class CardActions(
  */
 @Composable
 fun FeedCard(l: Listing, active: Boolean, liked: Boolean, saved: Boolean, following: Boolean, actions: CardActions, modifier: Modifier = Modifier) {
+    val shopApp = selo.Nachipa01.ui.LocalAppState.current
     var muted by remember { mutableStateOf(true) }
     var photo by remember(l.id) { mutableIntStateOf(0) }
     var heart by remember { mutableStateOf(false) }
@@ -130,7 +131,7 @@ fun FeedCard(l: Listing, active: Boolean, liked: Boolean, saved: Boolean, follow
         // bottom-left: seller, title, price, details
         Column(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 16.dp, end = 84.dp, bottom = 92.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(l.sellerName, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                Text(l.sellerName.ifBlank { "SeloNaChipa shop" }, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, modifier = Modifier.clickable { shopApp.navRequest.value = "shop/${l.sellerUid}" })
                 if (l.sellerVerified) Icon(Icons.Filled.Verified, "Verified seller", tint = Color(0xFF4FC3F7), modifier = Modifier.padding(start = 4.dp).size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (following) "Following" else "Follow", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,

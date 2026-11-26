@@ -8,7 +8,7 @@
 import { MAPS_API_KEY } from "../config";
 import { assertApproved, type MapsSku } from "./approved";
 import { cacheGet, cacheSet, once } from "./cache";
-import { cell, type LL } from "./geo-math";
+import { cell, haversineM, type LL } from "./geo-math";
 import { allowed, flush, record } from "./usage";
 
 const TIMEOUT_MS = 4_500;
@@ -50,26 +50,30 @@ async function gate(sku: MapsSku, cfg: Cfg): Promise<boolean> {
 
 /* -------------------------------------------------------------------------------- Places API (New) */
 
-export interface Prediction { placeId: string; primary: string; secondary: string }
+export interface Prediction { placeId: string; primary: string; secondary: string; distanceM?: number | null }
 
 /** Autocomplete predictions limited to Zambia, biased to the user's city. Only text + place id; no details. */
-export async function placesAutocomplete(input: string, cfg: Cfg, opt: { bias?: LL | null; radiusM?: number; sessionToken?: string } = {}): Promise<Prediction[] | null> {
+export async function placesAutocomplete(input: string, cfg: Cfg, opt: { bias?: LL | null; radiusM?: number; sessionToken?: string; origin?: LL | null } = {}): Promise<Prediction[] | null> {
   const q = input.trim().replace(/\s+/g, " ").slice(0, 120);
   if (q.length < Number(cfg.mapsAutocompleteMinChars ?? 3)) return [];
-  const key = `${q.toLowerCase()}|${opt.bias ? cell(opt.bias, 2) : "zm"}`; // ~1 km bias buckets
+  // With the user's position as origin, Google returns each place's distance from them; cache per ~110 m so the
+  // distances stay accurate while neighbours still share results. Without it, ~1 km bias buckets.
+  const key = `${q.toLowerCase()}|${opt.origin ? `o${cell(opt.origin, 3)}` : opt.bias ? cell(opt.bias, 2) : "zm"}`;
   const hit = await cacheGet<Prediction[]>("ac", key);
   if (hit) { record("places_autocomplete", { cacheHit: true }); return hit; }
   return once(`ac:${key}`, async () => {
     if (!(await gate("places_autocomplete", cfg))) return null;
     const r = await googleFetch("POST", "https://places.googleapis.com/v1/places:autocomplete", {
-      fieldMask: "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat",
+      fieldMask: "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.distanceMeters",
       body: { input: q, includedRegionCodes: ["zm"], regionCode: "zm", languageCode: "en", includeQueryPredictions: false,
         ...(opt.sessionToken ? { sessionToken: opt.sessionToken } : {}),
+        ...(opt.origin ? { origin: { latitude: opt.origin.lat, longitude: opt.origin.lng } } : {}),
         ...(opt.bias ? { locationBias: { circle: { center: { latitude: opt.bias.lat, longitude: opt.bias.lng }, radius: Math.min(50_000, opt.radiusM ?? 25_000) } } } : {}) },
     });
     if (!r.ok) return null;
-    const out: Prediction[] = (r.json?.suggestions ?? []).map((s: any) => s.placePrediction).filter(Boolean).slice(0, 6).map((p: any) => ({
-      placeId: p.placeId, primary: p.structuredFormat?.mainText?.text ?? "", secondary: p.structuredFormat?.secondaryText?.text ?? "" }));
+    const out: Prediction[] = (r.json?.suggestions ?? []).map((s: any) => s.placePrediction).filter(Boolean).slice(0, 8).map((p: any) => ({
+      placeId: p.placeId, primary: p.structuredFormat?.mainText?.text ?? "", secondary: p.structuredFormat?.secondaryText?.text ?? "",
+      distanceM: Number.isFinite(p.distanceMeters) ? p.distanceMeters : null }));
     await cacheSet("ac", key, out, Math.min(7, cfg.mapsCacheDays ?? 7));
     return out;
   });
@@ -77,7 +81,23 @@ export async function placesAutocomplete(input: string, cfg: Cfg, opt: { bias?: 
 
 /* -------------------------------------------------------------------------------- Geocoding API */
 
-export interface Geocoded { placeId: string | null; address: string; latitude: number; longitude: number }
+export interface Geocoded { placeId: string | null; address: string; latitude: number; longitude: number; landmark?: string | null }
+
+const LANDMARK_TYPES = ["premise", "establishment", "point_of_interest", "subpremise", "school", "hospital", "church", "place_of_worship", "shopping_mall",
+  "store", "bank", "university", "park", "lodging", "restaurant", "gas_station", "pharmacy", "supermarket", "bus_station", "stadium", "airport"];
+/** Prominent place (building / named place) whose position is within [radiusM] of the pin, from a reverse-geocode response. */
+export function landmarkNear(j: any, at: LL, radiusM = 10): string | null {
+  for (const r of j?.results ?? []) {
+    const types: string[] = r.types ?? [];
+    if (!types.some((t) => LANDMARK_TYPES.includes(t))) continue;
+    const loc = r.geometry?.location; if (!Number.isFinite(loc?.lat)) continue;
+    if (haversineM(at, { lat: loc.lat, lng: loc.lng }) > radiusM) continue;
+    const comp = (r.address_components ?? []).find((c: any) => (c.types ?? []).some((t: string) => LANDMARK_TYPES.includes(t)));
+    const name = String(comp?.long_name ?? String(r.formatted_address ?? "").split(",")[0]).trim();
+    if (name && !/^[A-Z0-9]{4}\+[A-Z0-9]{2,3}/.test(name) && !/^\d+$/.test(name)) return name.slice(0, 80);
+  }
+  return null;
+}
 
 function firstResult(j: any): Geocoded | null {
   const r = j?.results?.[0]; const loc = r?.geometry?.location;
@@ -121,9 +141,12 @@ export async function reverseGeocode(at: LL, cfg: Cfg): Promise<Geocoded | null>
   if (hit !== undefined) { record("geocoding", { cacheHit: true }); return hit ? { ...hit, latitude: at.lat, longitude: at.lng } : null; }
   return once(`rv:${key}`, async () => {
     if (!(await gate("geocoding", cfg))) return null;
-    const r = await googleFetch("GET", `https://maps.googleapis.com/maps/api/geocode/json?latlng=${at.lat},${at.lng}&result_type=street_address|premise|route|sublocality|neighborhood&language=en`);
+    // No result_type filter: one call returns the street address AND any building/place on that spot (landmark).
+    const r = await googleFetch("GET", `https://maps.googleapis.com/maps/api/geocode/json?latlng=${at.lat},${at.lng}&language=en`);
     if (!r.ok) return null;
-    const g = firstResult(r.json);
+    const usable = { ...r.json, results: (r.json?.results ?? []).filter((x: any) => !(x.types ?? []).includes("plus_code")) };
+    const first = firstResult(usable);
+    const g = first ? { ...first, landmark: landmarkNear(r.json, at, 10) } : null;
     await cacheSet("rv", key, g ?? false, cfg.mapsCacheDays ?? 30);
     return g ? { ...g, latitude: at.lat, longitude: at.lng } : null; // keep the user's exact pin
   });
@@ -161,7 +184,8 @@ export async function routeMatrix(from: LL, to: LL, cfg: Cfg, mode: TravelMode =
   });
 }
 
-export interface ComputedRoute { distanceM: number; durationS: number; polyline: string; legs: { distanceM: number; durationS: number; steps: any[] }[]; mode: TravelMode }
+export interface ComputedRoute { distanceM: number; durationS: number; staticDurationS?: number; polyline: string; legs: { distanceM: number; durationS: number; steps: any[] }[]; mode: TravelMode;
+  alternatives?: number; speedIntervals?: { from: number; to: number; speed: string }[] }
 
 /** Full route with turn-by-turn steps (after acceptance only). TRAFFIC_UNAWARE unless the admin turns traffic on (Pro SKU). */
 export async function computeRoute(points: LL[], cfg: Cfg, modes: TravelMode[]): Promise<ComputedRoute | null> {
@@ -169,19 +193,37 @@ export async function computeRoute(points: LL[], cfg: Cfg, modes: TravelMode[]):
   if (!(await gate("routes_compute", cfg))) return null;
   const wp = (p: LL) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
   const [origin, ...rest] = points;
+  const traffic = cfg.routesTrafficAware !== false;
+  const single = rest.length === 1; // Google offers alternative routes only for one origin → one destination
   for (const m of modes) {
     const r = await googleFetch("POST", "https://routes.googleapis.com/directions/v2:computeRoutes", {
-      fieldMask: "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration," +
-        "routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.navigationInstruction",
+      fieldMask: "routes.distanceMeters,routes.duration,routes.staticDuration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration," +
+        "routes.legs.steps.distanceMeters,routes.legs.steps.staticDuration,routes.legs.steps.polyline.encodedPolyline,routes.legs.steps.navigationInstruction" +
+        (traffic && m !== "BICYCLE" ? ",routes.travelAdvisory.speedReadingIntervals" : ""),
       body: { origin: wp(origin), destination: wp(rest[rest.length - 1]), intermediates: rest.slice(0, -1).map(wp), travelMode: m,
-        ...(m === "BICYCLE" ? {} : { routingPreference: cfg.routesTrafficAware ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE" }),
-        languageCode: "en-GB", units: "METRIC", polylineQuality: "OVERVIEW" },
+        ...(m === "BICYCLE" ? {} : { routingPreference: traffic ? "TRAFFIC_AWARE" : "TRAFFIC_UNAWARE" }),
+        ...(traffic && m !== "BICYCLE" ? { extraComputations: ["TRAFFIC_ON_POLYLINE"] } : {}),
+        ...(single ? { computeAlternativeRoutes: true } : {}),
+        languageCode: "en-GB", units: "METRIC", polylineQuality: traffic ? "HIGH_QUALITY" : "OVERVIEW" },
     });
-    const route = r.ok ? r.json?.routes?.[0] : null;
-    if (route) return {
-      distanceM: route.distanceMeters ?? 0, durationS: secs(route.duration), polyline: route.polyline?.encodedPolyline ?? "", mode: m,
+    const routes: any[] = r.ok ? r.json?.routes ?? [] : [];
+    if (!routes.length) continue;
+    const route = pickShortest(routes);
+    return {
+      distanceM: route.distanceMeters ?? 0, durationS: secs(route.duration), staticDurationS: secs(route.staticDuration) || secs(route.duration),
+      polyline: route.polyline?.encodedPolyline ?? "", mode: m, alternatives: routes.length - 1,
+      speedIntervals: (route.travelAdvisory?.speedReadingIntervals ?? []).map((i: any) => ({ from: i.startPolylinePointIndex ?? 0, to: i.endPolylinePointIndex ?? 0, speed: String(i.speed ?? "NORMAL") })),
       legs: (route.legs ?? []).map((l: any) => ({ distanceM: l.distanceMeters ?? 0, durationS: secs(l.duration), steps: l.steps ?? [] })),
     };
   }
   return null;
+}
+
+/** Shortest distance first; when two are within 3 % of each other, the faster one (traffic-aware duration). */
+export function pickShortest(routes: any[]): any {
+  return [...routes].sort((a, b) => {
+    const da = a.distanceMeters ?? 0, db = b.distanceMeters ?? 0;
+    if (Math.abs(da - db) <= Math.max(da, db) * 0.03) return secs(a.duration) - secs(b.duration);
+    return da - db;
+  })[0];
 }

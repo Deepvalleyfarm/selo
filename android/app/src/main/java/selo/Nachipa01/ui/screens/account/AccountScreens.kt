@@ -74,7 +74,8 @@ fun AccountSettingsCard(open: (String) -> Unit, extra: List<Triple<ImageVector, 
     val tickets by app.backend.supportTickets().collectAsState(emptyList())
     SeloCard(padding = 4.dp) {
         val rows = extra + listOf(
-            Triple(Icons.Outlined.Person, "Edit profile") { open("profile") },
+            Triple(Icons.Outlined.Person, "Edit profile & picture") { open("profile") },
+            Triple(Icons.Outlined.Receipt, "My receipts") { app.navRequest.value = "receipts" },
             Triple(Icons.Outlined.Place, "Delivery addresses (${saved.size})") { open("addresses") },
             Triple(Icons.Outlined.AccountBalanceWallet, "Payment wallets (${1 + wallets.size})") { open("wallets") },
             Triple(Icons.Outlined.Lock, "Change 5-digit PIN") { open("pin") },
@@ -106,6 +107,17 @@ private fun ProfileEditScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         SeloHeader("Edit profile", onBack = onBack)
         FormColumn {
+            // Profile picture for every account type: live camera or gallery
+            var uploading by remember { mutableStateOf(false) }
+            val pick = rememberPhotoSource("Profile picture") { uri -> uploading = true
+                scope.launch { app.attempt("Profile picture updated") { app.backend.setProfilePhoto(uri) }?.let { url -> app.session.value = app.session.value?.copy(photoUrl = url) }; uploading = false } }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Avatar(app.session.value?.photoUrl, u?.fullName ?: "", 76.dp) { pick() }
+                Column(Modifier.padding(start = 14.dp)) {
+                    Text("Profile picture", fontWeight = FontWeight.Bold)
+                    Text(if (uploading) "Uploading…" else "Tap to take a photo or choose one", color = Selo.Mute, fontSize = 12.sp)
+                }
+            }
             SeloField("Full name", name, { name = it.take(80) })
             SeloField("Area / neighbourhood", area, { area = it.take(60) })
             SeloField("Mobile number (login)", u?.msisdn?.replace("+260", "0") ?: "", {}, trailing = Icons.Outlined.Lock)

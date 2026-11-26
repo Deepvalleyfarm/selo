@@ -195,6 +195,12 @@ interface Backend {
     suspend fun saveMyLocation(p: Place)
     /** Public store markers near a point ("shops near you" map). */
     suspend fun nearbyStores(lat: Double, lng: Double): List<StoreLocation>
+    /** A shop's public page with its live products. */
+    suspend fun shopProfile(sellerUid: String): ShopProfile
+    /** Profile picture for any user (camera or gallery); returns the new photo URL. */
+    suspend fun setProfilePhoto(uri: android.net.Uri): String
+    /** Payment receipts issued to me (or on my behalf); [refId] = an order, parcel or promotion id. */
+    suspend fun receipts(refId: String? = null): List<Receipt>
     suspend fun myQuestions(): List<SecurityQuestion>
     suspend fun updateProfile(changes: Map<String, Any?>)
     fun notificationPrefs(): Flow<Map<String, Boolean>>

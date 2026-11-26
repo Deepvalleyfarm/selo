@@ -105,7 +105,14 @@ object RoutePlanner {
 data class NavStep(
     val instruction: String, val maneuver: String, val distanceM: Int, val durationS: Int, val path: List<LatLng>, val legIndex: Int,
 )
-data class Directions(val steps: List<NavStep>, val distanceM: Int, val durationS: Int, val source: String = "google") {
+/** One stretch of the route with Google's live speed reading: NORMAL (green), SLOW (yellow) or TRAFFIC_JAM (red). */
+data class TrafficSegment(val path: List<LatLng>, val speed: String)
+
+data class Directions(val steps: List<NavStep>, val distanceM: Int, val durationS: Int, val source: String = "google",
+                      /** Live traffic: coloured stretches, overall level (clear/moderate/heavy/unknown) and delay vs. empty roads. */
+                      val traffic: List<TrafficSegment> = emptyList(), val trafficLevel: String = "unknown", val trafficDelayS: Int = 0,
+                      /** How many other routes Google offered (the shortest one is used). */
+                      val alternatives: Int = 0) {
     val path: List<LatLng> get() = steps.flatMap { it.path }
     /** The same route without its first [n] legs (stops already done) — no new Routes API call needed. */
     fun dropLegs(n: Int): Directions {

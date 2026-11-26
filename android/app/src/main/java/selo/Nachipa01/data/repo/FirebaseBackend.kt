@@ -63,6 +63,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         status = AccountStatus.from(getString("accountStatus")),
         area = getString("area") ?: "",
         storeName = getString("storeName") ?: "",
+        photoUrl = getString("photoUrl"), bannerUrl = getString("coverUrl"),
         vehicle = getString("vehicle") ?: "",
         memberSince = getString("memberSince") ?: "",
     )
@@ -116,9 +117,18 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         ))
         auth.signInWithCustomToken(res["token"] as String).await()
         val uid = auth.currentUser!!.uid
-        if (req.kycDocs.isNotEmpty()) {
+        // Public images (profile picture, logo, shop banner) go to profiles/ and onto the account; the rest are private KYC.
+        val public = setOf("profilePhoto", "logo", "shopBanner")
+        req.kycDocs.filterKeys { it in public }.takeIf { it.isNotEmpty() }?.let { pics ->
+            onProgress("Uploading your pictures")
+            val urls = pics.mapValues { (key, uri) -> val ref = storage.reference.child("profiles/$uid/$key-${UUID.randomUUID()}.jpg"); ref.putFile(uri).await(); ref.downloadUrl.await().toString() }
+            val upd = buildMap<String, Any> { (urls["logo"] ?: urls["profilePhoto"])?.let { put("photoUrl", it) }; urls["shopBanner"]?.let { put("coverUrl", it) } }
+            if (upd.isNotEmpty()) runCatching { db.collection("users").document(uid).update(upd).await() }
+        }
+        val kyc = req.kycDocs.filterKeys { it !in public }
+        if (kyc.isNotEmpty()) {
             onProgress("Uploading documents")
-            val paths = req.kycDocs.mapValues { (key, uri) ->
+            val paths = kyc.mapValues { (key, uri) ->
                 val ref = storage.reference.child("kyc/$uid/$key-${UUID.randomUUID()}.jpg")
                 ref.putFile(uri).await(); ref.path
             }
@@ -210,7 +220,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun checkout(req: CheckoutRequest): String = call("order_create", mapOf(
         "sellerUid" to req.sellerUid, "dropoff" to req.dropoff, "walletMsisdn" to req.walletMsisdn,
         "items" to req.items.map { mapOf("listingId" to it.listingId, "qty" to it.qty) },
-        "dropoffGeo" to req.dropoffPlace?.let { mapOf("lat" to it.lat, "lng" to it.lng) }, "addressId" to req.dropoffPlace?.addressId,
+        "dropoffGeo" to req.dropoffPlace?.let { mapOf("lat" to it.lat, "lng" to it.lng) }, "addressId" to req.dropoffPlace?.addressId, "dropoffLandmark" to req.dropoffPlace?.landmark,
     ))["orderId"] as String
 
 
@@ -658,8 +668,12 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
                 (it["distanceM"] as? Number)?.toInt() ?: 0, (it["durationS"] as? Number)?.toInt() ?: 0,
                 selo.Nachipa01.domain.route.NavigationEngine.decodePolyline(it["polyline"] as? String ?: ""), (it["legIndex"] as? Number)?.toInt() ?: 0)
         }
+        val t = res["traffic"] as? Map<*, *>
+        @Suppress("UNCHECKED_CAST") val segs = (t?.get("segments") as? List<Map<String, Any?>>).orEmpty().map {
+            selo.Nachipa01.domain.route.TrafficSegment(selo.Nachipa01.domain.route.NavigationEngine.decodePolyline(it["polyline"] as? String ?: ""), it["speed"] as? String ?: "NORMAL") }
         return selo.Nachipa01.domain.route.Directions(steps, (res["distanceM"] as? Number)?.toInt() ?: steps.sumOf { it.distanceM },
-            (res["durationS"] as? Number)?.toInt() ?: steps.sumOf { it.durationS }, res["source"] as? String ?: "google")
+            (res["durationS"] as? Number)?.toInt() ?: steps.sumOf { it.durationS }, res["source"] as? String ?: "google",
+            segs, t?.get("level") as? String ?: "unknown", (t?.get("delayS") as? Number)?.toInt() ?: 0, (res["alternatives"] as? Number)?.toInt() ?: 0)
     }
     override suspend fun mediaUrl(path: String): String? = runCatching { storage.reference.child(path).downloadUrl.await().toString() }.getOrNull()
 
@@ -667,25 +681,51 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     @Suppress("UNCHECKED_CAST")
     private fun Map<*, *>.toPlace(): Place = Place(this["id"] as? String ?: "", this["label"] as? String ?: "", this["address"] as? String ?: "",
         (this["lat"] as Number).toDouble(), (this["lng"] as Number).toDouble(), this["cityId"] as? String, this["cityName"] as? String, this["neighbourhood"] as? String,
-        this["inServiceArea"] != false, this["approximate"] == true, (this["id"] as? String)?.takeIf { it.startsWith("addr:") }, this["placeId"] as? String)
-    private fun Place.wire() = mapOf("label" to label, "address" to address, "lat" to lat, "lng" to lng, "neighbourhood" to neighbourhood, "addressId" to addressId)
+        this["inServiceArea"] != false, this["approximate"] == true, (this["id"] as? String)?.takeIf { it.startsWith("addr:") }, this["placeId"] as? String, this["landmark"] as? String)
+    private fun Place.wire() = mapOf("label" to label, "address" to address, "lat" to lat, "lng" to lng, "neighbourhood" to neighbourhood, "addressId" to addressId, "landmark" to landmark)
 
     private var preAuth: Map<String, String>? = null
     override fun setPreAuth(msisdn: String?, otpToken: String?) { preAuth = if (msisdn != null && otpToken != null) mapOf("msisdn" to msisdn, "otpToken" to otpToken) else null }
     private fun geo(m: Map<String, Any?>) = if (auth.currentUser == null && preAuth != null) m + ("preauth" to preAuth) else m
 
     override suspend fun addressSuggestions(input: String, cityId: String?, nearLat: Double?, nearLng: Double?): List<AddressSuggestion> {
-        selo.Nachipa01.data.maps.PlacesCache.get(input, cityId)?.let { return it }
+        val cacheCity = listOfNotNull(cityId, nearLat?.let { "%.2f,%.2f".format(it, nearLng) }).joinToString("@").ifBlank { null }
+        selo.Nachipa01.data.maps.PlacesCache.get(input, cacheCity)?.let { return it }
         @Suppress("UNCHECKED_CAST") val r = call("geo_autocomplete", geo(mapOf("input" to input, "cityId" to cityId, "sessionToken" to selo.Nachipa01.data.maps.PlacesCache.sessionToken,
             "near" to if (nearLat != null && nearLng != null) mapOf("lat" to nearLat, "lng" to nearLng) else null)))
-        val list = (r["suggestions"] as? List<Map<String, Any?>> ?: emptyList()).map { AddressSuggestion(it["id"] as String, it["label"] as? String ?: "", it["secondary"] as? String ?: "", it["source"] as? String ?: "") }
-        if (r["degraded"] != true) selo.Nachipa01.data.maps.PlacesCache.put(input, cityId, list)
+        val list = (r["suggestions"] as? List<Map<String, Any?>> ?: emptyList()).map { AddressSuggestion(it["id"] as String, it["label"] as? String ?: "", it["secondary"] as? String ?: "",
+            it["source"] as? String ?: "", (it["distanceM"] as? Number)?.toInt()) }
+        if (r["degraded"] != true) selo.Nachipa01.data.maps.PlacesCache.put(input, cacheCity, list)
         return list
     }
     override suspend fun placeDetails(id: String) = call("geo_details", geo(mapOf("id" to id))).toPlace().also { selo.Nachipa01.data.maps.PlacesCache.endSession() }
     override suspend fun reverseGeocode(lat: Double, lng: Double) = call("geo_reverse", geo(mapOf("lat" to lat, "lng" to lng))).toPlace()
     override suspend fun saveMyLocation(p: Place) { call("location_save", mapOf("address" to p.address, "label" to p.label, "latitude" to p.lat, "longitude" to p.lng,
         "placeId" to p.placeId, "source" to "user")) }
+    override suspend fun shopProfile(sellerUid: String): ShopProfile {
+        val r = call("shop_profile", mapOf("sellerUid" to sellerUid))
+        @Suppress("UNCHECKED_CAST") val ls = (r["listings"] as? List<Map<*, *>>).orEmpty().map { it.toListing() }
+        return ShopProfile(sellerUid, r["name"] as? String ?: "", r["verified"] == true, r["photoUrl"] as? String, r["bannerUrl"] as? String, r["address"] as? String ?: "", ls)
+    }
+    override suspend fun setProfilePhoto(uri: android.net.Uri): String {
+        val u = uid() ?: throw BackendException("Please log in again.")
+        val ref = storage.reference.child("profiles/$u/photo-${UUID.randomUUID()}.jpg")
+        ref.putFile(uri).await()
+        val url = ref.downloadUrl.await().toString()
+        db.collection("users").document(u).update("photoUrl", url).await()
+        return url
+    }
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun receipts(refId: String?): List<Receipt> {
+        val r = call("receipt_get", mapOf("refId" to refId))
+        return (r["receipts"] as? List<Map<String, Any?>>).orEmpty().map { x ->
+            Receipt(x["id"] as String, x["number"] as? String ?: "", x["kind"] as? String ?: "", x["refId"] as? String ?: "", x["issuerNote"] as? String ?: "",
+                x["payerName"] as? String ?: "", (x["onBehalfOf"] as? Map<*, *>)?.get("name") as? String ?: "",
+                (x["lines"] as? List<Map<String, Any?>>).orEmpty().map { l -> ReceiptLine(l["label"] as? String ?: "", (l["amountNgwee"] as? Number)?.toLong() ?: 0, l["onBehalfOf"] as? String) },
+                (x["totalNgwee"] as? Number)?.toLong() ?: 0, x["method"] as? String ?: "", x["wallet"] as? String ?: "", (x["paidAt"] as? Number)?.toLong() ?: 0,
+                x["paymentReference"] as? String ?: "", x["token"] as? String ?: "")
+        }
+    }
     override suspend fun nearbyStores(lat: Double, lng: Double): List<StoreLocation> {
         val cells = selo.Nachipa01.domain.GeoHash.cellsAround(lat, lng)
         return db.collection("stores").whereIn("geohash5", cells).whereEqualTo("active", true).limit(300).get().await().documents.mapNotNull { d ->

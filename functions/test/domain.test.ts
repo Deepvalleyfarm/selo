@@ -84,3 +84,27 @@ describe("sign-up identity", () => {
     expect(identityOf({ nrc: "123456/78/1" })).toMatchObject({ idType: "NRC" }); // older app versions
   });
 });
+
+import { maskWallet, receiptHtml, receiptNumber } from "../src/payments/receipts";
+describe("receipts", () => {
+  it("numbers are stable per payment reference", () => {
+    const d = new Date("2026-11-26T10:00:00Z");
+    expect(receiptNumber("SELO-COL-SNC-1", d)).toMatch(/^SNC-R-261126-[0-9A-F]{6}$/);
+    expect(receiptNumber("SELO-COL-SNC-1", d)).toBe(receiptNumber("SELO-COL-SNC-1", d));
+    expect(receiptNumber("SELO-COL-SNC-2", d)).not.toBe(receiptNumber("SELO-COL-SNC-1", d));
+  });
+  it("masks the wallet and escapes HTML", () => {
+    expect(maskWallet("+260977123456")).toBe("0977 ••• 456");
+    const html = receiptHtml({ number: "SNC-R-1", issuerNote: "Issued by SeloNaChipa on behalf of <Shop>", payerName: "A&B", lines: [{ label: "x", amountNgwee: 1500 }], totalNgwee: 1500 });
+    expect(html).toContain("&lt;Shop&gt;"); expect(html).toContain("A&amp;B"); expect(html).toContain("K 15.00");
+  });
+});
+
+import { businessName } from "../src/shops";
+describe("shop business name", () => {
+  it("prefers the registered business name and never falls back to an id", () => {
+    expect(businessName({ storeName: "Mwamba Fashion", fullName: "J Banda" })).toBe("Mwamba Fashion");
+    expect(businessName({ businessName: " Chanda Hardware " })).toBe("Chanda Hardware");
+    expect(businessName({ storeName: "  " , fullName: "" })).toBe("SeloNaChipa shop");
+  });
+});

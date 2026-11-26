@@ -67,13 +67,13 @@ private fun BuyerHome(onParcel: () -> Unit, onCategory: (String) -> Unit, onOrde
         Box {
             Column(Modifier.fillMaxWidth().background(Selo.Red).statusBarsPadding().padding(16.dp).height(64.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton({ app.navRequest.value = "account?r=profile" }) { Icon(Icons.Outlined.AccountCircle, "My profile", tint = Color.White) }
+                    IconButton({ app.navRequest.value = "account?r=profile" }) { Avatar(app.session.value?.photoUrl, app.session.value?.fullName ?: "", 32.dp) }
                     Spacer(Modifier.weight(1f)); LogoTile(); Spacer(Modifier.weight(1f))
                     IconButton({ app.navRequest.value = "account?r=inbox" }) { Icon(Icons.Outlined.Notifications, "Notifications", tint = Color.White) }
                 }
             }
         }
-        WalletCard("Selo Wallet", app.session.value?.msisdn?.let { selo.Nachipa01.domain.Validation.maskMsisdn(it) } ?: "", 124_050,
+        WalletCard("Quick actions", "Pay with Airtel Money, MTN MoMo or Zamtel Kwacha at checkout", null,
             listOf(QuickAction(Icons.Outlined.ShoppingCart, "Cart") { onCategory("cart") }, QuickAction(Icons.Outlined.Inventory2, "Send parcel", onParcel),
                 QuickAction(Icons.Outlined.Map, "Shops map", onShops), QuickAction(Icons.Outlined.Inventory2, "Orders", onOrders)), Modifier.padding(horizontal = 14.dp).offset(y = (-10).dp))
         selo.Nachipa01.ui.screens.discover.StoriesRow(onOpen)

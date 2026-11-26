@@ -233,6 +233,7 @@ fun PromotionStatusScreen(promoId: String, onDone: () -> Unit) {
                 KvRow("Reference", "SELO-${if (p.type == "story") "STY" else "BST"}-${p.id.take(14)}", mono = true)
             }
         }
+        if (p?.status == "ACTIVE" || p?.status == "ENDED") OutlineButton("Payment receipt") { app.navRequest.value = "receipt/${p.id}" }
         PrimaryButton(if (p?.status == "ACTIVE") "Done" else "Back to my listings", color = if (p?.status == "ACTIVE") Selo.Green else Selo.Red, onClick = onDone)
     }
 }

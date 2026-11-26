@@ -194,7 +194,7 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
                             app.backend.updateRiderProfile(mapOf("autoSettle" to (profile?.autoSettle == false))) } } })
                 }
             }
-            Text("Available now: ${zmw(wallet?.availableNgwee ?: stats.availableNgwee)}" + (wallet?.lockedNgwee?.takeIf { it > 0 }?.let { " · ${zmw(it)} withdrawal in progress" } ?: ""), color = Selo.Mute, fontSize = 12.sp)
+            Text("Selo Ledger · available now: ${zmw(wallet?.availableNgwee ?: stats.availableNgwee)}" + (wallet?.lockedNgwee?.takeIf { it > 0 }?.let { " · ${zmw(it)} withdrawal in progress" } ?: ""), color = Selo.Mute, fontSize = 12.sp)
             wallet?.block?.takeIf { wallet?.active == null }?.let { Text(it, color = Selo.AmberDark, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             msg?.let { NoteBox(it, Tone.OK) }
         }

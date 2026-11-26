@@ -511,6 +511,21 @@ class DemoBackend : Backend {
     override suspend fun verifySignupOtp(msisdn: String, pinId: String, pin: String): String { delay(300); return v64.verifyOtp(pinId, pin) }
     override suspend fun saveMyLocation(p: Place) { delay(200); v64.saveLocation(p) }
     override suspend fun nearbyStores(lat: Double, lng: Double) = v64.stores
+    override suspend fun shopProfile(sellerUid: String): ShopProfile {
+        delay(300)
+        val items = DemoData.listings.filter { it.sellerUid == sellerUid && it.status == "live" }
+        val name = items.firstOrNull()?.sellerName ?: v64.stores.firstOrNull { it.sellerUid == sellerUid }?.name ?: "SeloNaChipa shop"
+        return ShopProfile(sellerUid, name, true, null, null, v64.stores.firstOrNull { it.sellerUid == sellerUid }?.address ?: "Lusaka", items)
+    }
+    override suspend fun setProfilePhoto(uri: android.net.Uri): String { delay(300); demoPhoto = uri.toString(); return uri.toString() }
+    var demoPhoto: String? = null
+    override suspend fun receipts(refId: String?): List<Receipt> {
+        delay(200)
+        val r = Receipt("rcpt_demo", "SNC-R-261126-4F2A9C", "order", refId ?: "SNC-4823390", "Issued by SeloNaChipa on behalf of Mama Bupe's Veg", "Mwila Chanda",
+            "Mama Bupe's Veg", listOf(ReceiptLine("Fresh Chongwe tomatoes – 5 kg bag × 2", 16_000, "Mama Bupe's Veg"), ReceiptLine("Delivery (6.1 km)", 7_855, "the delivery rider"),
+                ReceiptLine("Transaction fee", 239, "SeloNaChipa")), 24_094, "Airtel Money", "0977 ••• 512", System.currentTimeMillis() - 3_600_000, "SELO-COL-SNC-4823390", "demo")
+        return listOf(r)
+    }
     override suspend fun myQuestions(): List<SecurityQuestion> {
         delay(200)
         val chosen = session?.msisdn?.let { securityByMsisdn[it] }?.map { it.questionId } ?: listOf("q_mother_maiden_name", "q_first_school", "q_football_team")

@@ -25,6 +25,8 @@ data class SessionUser(
     val storeName: String = "",
     val vehicle: String = "",
     val memberSince: String = "",
+    /** Profile picture (all roles); sellers also have a shop banner. */
+    val photoUrl: String? = null, val bannerUrl: String? = null,
 )
 
 /** Mirrors platformConfig/default in Firestore. Defaults match PRD v6.0 section 8.4. */

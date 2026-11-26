@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -224,13 +225,15 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
         })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box {
-                RouteMap(rc.directions?.path ?: emptyList(), mapStops(rc.plan, all), rc.position, Modifier.fillMaxWidth().height(200.dp), heading = rc.heading)
+                RouteMap(rc.directions?.path ?: emptyList(), mapStops(rc.plan, all), rc.position, Modifier.fillMaxWidth().height(220.dp), heading = rc.heading,
+                    traffic = rc.directions?.traffic.orEmpty(), etaMin = (rc.remainingS / 60.0).roundToInt())
                 Button(onNavigate, Modifier.align(Alignment.BottomEnd).padding(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Selo.Ink),
                     contentPadding = PaddingValues(horizontal = 14.dp)) { Icon(Icons.Outlined.Navigation, null, modifier = Modifier.size(18.dp)); Text("  Start navigation", fontWeight = FontWeight.Bold) }
                 if (app.backend.isDemo) Text("Demo · simulated GPS", fontSize = 10.sp, color = Color.White, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
                     .background(Selo.Ink.copy(.6f), RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp))
             }
             rc.note?.let { Text(it, color = Selo.AmberDark, fontSize = 12.sp) }
+            rc.directions?.let { TrafficCard(it) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Tile("Remaining", "%.1f km".format(rc.remainingM / 1000.0), Modifier.weight(1f))
                 Tile("Arrival", clock(System.currentTimeMillis() + rc.remainingS * 1000L), Modifier.weight(1f))
@@ -511,7 +514,21 @@ fun NavigationScreen(active: List<Order>, profile: RiderProfile?, rc: RouteContr
     LaunchedEffect(rc.rerouting) { if (rc.rerouting && st != null && !muted) speak("Rerouting") }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        RouteMap(d?.path ?: emptyList(), mapStops(rc.plan, rc.stopsFor(active)), rc.position, Modifier.fillMaxSize(), follow = true, heading = rc.heading)
+        var follow by remember { mutableStateOf(true) }
+        var panelHidden by remember { mutableStateOf(false) }
+        RouteMap(d?.path ?: emptyList(), mapStops(rc.plan, rc.stopsFor(active)), rc.position, Modifier.fillMaxSize(), follow = follow, heading = rc.heading,
+            traffic = d?.traffic.orEmpty(), etaMin = (rc.remainingS / 60.0).roundToInt())
+        // round floating controls (overview / back to following, hide or show the trip panel)
+        Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = if (panelHidden) 24.dp else 210.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(56.dp).shadow(4.dp, CircleShape).background(Color.White, CircleShape).clickable { follow = !follow }, contentAlignment = Alignment.Center) {
+                Icon(if (follow) Icons.Outlined.ZoomOutMap else Icons.Outlined.Navigation, if (follow) "Route overview" else "Follow me", tint = Selo.Ink) }
+            Spacer(Modifier.weight(1f))
+            Row(Modifier.height(56.dp).shadow(4.dp, RoundedCornerShape(50)).background(Color.White, RoundedCornerShape(50)).clickable { panelHidden = !panelHidden }
+                .padding(horizontal = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (panelHidden) Icons.Outlined.ExpandLess else Icons.Outlined.Close, null, tint = Selo.Ink)
+                Text(if (panelHidden) "  Show" else "  Hide", fontSize = 18.sp, color = Selo.Ink) }
+        }
         // instruction banner
         Column(Modifier.fillMaxWidth().background(Color(0xFF0F5132)).statusBarsPadding().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -531,12 +548,13 @@ fun NavigationScreen(active: List<Order>, profile: RiderProfile?, rc: RouteContr
             if (d?.source == "straight_line") Text("Straight-line guidance: road directions unavailable", color = Color(0xFFFFE08A), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
         }
         // bottom panel
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.White, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+        if (!panelHidden) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.White, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
             .navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("${clock(System.currentTimeMillis() + rc.remainingS * 1000L)} arrival", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Selo.Green)
                     Text("${(rc.remainingS / 60.0).roundToInt()} min · ${"%.1f".format(rc.remainingM / 1000.0)} km · ${rc.plan?.stops?.size ?: 0} stops left", color = Selo.Mute, fontSize = 13.sp)
+                    d?.let { TrafficLine(it) }
                 }
                 OutlinedButton(onExit, shape = RoundedCornerShape(50), border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red)) { Text("Exit", color = Selo.Red, fontWeight = FontWeight.Bold) }
             }
@@ -573,3 +591,32 @@ internal fun call(ctx: android.content.Context, msisdn: String) {
     runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${msisdn.replace(" ", "")}"))) }
 }
 
+
+
+/** Route quality: shortest of N routes, live traffic level and delay, with the colour legend. */
+@Composable
+fun TrafficCard(d: Directions) {
+    Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(14.dp)).border(1.dp, Selo.Line, RoundedCornerShape(14.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Route, null, tint = Selo.Red, modifier = Modifier.size(18.dp))
+            Text(if (d.alternatives > 0) "  Shortest of ${d.alternatives + 1} routes" else "  Best route", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text("%.1f km".format(d.distanceM / 1000.0), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        TrafficLine(d)
+        if (d.traffic.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("NORMAL" to "Clear", "SLOW" to "Slow", "TRAFFIC_JAM" to "Jam").forEach { (k, l) -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(width = 16.dp, height = 5.dp).background(Color(trafficColor(k)), RoundedCornerShape(3.dp))); Text(" $l", fontSize = 11.sp, color = Selo.Mute) } }
+        }
+    }
+}
+
+@Composable
+fun TrafficLine(d: Directions) {
+    val (txt, col) = when (d.trafficLevel) {
+        "heavy" -> "Heavy traffic" to Color(trafficColor("TRAFFIC_JAM")); "moderate" -> "Moderate traffic" to Color(0xFFB7791F)
+        "clear" -> "Traffic is light" to Color(0xFF2E7D32); else -> "Traffic info unavailable" to Selo.Mute
+    }
+    Text(txt + (if (d.trafficDelayS >= 60) " · +${d.trafficDelayS / 60} min delay" else "") + " · arrive ${clock(System.currentTimeMillis() + d.durationS * 1000L)}",
+        color = col, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+}

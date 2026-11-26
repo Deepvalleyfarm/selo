@@ -32,7 +32,7 @@ fun LiveTrackingMap(pickup: LatLng?, drop: LatLng?, rider: LatLng?, polyline: St
     val stops = listOfNotNull(pickup?.let { MapStop(it, StopType.PICKUP, 0, done = rider != null && path.isNotEmpty()) }, drop?.let { MapStop(it, StopType.DROPOFF, 0) })
     val eta = LiveEta.minutes(path, rider, etaMinutes)
     Box(Modifier.fillMaxWidth().height(height)) {
-        RouteMap(path, stops, rider, Modifier.fillMaxSize())
+        RouteMap(path, stops, rider, Modifier.fillMaxSize(), etaMin = if (rider != null) eta else null)
         if (rider != null && eta != null) Text("Arriving in ~$eta min", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp,
             modifier = Modifier.align(Alignment.TopStart).padding(10.dp).background(Selo.Ink.copy(.85f), RoundedCornerShape(50)).padding(horizontal = 12.dp, vertical = 6.dp))
     }

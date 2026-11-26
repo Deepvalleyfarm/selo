@@ -95,7 +95,7 @@ class ScreensScreenshotTest {
     @Test fun a0_signup() = shot("A0-signup-tab") { WelcomeScreen({}, {}, {}, initialMode = "signup") }
     @Test fun a4_otp() = shot("A4-buyer-otp", advance = 1_500, prep = { s -> }) { RegistrationWizard(Role.BUYER, {}, {}, initialPage = 1) }
     // ---------------- v6.5 Maps, Beem OTP, Lipila withdrawals, Listing Studio
-    @Test fun m1_shops() = shot("M1-shops-near-you", Role.BUYER, advance = 1_500) { ShopsMapScreen {} }
+    @Test fun m1_shops() = shot("M1-shops-near-you", Role.BUYER, advance = 1_500) { ShopsMapScreen({}) }
     @Test fun m2_address() = shot("M2-address-field", Role.BUYER) { var p by remember { mutableStateOf<selo.Nachipa01.data.model.Place?>(null) }
         androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize().background(selo.Nachipa01.ui.theme.Selo.Surface).padding(16.dp)) {
             selo.Nachipa01.ui.components.AddressField("Delivery address", p, { p = it }) } }
@@ -235,4 +235,10 @@ class ScreensScreenshotTest {
         WelcomeScreen({}, {}, {}) }
     @Test fun r22_loginLocked() = shot("R22-rider-login-locked", prep = { s -> s.rememberedRole.value = Role.RIDER; s.rememberedName.value = "Chanda"; s.rememberedFullName.value = "Chanda Mulenga"
         s.rememberedMsisdn.value = "+260971234514"; s.pinLockedUntil.value = System.currentTimeMillis() + 29 * 60_000L }) { WelcomeScreen({}, {}, {}) }
+
+    // v6.7
+    @Test fun v1_shop() = shot("V1-shop-page", Role.BUYER, advance = 1_500) { selo.Nachipa01.ui.screens.shop.ShopScreen("s3") {} }
+    @Test fun v2_receipts() = shot("V2-receipts", Role.BUYER, advance = 1_000) { selo.Nachipa01.ui.screens.account.ReceiptsScreen(null) {} }
+    @Test fun v3_receipt() = shot("V3-receipt-detail", Role.BUYER, advance = 1_000) { selo.Nachipa01.ui.screens.account.ReceiptsScreen("SNC-4823390") {} }
+    @Test fun v5_agentHome() = shot("V5-agent-home-ledger", Role.AGENT) { AgentHomeScreen({}, {}) }
 }

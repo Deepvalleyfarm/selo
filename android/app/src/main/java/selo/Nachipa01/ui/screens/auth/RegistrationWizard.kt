@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -167,7 +168,8 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
             Page("Review & terms", 5, 6, { s -> terms(s, "terms", "privacy") }) { BuyerReview(it) },
         )
         Role.SELLER -> listOf(
-            Page("Your business", 1, 1, { s -> req(s, "storeName" to "store name", "fullName" to "your full name") ?: mobileProblem(s) }) { BusinessPage(it, false) },
+            Page("Your business", 1, 1, { s -> req(s, "storeName" to "registered business name", "fullName" to "your full name") ?: mobileProblem(s)
+                ?: if ("shopBanner" !in s.docs) "Add your shop banner — take a photo or choose one from your gallery." else null }) { BusinessPage(it, false) },
             Page("Location & categories", 2, 3, { s -> (if (s["lat"].isBlank()) "Set your store location on the map." else null) ?: if ((s.chips["categories"] ?: emptySet()).isEmpty()) "Pick at least one category." else null }) {
                 AddressPage(it, "What do you sell?", sellerCats, "Pickup landmark for riders") },
             Page("Identity (KYC)", 4, 4, { s -> idProblem(s) ?: req(s, "tpin" to "TPIN") ?: docs(s, "portrait") }) { KycPage(it, "Business registration\n(corporate only)") },
@@ -349,7 +351,18 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
         }
         Spacer(Modifier.width(12.dp)); Column { H("Business logo", 14); Sub("Square image · shown on your store") }
     }
-    F(s, "storeName", "Store name *")
+    if (!agent) {
+        // Sellers upload their own shop banner: it heads the shop page buyers see.
+        val pickBanner = rememberPhotoSource("Shop banner") { s.docs["shopBanner"] = it; s.autosave() }
+        Box(Modifier.fillMaxWidth().height(110.dp).clip(RoundedCornerShape(14.dp)).background(if ("shopBanner" in s.docs) Selo.GreenTint else Selo.RedTint)
+            .border(1.5.dp, if ("shopBanner" in s.docs) Selo.Green else Selo.Red.copy(.4f), RoundedCornerShape(14.dp)).clickable { pickBanner() }, contentAlignment = Alignment.Center) {
+            s.docs["shopBanner"]?.let { coil3.compose.AsyncImage(it, "Shop banner", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+            if ("shopBanner" !in s.docs) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Outlined.AddPhotoAlternate, null, tint = Selo.Red); Text("Shop banner *", fontWeight = FontWeight.Bold, color = Selo.Red)
+                Text("Wide photo of your shop or products · camera or gallery", fontSize = 11.sp, color = Selo.Mute) }
+        }
+    }
+    F(s, "storeName", "Registered business name *")
     F(s, "fullName", "Your full name (as on NRC) *")
     F(s, "description", "Describe what you sell")
     MobileField(s)
@@ -407,8 +420,14 @@ private fun WalletPage(s: RegState, title: String) {
     var looking by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf<String?>(null) }
     H(title, 14)
-    listOf("Airtel Money" to ("AM" to Color(0xFFE11D48)), "MTN MoMo" to ("MM" to Color(0xFFCA8A04)), "Zamtel Kwacha" to ("ZK" to Color(0xFF15803D))).forEach { (n, b) ->
-        RadioCard(s.walletNetwork == n, n, badge = b.first, badgeColor = b.second) { s.walletNetwork = n; s.walletHolder = null }
+    listOf("Airtel Money" to selo.Nachipa01.domain.Operator.AIRTEL, "MTN MoMo" to selo.Nachipa01.domain.Operator.MTN, "Zamtel Kwacha" to selo.Nachipa01.domain.Operator.ZAMTEL).forEach { (n, op) ->
+        val on = s.walletNetwork == n
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (on) Selo.RedTint else Color.White).border(1.4.dp, if (on) Selo.Red else Selo.Line, RoundedCornerShape(12.dp))
+            .clickable { s.walletNetwork = n; s.walletHolder = null }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            selo.Nachipa01.ui.payments.OperatorMark(op, 34.dp)
+            Text("  $n", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            RadioButton(on, { s.walletNetwork = n; s.walletHolder = null }, colors = RadioButtonDefaults.colors(selectedColor = Selo.Red))
+        }
     }
     F(s, "wallet", "Wallet number", KeyboardType.Phone)
     F(s, "walletConfirm", "Confirm wallet number", KeyboardType.Phone)

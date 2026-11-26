@@ -162,6 +162,27 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.7 — addresses, traffic-aware routes, shops and receipts
+
+- **Use my location** uses the Fused Location Provider. It asks to turn GPS on when it is off, then tries a fresh high-accuracy fix (15 s), the last known fix, and finally the platform LocationManager.
+- **Address search** biases Places Autocomplete (New) to the user's position and shows "x km from you" on every suggestion. These distances are straight-line; delivery fees still use the road distance from the Routes API.
+- **Parcels** start from the sender's current location automatically. Both ends are editable as **From (pickup)** and **To (delivery)**, and the fee uses the From→To road distance.
+- **Landmarks**: reverse geocoding picks a prominent building or place within 10 m of the pin. A saved address within 10 m wins.
+- **Rider routes**: traffic-aware Routes with alternatives. The shortest route is picked; within 3 %, the faster one wins. The rider sees:
+  - traffic colouring (green, yellow, red);
+  - the delay and ETA;
+  - a Yango-style light map with ring start and end markers and an ETA bubble;
+  - Hide and overview buttons.
+  These routes bill at the Routes Pro SKU. The `routesTrafficAware` config switches them off.
+- **Mobile money logos** appear beside every wallet and phone-number field.
+- **Selo Ledger** replaces Selo Wallet for sellers, riders and agents. Buyers have no wallet.
+- **Shops**: buyers see the registered business name, kept in sync on rename by `onSellerProfileChange`. Tapping a shop, its map pin or the seller name on a feed card opens the shop page and its live products (`shop_profile`).
+- **Profile pictures and banners**: every user can have a profile picture. Sellers must upload a shop banner at sign-up.
+- **Receipts**: every confirmed payment gets a receipt issued by SeloNaChipa on behalf of the seller, agent or rider. This covers orders, parcels, Boost or Story, and registration.
+  - Receipt numbers are deterministic (`SNC-R-YYMMDD-XXXXXX`).
+  - Each receipt has a public verification page at `/r/{token}`.
+  - The app shares it as a PDF via WhatsApp or email.
+
 ## v6.5 — Google Maps, Beem OTP/SMS, Lipila production payments, Listing Studio
 
 Full architecture, data model, cost controls, monitoring and the deployment checklist are in

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { APPROVED_ENDPOINTS, assertApproved, MAPS_DEFAULTS } from "../src/maps/approved";
 import { cell, decodePolyline, distanceToPathM, encodePolyline, geohash, haversineM } from "../src/maps/geo-math";
-import { routeDecision } from "../src/routes";
+import { routeDecision, trafficInfo } from "../src/routes";
+import { landmarkNear, pickShortest } from "../src/maps/client";
 
 describe("approved Google Maps APIs only", () => {
   it("allows exactly Places (New) autocomplete, Geocoding and Routes", () => {
@@ -25,10 +26,10 @@ describe("approved Google Maps APIs only", () => {
     ["GET", "https://maps.googleapis.com/maps/api/elevation/json?locations=1"],
     ["POST", "https://routeoptimization.googleapis.com/v1/projects/x:optimizeTours"],
   ])("blocks %s %s", (m, u) => { expect(() => assertApproved(m, u)).toThrow(/not an approved API/); });
-  it("defaults: K45 base, K5.50/km, 3 chars, 500 ms, traffic off", () => {
+  it("defaults: K45 base, K5.50/km, 3 chars, 500 ms, live traffic on rider routes", () => {
     expect(MAPS_DEFAULTS.deliveryBaseFee).toBe(45); expect(MAPS_DEFAULTS.deliveryFeePerKm).toBe(5.5);
     expect(MAPS_DEFAULTS.mapsAutocompleteMinChars).toBe(3); expect(MAPS_DEFAULTS.mapsAutocompleteDebounceMs).toBe(500);
-    expect(MAPS_DEFAULTS.routesTrafficAware).toBe(false); expect(MAPS_DEFAULTS.mapsCacheDays).toBeLessThanOrEqual(30);
+    expect(MAPS_DEFAULTS.routesTrafficAware).toBe(true); expect(MAPS_DEFAULTS.mapsCacheDays).toBeLessThanOrEqual(30);
   });
 });
 
@@ -68,5 +69,31 @@ describe("reroute policy (Routes API only when needed)", () => {
   });
   it("fetches for a new set of stops (new job accepted)", () => {
     expect(routeDecision({ ...base, requestedKey: "A:PICKUP>B:PICKUP>A:DROPOFF>B:DROPOFF", origin: { lat: -15.4, lng: 28.29 }, lastAtMs: 999_000 })).toBe("fetch");
+  });
+});
+
+describe("best route, traffic and landmarks", () => {
+  it("picks the shortest route; near-ties go to the faster one", () => {
+    expect(pickShortest([{ distanceMeters: 5200, duration: "600s" }, { distanceMeters: 4100, duration: "900s" }]).distanceMeters).toBe(4100);
+    expect(pickShortest([{ distanceMeters: 4000, duration: "900s" }, { distanceMeters: 4080, duration: "500s" }]).distanceMeters).toBe(4080);
+  });
+  it("colours the route by congestion and grades it", () => {
+    const pts = [{ lat: -15.40, lng: 28.30 }, { lat: -15.401, lng: 28.30 }, { lat: -15.402, lng: 28.30 }, { lat: -15.403, lng: 28.30 }, { lat: -15.404, lng: 28.30 }];
+    const poly = encodePolyline(pts);
+    const t = trafficInfo(poly, [{ from: 0, to: 2, speed: "NORMAL" }, { from: 2, to: 4, speed: "TRAFFIC_JAM" }], 900, 500);
+    expect(t.segments).toHaveLength(2); expect(t.segments[1].speed).toBe("TRAFFIC_JAM"); expect(t.level).toBe("heavy"); expect(t.delayS).toBe(400);
+    expect(trafficInfo(poly, [{ from: 0, to: 4, speed: "NORMAL" }], 300, 290).level).toBe("clear");
+    expect(trafficInfo("", [], 300, 300).level).toBe("unknown");
+  });
+  it("finds a building or named place within 10 m of the pin", () => {
+    const at = { lat: -15.41, lng: 28.30 };
+    const j = { results: [
+      { types: ["plus_code"], formatted_address: "H8Q2+2X Lusaka", geometry: { location: at } },
+      { types: ["street_address"], formatted_address: "12 Great East Rd", geometry: { location: at }, address_components: [] },
+      { types: ["establishment", "point_of_interest"], formatted_address: "Arcades Shopping Mall, Great East Rd", geometry: { location: { lat: -15.41005, lng: 28.30003 } },
+        address_components: [{ long_name: "Arcades Shopping Mall", types: ["establishment", "point_of_interest"] }] },
+    ] };
+    expect(landmarkNear(j, at, 10)).toBe("Arcades Shopping Mall");
+    expect(landmarkNear({ results: [{ ...j.results[2], geometry: { location: { lat: -15.4102, lng: 28.30 } } }] }, at, 10)).toBeNull(); // ~22 m away
   });
 });

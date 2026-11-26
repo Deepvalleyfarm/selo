@@ -49,7 +49,22 @@ const MANEUVER: Record<string, string> = {
 };
 const secs = (d?: string) => (d ? Math.round(parseFloat(d)) : 0);
 
-export interface RouteResponse { distanceM: number; durationS: number; steps: any[]; polyline: string; source: string; cached?: boolean; throttled?: boolean; routeKey: string }
+export interface TrafficInfo { level: "clear" | "moderate" | "heavy" | "unknown"; delayS: number; segments: { polyline: string; speed: string }[] }
+export interface RouteResponse { distanceM: number; durationS: number; steps: any[]; polyline: string; source: string; cached?: boolean; throttled?: boolean; routeKey: string;
+  traffic?: TrafficInfo; alternatives?: number; computedAt?: number }
+
+/** Splits the route polyline into coloured stretches (NORMAL / SLOW / TRAFFIC_JAM) and grades the whole route (pure). */
+export function trafficInfo(polyline: string, intervals: { from: number; to: number; speed: string }[], durationS: number, staticS: number): TrafficInfo {
+  if (!polyline || !intervals.length) return { level: "unknown", delayS: Math.max(0, durationS - staticS), segments: [] };
+  const pts = decodePolyline(polyline);
+  const segments = intervals.filter((i) => i.to > i.from).map((i) => ({ polyline: encodePolyline(pts.slice(i.from, i.to + 1)), speed: i.speed }));
+  const len = (sp: string) => intervals.filter((i) => i.speed === sp).reduce((s, i) => s + (i.to - i.from), 0);
+  const total = Math.max(1, intervals.reduce((s, i) => s + (i.to - i.from), 0));
+  const jam = len("TRAFFIC_JAM") / total, slow = len("SLOW") / total;
+  const delayS = Math.max(0, durationS - staticS);
+  const level = jam > 0.15 || delayS > 600 ? "heavy" : jam > 0 || slow > 0.25 || delayS > 180 ? "moderate" : "clear";
+  return { level, delayS, segments };
+}
 
 export function shapeRoute(r: ComputedRoute, routeKey: string): RouteResponse {
   const steps = r.legs.flatMap((leg, legIndex) => [
@@ -59,7 +74,8 @@ export function shapeRoute(r: ComputedRoute, routeKey: string): RouteResponse {
     })),
     { instruction: "Arrive at your stop", maneuver: "arrive", distanceM: 0, durationS: 0, polyline: "", legIndex },
   ]);
-  return { distanceM: r.distanceM, durationS: r.durationS, steps, polyline: r.polyline, source: `google_${r.mode.toLowerCase()}`, routeKey };
+  return { distanceM: r.distanceM, durationS: r.durationS, steps, polyline: r.polyline, source: `google_${r.mode.toLowerCase()}`, routeKey,
+    traffic: trafficInfo(r.polyline, r.speedIntervals ?? [], r.durationS, r.staticDurationS ?? r.durationS), alternatives: r.alternatives ?? 0, computedAt: Date.now() };
 }
 
 /**

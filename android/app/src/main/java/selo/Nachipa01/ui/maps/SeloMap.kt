@@ -65,7 +65,8 @@ object Maps {
 
 /* ------------------------------------------------------------------ scene model */
 
-enum class PinKind { PICKUP, DROPOFF, RIDER, STORE, BUYER, DONE }
+/** RING = start/end circle (Yango-style); ETA = red "3 min" bubble (label = minutes); CAR = rider shown as a car. */
+enum class PinKind { PICKUP, DROPOFF, RIDER, STORE, BUYER, DONE, RING, ETA, CAR }
 data class MapPin(val id: String, val at: GLatLng, val kind: PinKind, val label: String? = null, val title: String? = null, val rotation: Float = 0f)
 data class MapLine(val id: String, val points: List<GLatLng>, val color: Int, val widthDp: Float = 6f, val dashed: Boolean = false)
 sealed interface MapCamera {
@@ -213,8 +214,8 @@ private class SceneRenderer(private val ctx: Context) {
             val old = pins[p.id]
             if (m == null) {
                 markers[p.id] = gm.addMarker(MarkerOptions().position(p.at).icon(Icons.get(ctx, p.kind, p.label)).title(p.title)
-                    .anchor(.5f, if (p.kind == PinKind.RIDER || p.kind == PinKind.BUYER) .5f else 1f).flat(p.kind == PinKind.RIDER).rotation(p.rotation)
-                    .zIndex(if (p.kind == PinKind.RIDER) 10f else 1f))!!.also { it.tag = p.id }
+                    .anchor(.5f, if (p.kind in setOf(PinKind.RIDER, PinKind.BUYER, PinKind.RING, PinKind.CAR)) .5f else 1f).flat(p.kind == PinKind.RIDER || p.kind == PinKind.CAR).rotation(p.rotation)
+                    .zIndex(when (p.kind) { PinKind.RIDER, PinKind.CAR -> 10f; PinKind.ETA -> 12f; else -> 1f }))!!.also { it.tag = p.id }
             } else {
                 if (old?.kind != p.kind || old.label != p.label) m.setIcon(Icons.get(ctx, p.kind, p.label))
                 if (old?.at != p.at) animate(m, p.at)
@@ -273,6 +274,9 @@ private object Icons {
         val d = ctx.resources.displayMetrics.density
         val bmp = when (kind) {
             PinKind.RIDER -> circle(d, 30, 0xFF1D6A45.toInt(), arrow = true)
+            PinKind.RING -> ring(d)
+            PinKind.ETA -> etaBubble(d, label ?: "–")
+            PinKind.CAR -> car(d)
             PinKind.BUYER -> circle(d, 22, 0xFF2563EB.toInt(), null)
             else -> pin(d, when (kind) { PinKind.PICKUP -> 0xFFC8102E.toInt(); PinKind.DROPOFF -> 0xFF1F2937.toInt(); PinKind.STORE -> 0xFFC8102E.toInt(); else -> 0xFF9CA3AF.toInt() },
                 label ?: when (kind) { PinKind.PICKUP -> "P"; PinKind.DROPOFF -> "D"; PinKind.STORE -> "S"; else -> "✓" })
@@ -293,6 +297,39 @@ private object Icons {
         c.drawText(text.take(2), w / 2f, r + 2 * d + 4.5f * d, p)
         return b
     }
+    /** White disc with a thick dark ring — the route's start and end. */
+    private fun ring(d: Float): Bitmap {
+        val s = (22 * d).toInt(); val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888); val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = 0xFFFFFFFF.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 4 * d; p.color = 0xFF2B2B2B.toInt(); c.drawCircle(s / 2f, s / 2f, s / 2f - 3.5f * d, p)
+        return b
+    }
+    /** Red rounded bubble with the minutes on two lines and a pointer, sitting above the destination. */
+    private fun etaBubble(d: Float, minutes: String): Bitmap {
+        val w = (58 * d).toInt(); val h = (64 * d).toInt(); val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = 0x33000000; c.drawRoundRect(2 * d, 3 * d, w - 2 * d, h - 10 * d, 14 * d, 14 * d, p)
+        p.color = 0xFFFFFFFF.toInt(); c.drawRoundRect(0f, 0f, w.toFloat(), h - 12 * d, 15 * d, 15 * d, p)
+        p.color = 0xFFE5322D.toInt(); c.drawRoundRect(3 * d, 3 * d, w - 3 * d, h - 15 * d, 12 * d, 12 * d, p)
+        p.color = 0xFFFFFFFF.toInt(); c.drawPath(Path().apply { moveTo(w / 2f - 7 * d, h - 12.5f * d); lineTo(w / 2f + 7 * d, h - 12.5f * d); lineTo(w / 2f, h - 4 * d); close() }, p)
+        p.textAlign = Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
+        p.textSize = 19 * d; c.drawText(minutes, w / 2f, 24 * d, p)
+        p.typeface = Typeface.DEFAULT; p.textSize = 12 * d; c.drawText("min", w / 2f, 40 * d, p)
+        return b
+    }
+    /** Top-down car (white body, dark windows) — rotates with the rider's heading. */
+    private fun car(d: Float): Bitmap {
+        val w = (26 * d).toInt(); val h = (44 * d).toInt(); val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = 0x40000000; c.drawRoundRect(2 * d, 3 * d, w.toFloat(), h.toFloat(), 9 * d, 9 * d, p)
+        p.color = 0xFFFFFFFF.toInt(); c.drawRoundRect(0f, 0f, w - 2 * d, h - 3 * d, 9 * d, 9 * d, p)
+        p.style = Paint.Style.STROKE; p.strokeWidth = 1.2f * d; p.color = 0xFF9CA3AF.toInt(); c.drawRoundRect(0.6f * d, 0.6f * d, w - 2.6f * d, h - 3.6f * d, 9 * d, 9 * d, p)
+        p.style = Paint.Style.FILL; p.color = 0xFF1F2937.toInt()
+        c.drawRoundRect(3.5f * d, 9 * d, w - 5.5f * d, 17 * d, 4 * d, 4 * d, p)     // windscreen
+        c.drawRoundRect(4.5f * d, 29 * d, w - 6.5f * d, 35 * d, 3 * d, 3 * d, p)     // rear window
+        return b
+    }
     private fun circle(d: Float, sizeDp: Int, color: Int, arrow: Boolean?): Bitmap {
         val s = (sizeDp * d).toInt(); val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888); val c = Canvas(b)
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -304,10 +341,21 @@ private object Icons {
     }
 }
 
-/** Quiet map style: fewer POIs and transit labels so pins and the route stand out. */
+/** Light, calm basemap (like ride-hailing apps): pale land, white roads, soft labels, no business clutter. */
 private const val CLEAN_STYLE = """[
+ {"elementType":"geometry","stylers":[{"color":"#f3f2ee"}]},
+ {"elementType":"labels.text.fill","stylers":[{"color":"#6b6b6b"}]},
+ {"elementType":"labels.text.stroke","stylers":[{"color":"#ffffff"}]},
+ {"featureType":"road","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
+ {"featureType":"road","elementType":"geometry.stroke","stylers":[{"color":"#e2e0da"}]},
+ {"featureType":"road.arterial","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
+ {"featureType":"road.highway","elementType":"geometry","stylers":[{"color":"#ffffff"}]},
+ {"featureType":"road.highway","elementType":"geometry.stroke","stylers":[{"color":"#d9d6cf"}]},
+ {"featureType":"road","elementType":"labels.icon","stylers":[{"visibility":"off"}]},
+ {"featureType":"poi","elementType":"labels.icon","stylers":[{"visibility":"off"}]},
  {"featureType":"poi.business","stylers":[{"visibility":"off"}]},
- {"featureType":"poi","elementType":"labels.icon","stylers":[{"saturation":-80},{"lightness":20}]},
- {"featureType":"transit","stylers":[{"visibility":"off"}]},
- {"featureType":"road","elementType":"labels.icon","stylers":[{"visibility":"off"}]}
+ {"featureType":"poi.park","elementType":"geometry","stylers":[{"color":"#dcebd6"}]},
+ {"featureType":"landscape.man_made","elementType":"geometry","stylers":[{"color":"#eeece7"}]},
+ {"featureType":"water","elementType":"geometry","stylers":[{"color":"#cfe3ee"}]},
+ {"featureType":"transit","stylers":[{"visibility":"off"}]}
 ]"""

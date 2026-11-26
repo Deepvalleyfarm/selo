@@ -137,6 +137,14 @@ export async function onPromoCollection(reference: string, ok: boolean, status: 
       at: FieldValue.serverTimestamp() });
     tx.set(db.doc(`listings/${p.listingId}`), { [p.type === "story" ? "storyPromoId" : "boostPromoId"]: id }, { merge: true });
   });
+  {
+    const { issueReceipt } = await import("./payments/receipts");
+    const seller = (await db.doc(`users/${p.sellerUid}`).get()).data() ?? {};
+    await issueReceipt({ reference, kind: p.type === "story" ? "story" : "boost", refId: id, payerUid: p.sellerUid, payerName: seller.storeName ?? seller.fullName ?? "",
+      payerMsisdn: seller.msisdn ?? "", onBehalfOf: { type: "selonachipa", name: "SeloNaChipa" },
+      lines: [{ label: `${p.type === "story" ? "Feed Story (24 h)" : `Boost · ${p.reach} · ${p.days} day${p.days === 1 ? "" : "s"}`}: ${p.listingTitle}`, amountNgwee: p.priceNgwee }],
+      totalNgwee: p.priceNgwee, walletMsisdn: p.walletMsisdn ?? "" }).catch(() => undefined);
+  }
   await notify(p.sellerUid, p.type === "story" ? "Your Feed Story is live" : "Your Boost is live",
     `${p.listingTitle} is now shown to matching buyers for ${p.type === "story" ? "24 hours" : `${p.days} day${p.days === 1 ? "" : "s"}`}.`, "PROMO_ACTIVE", `selo://seller/promotions/${id}`);
 }

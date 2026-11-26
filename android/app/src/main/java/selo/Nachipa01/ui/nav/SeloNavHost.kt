@@ -98,7 +98,10 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable(R.PARCEL_TRACK) { e -> ParcelDetailScreen(e.arguments?.getString("orderId") ?: "", onBack = { nav.popBackStack() }, onOpenCode = { nav.navigate("code/parcel/$it") }) }
         composable("account?r={r}", arguments = listOf(androidx.navigation.navArgument("r") { defaultValue = "support" })) { e ->
             selo.Nachipa01.ui.screens.account.AccountHost(e.arguments?.getString("r") ?: "support") { nav.popBackStack() } }
-        composable("shops") { ShopsMapScreen(onBack = { nav.popBackStack() }) }
+        composable("shops") { ShopsMapScreen(onBack = { nav.popBackStack() }, onOpenShop = { nav.navigate("shop/$it") }) }
+        composable("shop/{sellerUid}") { e -> selo.Nachipa01.ui.screens.shop.ShopScreen(e.arguments?.getString("sellerUid") ?: "") { nav.popBackStack() } }
+        composable("receipts") { selo.Nachipa01.ui.screens.account.ReceiptsScreen(null) { nav.popBackStack() } }
+        composable("receipt/{refId}") { e -> selo.Nachipa01.ui.screens.account.ReceiptsScreen(e.arguments?.getString("refId")) { nav.popBackStack() } }
         composable(R.CODE) { e -> DeliveryCodeScreen(e.arguments?.getString("kind") ?: "order", e.arguments?.getString("id") ?: "", onBack = { nav.popBackStack() }) }
 
         composable(R.PROMOTE) { e -> selo.Nachipa01.ui.screens.seller.PromoteScreen(e.arguments?.getString("listingId") ?: "", e.arguments?.getString("type") ?: "boost",

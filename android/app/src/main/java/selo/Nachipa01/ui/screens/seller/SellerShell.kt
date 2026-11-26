@@ -75,7 +75,7 @@ fun SellerShell(nav: NavHostController, initialTab: String = "home", onLogout: (
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (tab) {
                     "home" -> {
-                        WalletCard("Earnings", "Paid out at rider pickup", stats.earningsNgwee, listOf(
+                        WalletCard("Selo Ledger", "Your earnings balance", stats.earningsNgwee, listOf(
                             QuickAction(Icons.AutoMirrored.Outlined.Logout, if (wallet?.active != null) "In progress" else "Withdraw") {
                                 val b = wallet?.block; if (b == null && wallet != null) withdrawing = true else app.toast.value = b ?: "Checking your balance…" }, QuickAction(Icons.Outlined.Add, "New listing") { app.resetListingFlow(); nav.navigate("addListing") },
                             QuickAction(Icons.Outlined.Inventory2, "Orders (${stats.toPack})") { tab = "orders" }))
