@@ -16,7 +16,7 @@ export default function Kyc() {
   return <Page title="KYC queue" sub="Sellers, agents and riders waiting for verification · target 24–48 h">
     <Panel title={`Pending (${queue.length})`}>
       <Table rows={queue} onRow={(r) => setOpen(r.uid)} empty="Queue is clear." cols={[
-        { h: "Applicant", r: (r) => <b>{u(r.uid)?.fullName ?? r.uid}</b> }, { h: "Role", r: (r) => r.role },
+        { h: "Applicant", r: (r) => <b>{u(r.uid)?.fullName ?? r.uid}</b> }, { h: "Role", r: (r) => r.role + (u(r.uid)?.accountType === "CORPORATE" ? " · corporate" : "") },
         { h: "Store / vehicle", r: (r) => u(r.uid)?.storeName ?? u(r.uid)?.vehicle ?? "—" }, { h: "City", r: (r) => u(r.uid)?.district ?? "—" },
         { h: "Documents", r: (r) => `${(r.documents ?? []).length} files` }, { h: "Waiting", r: (r) => when(r.submittedAt) }]} />
     </Panel>
@@ -37,13 +37,13 @@ function Review({ uid, user, onClose }: { uid: string; user: any; onClose: () =>
     listAll(ref(storage, `kyc/${uid}`)).then(async (l) => setDocs(await Promise.all(l.items.map(async (i) => ({ name: i.name.split("-")[0], url: await getDownloadURL(i) }))))).catch(() => setDocs([]));
   }, [uid]);
   return <Drawer title={`Review · ${user?.fullName ?? uid}`} onClose={onClose}>
-    <dl className="kv"><dt>Role</dt><dd>{user?.role}</dd><dt>Mobile</dt><dd>{user?.msisdn}</dd><dt>Store / hub</dt><dd>{user?.storeName ?? user?.hub ?? "—"}</dd>
+    <dl className="kv"><dt>Role</dt><dd>{user?.role}</dd><dt>Mobile</dt><dd>{user?.msisdn}</dd><dt>Store / hub</dt><dd>{user?.storeName ?? user?.hub ?? "—"}</dd><dt>Account type</dt><dd>{user?.accountType === "CORPORATE" ? "Corporate" : "Individual"}</dd>{user?.accountType === "CORPORATE" && <><dt>Registered address</dt><dd>{user?.registeredAddress ?? "—"}</dd><dt>Registration no.</dt><dd>{user?.corporate?.regNumber ?? "—"}</dd><dt>TPIN</dt><dd>{user?.corporate?.tpin ?? "—"}</dd></>}
       <dt>Vehicle</dt><dd>{user?.vehicleDetails ? `${user.vehicle} · ${user.vehicleDetails.make} ${user.vehicleDetails.model} · ${user.vehicleDetails.plate}` : user?.vehicle ?? "—"}</dd>
       <dt>Payout wallet</dt><dd>{user?.payoutWallet ?? "—"}</dd></dl>
     <div className="docs">{docs.map((d) => d.url
       ? <a key={d.name + d.url} className="doc" href={d.url} target="_blank" rel="noreferrer" style={{ backgroundImage: `url(${d.url})`, backgroundSize: "cover", color: "#fff", textShadow: "0 1px 3px #000" }}>{d.name}</a>
       : <div key={d.name} className="doc">{d.name}</div>)}</div>
-    <p style={{ color: "var(--mute)", margin: 0 }}>Check the face matches the NRC portrait, the names match across documents, and the licence is valid.</p>
+    <p style={{ color: "var(--mute)", margin: 0 }}>{user?.accountType === "CORPORATE" ? "Check the organisation name, registration number and TPIN match the certificate of incorporation (and PACRA / ZRA records)." : "Check the face matches the NRC portrait, the names match across documents, and the licence is valid."}</p>
     <Msg />
     {can(admin, "compliance") ? <>
       <button className="btn ok" disabled={busy} onClick={async () => { if (await run("admin_setKyc", { uid, approve: true }, "Approved. The user's app unlocks within seconds.")) setTimeout(onClose, 900); }}>Approve</button>

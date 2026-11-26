@@ -210,6 +210,7 @@ private fun BuyerProfile(onLogout: () -> Unit, onOrders: () -> Unit, onOpen: (Li
             selo.Nachipa01.ui.screens.account.AccountSettingsCard(open = { app.navRequest.value = "account?r=$it" },
                 extra = listOf(Triple(Icons.Outlined.Inventory2, "My orders", onOrders), Triple(Icons.Outlined.LocalShipping, "My parcels") { app.navRequest.value = "parcel" }))
             OutlineButton("Log out") { confirm = true }
+            Spacer(Modifier.height(32.dp))
         }
     }
     if (confirm) AlertDialog({ confirm = false }, title = { Text("Are you sure you want to log out?") },

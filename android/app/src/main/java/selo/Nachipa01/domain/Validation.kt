@@ -72,6 +72,15 @@ object Validation {
         else -> null
     }
     /** Photos each ID type needs: NRC and licence front + back, passport photo page. */
+    /** Corporate seller / agency details. Same rules as the server (auth.ts corporateOf). */
+    fun corporateProblem(name: String, regNumber: String, tpin: String, address: String): String? = when {
+        name.trim().length < 2 -> "Enter the registered name of the organisation."
+        !Regex("^[A-Z0-9/-]{5,20}$").matches(regNumber.trim().uppercase()) -> "Enter the company registration number as on the PACRA certificate (5–20 letters and digits)."
+        !Regex("^\\d{10}$").matches(tpin.filter(Char::isDigit)) -> "Enter the organisation's 10-digit TPIN."
+        address.trim().length < 5 -> "Enter the organisation's registered address."
+        else -> null
+    }
+
     fun idPhotos(type: String): List<Pair<String, String>> = when (type) {
         "Passport" -> listOf("idFront" to "Passport photo page")
         "Driver's licence" -> listOf("idFront" to "Licence front", "idBack" to "Licence back")

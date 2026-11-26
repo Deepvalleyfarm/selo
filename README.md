@@ -162,6 +162,24 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.8 — corporate sign-up, reachable buttons, smarter location picker
+
+- **Sellers and agents: Individual or Corporate.**
+  - Individuals give only their ID; individual agents must use their NRC. There's no certificate step.
+  - Corporates give only the organisation's details: registered name, PACRA registration number, 10-digit TPIN and registered address, plus the certificate of incorporation. Nothing personal is asked.
+  - The server checks the same rules (`corporateOf` / `identityOf` in `auth.ts`). The registration number is the unique identity for a corporate account.
+  - The back office KYC review shows the account type, registration number, TPIN and address.
+- **Layout:**
+  - Every screen now keeps its content above the phone's navigation bar and the keyboard, so Log out and other bottom buttons are fully tappable.
+  - Bottom-tab tap areas are larger.
+- **Location picker:**
+  - "Use my location" keeps reading GPS until the fix is within about 25 m, or 12 s pass, and keeps the phone's own coordinates.
+  - A rough fix (over 60 m) opens the map on that spot so the user can nudge the pin.
+  - The app asks for precise location when only approximate was allowed.
+  - While typing, saved and recently used places that match appear instantly. Google suggestions are biased to within 12 km of the user.
+  - Stored suggestions must match every typed word, and the nearest come first.
+  - Every confirmed place is remembered on the phone (40 places) and shown as "Recently used". "Save as Home / Work / Shop / Other" is one tap after confirming.
+
 ## v6.7 — addresses, traffic-aware routes, shops and receipts
 
 - **Use my location** uses the Fused Location Provider. It asks to turn GPS on when it is off, then tries a fresh high-accuracy fix (15 s), the last known fix, and finally the platform LocationManager.

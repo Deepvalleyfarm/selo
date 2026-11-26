@@ -64,6 +64,7 @@ fun AgentHomeScreen(onLogout: () -> Unit, onAddListing: () -> Unit) {
             else LockedNote("You'll get a push notification once approved.")
             selo.Nachipa01.ui.screens.account.AccountSettingsCard(open = { app.navRequest.value = "account?r=$it" })
             OutlineButton("Log out") { scope.launch { app.backend.logout(); onLogout() } }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

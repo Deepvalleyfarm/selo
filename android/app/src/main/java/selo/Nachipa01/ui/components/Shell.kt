@@ -135,7 +135,8 @@ fun SeloBottomBar(items: List<NavItem>, center: NavItem, current: String, center
             val all = items.take(2) + center + items.drop(2)
             all.forEach { item ->
                 val selected = current == item.route
-                Column(Modifier.weight(1f).clickable { onSelect(item.route) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp)).clickable { onSelect(item.route) }.padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
                     if (item == center) Spacer(Modifier.height(30.dp))
                     else Icon(item.icon, item.label, tint = if (selected) Selo.Red else Color(0xFF8A8A96))
                     Text(item.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (selected) Selo.Red else Color(0xFF8A8A96))

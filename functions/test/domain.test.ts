@@ -108,3 +108,28 @@ describe("shop business name", () => {
     expect(businessName({ storeName: "  " , fullName: "" })).toBe("SeloNaChipa shop");
   });
 });
+
+import { corporateOf } from "../src/auth";
+describe("corporate sign-up identity", () => {
+  const ok = { businessType: "Corporate", storeName: "Kafue Traders Ltd", regNumber: "120190012345", tpin: "1002345678", regAddress: "Plot 12, Cairo Road, Lusaka" };
+  it("uses the company registration number, not a personal ID", () => {
+    expect(identityOf(ok, "SELLER")).toMatchObject({ idType: "Company registration", key: "CompanyReg_120190012345" });
+    expect(identityOf({ ...ok, businessType: "Agency (corporate)" }, "AGENT")).toMatchObject({ idType: "Company registration" });
+  });
+  it("requires name, registration number, 10-digit TPIN and address", () => {
+    expect(corporateOf({ ...ok, storeName: "" })).toMatch(/registered name/);
+    expect(corporateOf({ ...ok, regNumber: "1" })).toMatch(/registration number/);
+    expect(corporateOf({ ...ok, tpin: "12345" })).toMatch(/TPIN/);
+    expect(corporateOf({ ...ok, regAddress: "" })).toMatch(/address/);
+  });
+  it("individuals still need a personal ID", () => {
+    expect(identityOf({ businessType: "Individual", idType: "NRC", idNumber: "123456/78/1" }, "AGENT")).toMatchObject({ idType: "NRC" });
+    expect(typeof identityOf({ businessType: "Individual" }, "SELLER")).toBe("string");
+  });
+});
+describe("individual agents", () => {
+  it("must use an NRC", () => {
+    expect(identityOf({ idType: "Passport", idNumber: "ZN123456" }, "AGENT")).toMatch(/NRC/);
+    expect(identityOf({ idType: "Passport", idNumber: "ZN123456" }, "SELLER")).toMatchObject({ idType: "Passport" });
+  });
+});

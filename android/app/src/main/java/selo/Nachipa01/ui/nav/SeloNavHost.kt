@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -64,7 +68,11 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
     // product buttons and notifications ask for navigation through AppState
     val req = app.navRequest.value
     LaunchedEffect(req) { if (req != null) { app.navRequest.value = null; runCatching { nav.navigate(req) } } }
-    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier) {
+    // Edge-to-edge: keep every screen's last button above the phone's navigation bar and the keyboard (the bar area is
+    // painted white so it blends with the bottom tab bar). Status-bar space is still handled per screen for full-bleed headers.
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White)
+        .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(
+            androidx.compose.foundation.layout.WindowInsetsSides.Bottom + androidx.compose.foundation.layout.WindowInsetsSides.Horizontal))) {
     NavHost(nav, startDestination = R.WELCOME) {
         composable(R.WELCOME) {
             WelcomeScreen(

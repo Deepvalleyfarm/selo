@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.navigation.compose.rememberNavController
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.runBlocking
@@ -41,13 +43,14 @@ class ScreensScreenshotTest {
     @get:Rule val rule = createComposeRule()
 
     private fun shot(name: String, role: Role? = null, status: AccountStatus = AccountStatus.ACTIVE, msisdn: String = "+260971234512",
-                     advance: Long = 600, prep: suspend (AppState) -> Unit = {}, ui: @Composable () -> Unit) {
+                     advance: Long = 600, prep: suspend (AppState) -> Unit = {}, act: () -> Unit = {}, ui: @Composable () -> Unit) {
         val state = AppState(DemoBackend())
         if (role != null) DemoData.demoUser(role, msisdn, status = status).let { state.signedIn(it); (state.backend as DemoBackend).session = it }
         state.rememberedMsisdn.value = "+260971234512"; state.rememberedName.value = "Mwila"
         runBlocking { prep(state) }
         rule.setContent { SeloTheme { CompositionLocalProvider(LocalAppState provides state) { ui() } } }
         rule.mainClock.advanceTimeBy(advance)
+        act(); rule.mainClock.advanceTimeBy(300)
         rule.onRoot().captureRoboImage("build/outputs/roborazzi/$name.png")
     }
 
@@ -241,4 +244,13 @@ class ScreensScreenshotTest {
     @Test fun v2_receipts() = shot("V2-receipts", Role.BUYER, advance = 1_000) { selo.Nachipa01.ui.screens.account.ReceiptsScreen(null) {} }
     @Test fun v3_receipt() = shot("V3-receipt-detail", Role.BUYER, advance = 1_000) { selo.Nachipa01.ui.screens.account.ReceiptsScreen("SNC-4823390") {} }
     @Test fun v5_agentHome() = shot("V5-agent-home-ledger", Role.AGENT) { AgentHomeScreen({}, {}) }
+
+    // v6.8: corporate vs individual sign-up
+    private fun tap(text: String) = rule.onNode(androidx.compose.ui.test.hasText(text)).performClick()
+    @Test fun w1_sellerCorporate() = shot("K1-seller-corporate", act = { tap("Corporate") }) { RegistrationWizard(Role.SELLER, {}, {}) }
+    @Test fun w2_agentIndividual() = shot("K2-agent-individual") { RegistrationWizard(Role.AGENT, {}, {}) }
+    @Test fun w3_agentCorporate() = shot("K3-agent-corporate", act = { tap("Agency (corporate)") }) { RegistrationWizard(Role.AGENT, {}, {}) }
+    @Test fun w4_agentKycNrc() = shot("K4-agent-kyc-nrc") { RegistrationWizard(Role.AGENT, {}, {}, initialPage = 2) }
+    @Test fun w5_sellerKycCorporate() = shot("K5-seller-kyc-corporate", act = { }) { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 3) }
+    @Test fun w6_agentHomeBottom() = shot("K6-agent-home", Role.AGENT, act = { rule.onNode(androidx.compose.ui.test.hasText("Log out")).performScrollTo() }) { AgentHomeScreen({}, {}) }
 }

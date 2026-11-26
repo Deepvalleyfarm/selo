@@ -370,6 +370,7 @@ private fun SellerSettings(onLogout: () -> Unit) {
     H("Account & support", 16)
     selo.Nachipa01.ui.screens.account.AccountSettingsCard(open = { app.navRequest.value = "account?r=$it" })
     OutlineButton("Log out") { scope.launch { app.backend.logout(); onLogout() } }
+    Spacer(Modifier.height(32.dp))
     if (payout) selo.Nachipa01.ui.screens.account.PayoutWalletDialog { payout = false }
 }
 

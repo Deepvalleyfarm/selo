@@ -407,6 +407,7 @@ fun SettingsScreen(profile: RiderProfile?, back: () -> Unit, onLogout: () -> Uni
             }
             Spacer(Modifier.height(8.dp))
             OutlineButton("Log out") { sheet = "logout" }
+            Spacer(Modifier.height(32.dp))
             Text("Version ${selo.Nachipa01.BuildConfig.VERSION_NAME}", color = Selo.Mute, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
         }
     }

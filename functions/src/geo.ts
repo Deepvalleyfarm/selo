@@ -66,16 +66,20 @@ export async function autocomplete(input: string, who: string, cityId?: string |
   if (q.length < Number(cfg.mapsAutocompleteMinChars ?? 3)) return { suggestions: [], degraded: false };
   const first = normLabel(q).split(" ")[0]?.slice(0, 8) ?? "";
   const storeQ = db.collection("addresses").where("searchTokens", "array-contains", first);
-  const store = await (cityId ? storeQ.where("cityId", "==", cityId) : storeQ).orderBy("useCount", "desc").limit(6).get().then((s) => s.docs).catch(() => []);
-  const fromStore: Suggestion[] = store.filter((d) => normLabel(`${d.get("label")} ${d.get("address")}`).includes(first))
+  const store = await (cityId ? storeQ.where("cityId", "==", cityId) : storeQ).orderBy("useCount", "desc").limit(12).get().then((s) => s.docs).catch(() => []);
+  // Every typed word must appear (not just the first), so "Arcades stall 14" doesn't return any "Arcades …".
+  const words = normLabel(q).split(" ").filter((w) => w.length >= 2);
+  const fromStore: Suggestion[] = store.filter((d) => { const hay = normLabel(`${d.get("label")} ${d.get("address")}`); return words.every((w) => hay.includes(w)); })
     .map((d) => ({ id: `addr:${d.id}`, label: d.get("label"), secondary: d.get("address"), source: "store", lat: d.get("lat"), lng: d.get("lng") }));
   // Enough strong matches from our own store? Skip Google entirely (free).
   let google: Suggestion[] = []; let degraded = false;
-  if (fromStore.length < 3) {
+  // Enough strong matches nearby? Skip Google (free). Far-away matches don't count when we know where the user is.
+  const nearbyStore = near ? fromStore.filter((s) => s.lat != null && haversineKm(near, { lat: s.lat!, lng: s.lng! }) <= 15) : fromStore;
+  if (nearbyStore.length < 3) {
     const city = cityId ? cityById(cityId) : null;
     const bias = near ?? (city ? { lat: city.lat, lng: city.lng } : null);
     const limitOk = await userWithinLimit(who, "places_autocomplete", Number(cfg.mapsUserAutocompletePerHour ?? 0));
-    const preds = limitOk ? await placesAutocomplete(q, cfg, { bias, radiusM: (city?.radiusKm ?? 25) * 1000, sessionToken, origin: near ?? null }) : null;
+    const preds = limitOk ? await placesAutocomplete(q, cfg, { bias, radiusM: near ? 12_000 : (city?.radiusKm ?? 25) * 1000, sessionToken, origin: near ?? null }) : null;
     degraded = preds === null;
     google = (preds ?? []).map((p) => ({ id: `g:${p.placeId}`, label: p.primary, secondary: p.secondary, source: "google" as const, distanceM: p.distanceM ?? null }));
   }
@@ -87,7 +91,9 @@ export async function autocomplete(input: string, who: string, cityId?: string |
       if (c) { const p = nb ? neighbourhoodFallback(c, nb) : { lat: c.lat, lng: c.lng }; return { ...s, distanceM: Math.round(haversineKm(near, p) * 1000) }; } }
     return s;
   };
-  const merged = [...fromStore, ...google, ...gazetteer(q, cityId)].map(withDist);
+  // Our own stored places nearest-first (Google already ranks its own by relevance around the user).
+  const storeRanked = fromStore.map(withDist).sort((a, b) => (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity));
+  const merged = [...storeRanked, ...google.map(withDist), ...gazetteer(q, cityId).map(withDist)];
   const seen = new Set<string>();
   return { suggestions: merged.filter((s) => { const k = normLabel(s.label + s.secondary); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 10), degraded };
 }

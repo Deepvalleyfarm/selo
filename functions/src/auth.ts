@@ -50,11 +50,12 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
   if (qs.some((q) => normaliseAnswer(String(q.answer ?? "")).length < 2)) throw new HttpsError("invalid-argument", "Answers must be at least 2 characters.");
 
   const profile = (d.profile ?? {}) as Record<string, unknown>;
-  const id = identityOf(profile);
+  const id = identityOf(profile, role);
+  const corporate = (role === "SELLER" || role === "AGENT") && isCorporate(profile);
   if (typeof id === "string") throw new HttpsError("invalid-argument", id);
   const uid = randomUUID();
   const status = role === "BUYER" ? "ACTIVE" : role === "RIDER" ? "PENDING_VERIFICATION" : "PENDING_KYC";
-  const fullName = String(profile.fullName ?? [profile.firstName, profile.otherName, profile.surname].filter(Boolean).join(" ")).slice(0, 120);
+  const fullName = corporate ? String(profile.storeName ?? "").trim().slice(0, 120) : String(profile.fullName ?? [profile.firstName, profile.otherName, profile.surname].filter(Boolean).join(" ")).slice(0, 120);
   const payoutWallet = normaliseMsisdn(d.payoutWallet);
   const referralCode = randomBytes(4).toString("hex").toUpperCase();
   let referredBy: string | null = null;
@@ -76,9 +77,10 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
     if (idSnap.exists) throw new HttpsError("already-exists", `This ${id.idType} number is already registered to another account. Contact support if this is you.`);
     tx.create(idx, { uid, role, createdAt: FieldValue.serverTimestamp() });
     tx.create(idRef, { uid, idType: id.idType, createdAt: FieldValue.serverTimestamp() });
-    tx.create(db.doc(`users/${uid}/private/kyc`), { idType: id.idType, idNumber: id.idNumber, tpin: profile.tpin ? String(profile.tpin).slice(0, 20) : null, createdAt: FieldValue.serverTimestamp() });
+    tx.create(db.doc(`users/${uid}/private/kyc`), { idType: id.idType, idNumber: id.idNumber, tpin: profile.tpin ? String(profile.tpin).replace(/\D/g, "").slice(0, 10) : null,
+      corporate: corporate ? { regNumber: id.idNumber, regAddress: String(profile.regAddress ?? "").trim().slice(0, 200) } : null, createdAt: FieldValue.serverTimestamp() });
     tx.create(db.doc(`users/${uid}`), {
-      role, msisdn, msisdnVerified, fullName, firstName: String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
+      role, msisdn, msisdnVerified, fullName, firstName: corporate ? fullName : String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
       accountStatus: status, kycStatus: role === "BUYER" ? "NOT_REQUIRED" : "SUBMITTED",
       storeName: profile.storeName ?? null, area: profile.area ?? profile.hub ?? null, province: profile.province ?? null,
       district: profile.district ?? null, landmark: profile.landmark ?? null,
@@ -88,6 +90,8 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
       categories: profile.categories ?? [], vehicle: profile.vehicleType ?? null,
       vehicleDetails: role === "RIDER" ? { make: profile.make ?? null, model: profile.model ?? null, plate: profile.plate ?? null } : null,
       hub: profile.hub ?? null, workingDays: profile.workingDays ?? null, businessType: profile.businessType ?? null,
+      accountType: corporate ? "CORPORATE" : "INDIVIDUAL", registeredAddress: corporate ? String(profile.regAddress ?? "").trim().slice(0, 200) : null,
+      corporate: corporate ? { regNumber: id.idNumber, tpin: String(profile.tpin ?? "").replace(/\D/g, "").slice(0, 10) } : null,
       payoutWallet, payoutWalletNetwork: profile.walletNetwork ?? null, referralCode, referredBy,
       acceptedTermsVersion: d.acceptedTermsVersion ?? null, consentAt: FieldValue.serverTimestamp(),
       memberSince: new Date().toLocaleString("en-GB", { month: "short", year: "numeric" }), createdAt: FieldValue.serverTimestamp(),
@@ -100,7 +104,7 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
     if (role === "SELLER") tx.create(db.doc(`sellerStats/${uid}`), { earningsNgwee: 0, todayNgwee: 0, toPack: 0, liveListings: 0, lowStock: 0, monthNgwee: 0, monthOrders: 0 });
   });
 
-  await sendTemplate("ACCOUNT_CREATED", msisdn, [String(profile.firstName ?? fullName.split(" ")[0] ?? "there")], uid).catch(() => undefined);
+  await sendTemplate("ACCOUNT_CREATED", msisdn, [corporate ? fullName : String(profile.firstName ?? fullName.split(" ")[0] ?? "there")], uid).catch(() => undefined);
   if (role === "SELLER" && profile.lat) {
     const at = { lat: Number(profile.lat), lng: Number(profile.lng) };
     await db.doc(`stores/${uid}`).set({ name: profile.storeName ?? fullName, address: String(profile.address ?? profile.landmark ?? profile.area ?? "").slice(0, 200),
@@ -253,7 +257,24 @@ export const user_registerFcmToken = onCall(async (req) => {
 
 
 /** Sign-up identity: NRC (XXXXXX/XX/X), passport or driver's licence. Returns an error message or the cleaned ID. */
-export function identityOf(p: Record<string, unknown>): string | { idType: string; idNumber: string; key: string } {
+export const isCorporate = (p: Record<string, unknown>) => /corporate/i.test(String(p.businessType ?? ""));
+
+/**
+ * Corporate sellers and agencies are identified by the company, not a person: organisation name, PACRA registration
+ * number, 10-digit TPIN and registered address. The registration number is the unique identity.
+ */
+export function corporateOf(p: Record<string, unknown>): string | { idType: string; idNumber: string; key: string } {
+  const name = String(p.storeName ?? "").trim(), reg = String(p.regNumber ?? "").trim().toUpperCase(), tpin = String(p.tpin ?? "").replace(/\D/g, "");
+  if (name.length < 2) return "Enter the registered name of the organisation.";
+  if (!/^[A-Z0-9/-]{5,20}$/.test(reg)) return "Enter the company registration number as on the PACRA certificate (5–20 letters and digits).";
+  if (!/^\d{10}$/.test(tpin)) return "Enter the organisation's 10-digit TPIN.";
+  if (String(p.regAddress ?? "").trim().length < 5) return "Enter the organisation's registered address.";
+  return { idType: "Company registration", idNumber: reg, key: `CompanyReg_${reg.replace(/\W/g, "")}` };
+}
+
+export function identityOf(p: Record<string, unknown>, role?: string): string | { idType: string; idNumber: string; key: string } {
+  if ((role === "SELLER" || role === "AGENT") && isCorporate(p)) return corporateOf(p);
+  if (role === "AGENT" && String(p.idType ?? "NRC") !== "NRC") return "Agents sign up with their NRC.";
   const type = String(p.idType ?? (p.nrc ? "NRC" : ""));
   const raw = String(p.idNumber ?? p.nrc ?? "").trim().toUpperCase();
   if (!["NRC", "Passport", "Driver's licence"].includes(type)) return "Choose your ID type: NRC, passport or driver's licence.";

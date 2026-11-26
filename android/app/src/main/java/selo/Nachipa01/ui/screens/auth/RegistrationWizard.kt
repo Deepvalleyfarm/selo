@@ -122,12 +122,12 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
                 app.backend.register(RegistrationRequest(
                     role = role, msisdn = msisdn, pin = state.pin,
                     questions = state.questionIds.map { QuestionAnswer(it, state.answers[it].orEmpty()) },
-                    profile = state.text.toMap() + state.chips.mapValues { it.value.toList() } +
+                    profile = submittedText(state) + state.chips.mapValues { it.value.toList() } +
                         mapOf("workingDays" to state.hours.filterValues { it }.keys.toList(), "biometric" to state.biometric,
                             "walletNetwork" to state.walletNetwork),
                     payoutWallet = Validation.normaliseMsisdn(state["wallet"]),
                     referralCode = state["referral"].ifBlank { null },
-                    kycDocs = state.docs.toMap(), otpToken = state.otpToken,
+                    kycDocs = state.docs.filterKeys { k -> if (corporate(state)) k !in PERSONAL_DOCS else k !in CORPORATE_DOCS }, otpToken = state.otpToken,
                 )) { submitting = it }
             }.onSuccess { RegDraft.clear(ctx); onRegistered(it) }.onFailure { error = it.message ?: "We couldn't create your account. Check your connection and try again."; app.fail(error) }
             submitting = null
@@ -168,19 +168,20 @@ private fun pagesFor(role: Role, bank: List<SecurityQuestion>): List<Page> {
             Page("Review & terms", 5, 6, { s -> terms(s, "terms", "privacy") }) { BuyerReview(it) },
         )
         Role.SELLER -> listOf(
-            Page("Your business", 1, 1, { s -> req(s, "storeName" to "registered business name", "fullName" to "your full name") ?: mobileProblem(s)
+            Page("Your business", 1, 1, { s -> (if (corporate(s)) corporateProblem(s) else req(s, "storeName" to "shop or trading name", "fullName" to "your full name")) ?: mobileProblem(s)
                 ?: if ("shopBanner" !in s.docs) "Add your shop banner — take a photo or choose one from your gallery." else null }) { BusinessPage(it, false) },
             Page("Location & categories", 2, 3, { s -> (if (s["lat"].isBlank()) "Set your store location on the map." else null) ?: if ((s.chips["categories"] ?: emptySet()).isEmpty()) "Pick at least one category." else null }) {
                 AddressPage(it, "What do you sell?", sellerCats, "Pickup landmark for riders") },
-            Page("Identity (KYC)", 4, 4, { s -> idProblem(s) ?: req(s, "tpin" to "TPIN") ?: docs(s, "portrait") }) { KycPage(it, "Business registration\n(corporate only)") },
+            Page("Verification (KYC)", 4, 4, ::kycProblem) { KycPage(it) },
             Page("Payout wallet", 5, 5, ::validateWallet) { WalletPage(it, "Where should we pay you?") },
             sec(6),
             Page("Review, terms & fee", 7, 9, { s -> terms(s, "terms", "fee") }) { SellerReview(it) },
         )
         Role.AGENT -> listOf(
-            Page("Agency & hub", 1, 2, { s -> req(s, "storeName" to "agent name", "fullName" to "your full name", "hub" to "operating hub") ?: mobileProblem(s) }) { AgentHubPage(it) },
-            Page("Identity & wallet", 3, 4, { s -> idProblem(s) ?: req(s, "tpin" to "TPIN") ?: docs(s, "portrait") ?: validateWallet(s) }) {
-                KycPage(it, "Agency certificate\n(corporate only)"); WalletPage(it, "Commission wallet") },
+            Page("Agency & hub", 1, 2, { s -> (if (corporate(s)) corporateProblem(s) else req(s, "fullName" to "your full name (as on your NRC)")) ?: mobileProblem(s)
+                ?: req(s, "hub" to "operating hub") }) { AgentHubPage(it) },
+            Page("Verification & wallet", 3, 4, { s -> kycProblem(s) ?: validateWallet(s) }) {
+                KycPage(it); WalletPage(it, "Commission wallet") },
             sec(5),
             Page("Agreement & fee", 6, 8, { s -> terms(s, "conduct", "terms") }) { AgentAgreement(it) },
         )
@@ -227,11 +228,28 @@ private fun validateSecurity(s: RegState): String? {
     if (s.pin != s.pinConfirm) return "PINs don't match. Try again."
     return null
 }
+/** Corporate sellers and agencies register the organisation, not a person. */
+private fun corporate(s: RegState) = s.role.let { it == Role.SELLER || it == Role.AGENT } && s["businessType"].contains("orporate")
+private fun corporateProblem(s: RegState) = Validation.corporateProblem(s["storeName"], s["regNumber"], s["tpin"], s["regAddress"])
+private val PERSONAL_KEYS = setOf("fullName", "idType", "idNumber", "nrc")
+private val CORPORATE_KEYS = setOf("regNumber", "tpin", "regAddress")
+private val PERSONAL_DOCS = setOf("idFront", "idBack", "portrait")
+private val CORPORATE_DOCS = setOf("businessReg", "tpinCert")
+/** Only the fields for the chosen account type are sent (switching type never leaks the other form's details). */
+private fun submittedText(s: RegState): Map<String, String> = s.text.toMap().filterKeys { k ->
+    if (corporate(s)) k !in PERSONAL_KEYS else s.role != Role.SELLER && s.role != Role.AGENT || k !in CORPORATE_KEYS }
+/** Individual agents sign up with their NRC only. */
+private fun nrcOnly(s: RegState) = s.role == Role.AGENT && !corporate(s)
+/** KYC: individuals give their ID and a selfie; corporates give the certificate of incorporation. */
+private fun kycProblem(s: RegState): String? =
+    if (corporate(s)) docs(s, "businessReg")
+    else (if (nrcOnly(s) && s["idType"].ifBlank { "NRC" } != "NRC") "Agents sign up with their NRC." else null) ?: idProblem(s) ?: docs(s, "portrait")
+
 /** ID type, number (format checked) and the photos that type needs. */
 private fun idProblem(s: RegState): String? = Validation.idProblem(s["idType"], s["idNumber"])
     ?: Validation.idPhotos(s["idType"]).firstOrNull { it.first !in s.docs }?.let { "Add a photo of your ${it.second.lowercase()} — take one or choose it from your gallery." }
 
-private fun docLabel(k: String) = mapOf("nrcFront" to "NRC (front)", "nrcBack" to "NRC (back)", "portrait" to "face (portrait)",
+private fun docLabel(k: String) = mapOf("businessReg" to "certificate of incorporation", "nrcFront" to "NRC (front)", "nrcBack" to "NRC (back)", "portrait" to "face (portrait)",
     "licenceFront" to "driver's licence (front)", "licenceBack" to "driver's licence (back)", "vehicle" to "vehicle")[k] ?: k
 
 private val buyerCats = listOf("Fresh produce", "Fast food", "Electronics", "Fashion", "Home", "Beauty", "Hardware", "Baby", "Groceries")
@@ -344,6 +362,7 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("Individual", "Corporate").forEach { t -> SeloChip(t, (s["businessType"].ifBlank { "Individual" }) == t) { s.set("businessType", t) } }
     }
+    LaunchedEffect(Unit) { if (s["businessType"].isBlank()) s.set("businessType", "Individual") }
     val pick = rememberPhotoSource("Business logo") { s.docs["logo"] = it; s.autosave() }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { pick() }) {
         Box(Modifier.size(58.dp).background(if ("logo" in s.docs) Selo.Green else Selo.RedTint, RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
@@ -362,10 +381,16 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
                 Text("Wide photo of your shop or products · camera or gallery", fontSize = 11.sp, color = Selo.Mute) }
         }
     }
-    F(s, "storeName", "Registered business name *")
-    F(s, "fullName", "Your full name (as on NRC) *")
-    F(s, "description", "Describe what you sell")
-    MobileField(s)
+    if (corporate(s)) {
+        CorporateFields(s)
+        F(s, "description", "Describe what you sell")
+        F(s, "mobile", "Business mobile * (login)", KeyboardType.Phone, ph = "097 123 4567")
+    } else {
+        F(s, "storeName", "Shop or trading name *")
+        F(s, "fullName", "Your full name (as on your ID) *")
+        F(s, "description", "Describe what you sell")
+        MobileField(s)
+    }
     NoteBox("This number can't already be registered as a Buyer, Agent or Rider.")
 }
 
@@ -374,11 +399,11 @@ private fun BusinessPage(s: RegState, agent: Boolean) {
  * typing; photos come from the live camera or the gallery.
  */
 @Composable
-private fun IdentitySection(s: RegState) {
-    H("Your ID *", 14)
-    val type = s["idType"].ifBlank { "NRC" }
-    LaunchedEffect(Unit) { if (s["idType"].isBlank()) s.set("idType", "NRC") }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun IdentitySection(s: RegState, nrcOnly: Boolean = false) {
+    H(if (nrcOnly) "Your NRC *" else "Your ID *", 14)
+    val type = if (nrcOnly) "NRC" else s["idType"].ifBlank { "NRC" }
+    LaunchedEffect(nrcOnly) { if (s["idType"].isBlank() || nrcOnly && s["idType"] != "NRC") { s.set("idType", "NRC"); s.set("idNumber", Validation.formatIdNumber("NRC", s["idNumber"])) } }
+    if (!nrcOnly) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Validation.ID_TYPES.forEach { t -> SeloChip(t, type == t) {
             if (t != type) { s.set("idType", t); s.set("idNumber", Validation.formatIdNumber(t, s["idNumber"])); s.docs.remove("idFront"); s.docs.remove("idBack"); s.autosave() } } }
     }
@@ -405,12 +430,27 @@ private fun DocGrid(s: RegState, items: List<Pair<String, String>>) {
     }
 }
 
+/** Organisation details for corporate sellers and agencies — no personal details. */
 @Composable
-private fun KycPage(s: RegState, corporateDoc: String) {
+private fun CorporateFields(s: RegState) {
+    F(s, "storeName", "Registered organisation name *", ph = "As on the PACRA certificate")
+    SeloField("Company registration number *", s["regNumber"], { s.set("regNumber", it.uppercase().filter { c -> c.isLetterOrDigit() || c == '/' || c == '-' }.take(20)) },
+        keyboard = KeyboardType.Ascii, placeholder = "e.g. 120190012345")
+    SeloField("TPIN *", s["tpin"], { s.set("tpin", it.filter(Char::isDigit).take(10)) }, keyboard = KeyboardType.Number, placeholder = "10 digits")
+    F(s, "regAddress", "Registered address *", ph = "Plot, street, area, town")
+}
+
+@Composable
+private fun KycPage(s: RegState) {
     Sub("Take clear photos in good light, or choose saved photos from your gallery. Only our compliance team can see these.")
-    IdentitySection(s)
-    F(s, "tpin", "TPIN *", KeyboardType.Number)
-    DocGrid(s, listOf("portrait" to "Portrait selfie", "businessReg" to corporateDoc))
+    if (corporate(s)) {
+        H("Company documents *", 14)
+        ReviewCard(listOf("Organisation" to s["storeName"], "Registration no." to s["regNumber"], "TPIN" to s["tpin"]))
+        DocGrid(s, listOf("businessReg" to "Certificate of incorporation *", "tpinCert" to "TPIN certificate (optional)"))
+    } else {
+        IdentitySection(s, nrcOnly = nrcOnly(s))
+        DocGrid(s, listOf("portrait" to "Portrait selfie *"))
+    }
 }
 
 @Composable
@@ -451,7 +491,8 @@ private fun WalletPage(s: RegState, title: String) {
 @Composable
 private fun SellerReview(s: RegState) {
     val cfg by LocalAppState.current.config.collectAsState()
-    ReviewCard(listOf("Store" to s["storeName"], "Location" to s["area"], "Documents" to "NRC, TPIN, portrait",
+    ReviewCard(listOf("Store" to s["storeName"], "Type" to (if (corporate(s)) "Corporate · reg. ${s["regNumber"]} · TPIN ${s["tpin"]}" else "Individual"), "Location" to s["area"],
+        "Documents" to (if (corporate(s)) "Certificate of incorporation" else "${s["idType"].ifBlank { "NRC" }}, portrait"),
         "Payout" to "${s.walletNetwork} · ${s.walletHolder ?: ""}", "Security" to "3 questions · PIN set"))
     Tick(s, "terms", "I accept the Seller Terms, Marketplace Rules and Privacy Policy")
     Tick(s, "fee", "I understand a K ${cfg.flatPlatformFeeKwacha.toInt()} platform fee is deducted from each order when the rider collects")
@@ -468,9 +509,15 @@ private fun AgentHubPage(s: RegState) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("Individual agent", "Agency (corporate)").forEach { t -> SeloChip(t, (s["businessType"].ifBlank { "Individual agent" }) == t) { s.set("businessType", t) } }
     }
-    F(s, "storeName", "Agent or agency name *")
-    F(s, "fullName", "Your full name (as on NRC) *")
-    MobileField(s)
+    LaunchedEffect(Unit) { if (s["businessType"].isBlank()) s.set("businessType", "Individual agent") }
+    if (corporate(s)) {
+        CorporateFields(s)
+        F(s, "mobile", "Agency mobile * (login)", KeyboardType.Phone, ph = "097 123 4567")
+    } else {
+        F(s, "fullName", "Your full name (as on your NRC) *")
+        MobileField(s)
+        Sub("You'll add your NRC number and photos on the next step.")
+    }
     H("Your operating hub", 14)
     listOf("Soweto Market" to "Lusaka", "Comesa Market" to "Lusaka CBD", "Katanjinjin Zone" to "Lusaka", "City Market" to "Lusaka").forEach { (h, c) ->
         RadioCard(s["hub"] == h, h, c, icon = Icons.Outlined.Storefront) { s.set("hub", h); s.set("area", h) }

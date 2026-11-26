@@ -119,11 +119,13 @@ class DemoBackend : Backend {
         if (req.kycDocs.isNotEmpty()) { onProgress("Uploading documents"); delay(700) }
         val status = if (req.role == Role.BUYER) AccountStatus.ACTIVE
             else if (req.role == Role.RIDER) AccountStatus.PENDING_VERIFICATION else AccountStatus.PENDING_KYC
-        val first = (req.profile["firstName"] as? String)?.ifBlank { null }
+        val corp = (req.profile["businessType"] as? String)?.contains("orporate") == true && (req.role == Role.SELLER || req.role == Role.AGENT)
+        val first = (req.profile["storeName"] as? String)?.takeIf { corp }
+            ?: (req.profile["firstName"] as? String)?.ifBlank { null }
             ?: (req.profile["fullName"] as? String)?.substringBefore(' ') ?: req.role.label
         return DemoData.demoUser(req.role, req.msisdn, status).copy(
             firstName = first,
-            fullName = (req.profile["fullName"] as? String) ?: first,
+            fullName = if (corp) first else (req.profile["fullName"] as? String) ?: first,
             storeName = (req.profile["storeName"] as? String) ?: "",
         ).also { session = it }
     }

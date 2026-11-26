@@ -115,22 +115,25 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
     var myPos by remember { mutableStateOf(LastFix.fresh()) }
     var locating by remember { mutableStateOf(false) }
     val locator = rememberLocator()
+    // The pickup follows the sender's GPS until they choose a different point themselves.
+    var pickupAuto by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
-        if (pickup != null) return@LaunchedEffect
+        if (pickup != null && !pickupAuto) return@LaunchedEffect
         locating = true
         locator.locate { at, problem ->
             locating = false
             if (at == null) { app.info(problem ?: "Couldn't find you — choose the pickup point."); return@locate }
-            myPos = at
-            scope.launch { runCatching { app.backend.reverseGeocode(at.first, at.second) }.onSuccess { p ->
-                if (pickup == null && p.inServiceArea) { pickup = p; app.ok("Pickup set to your current location") } } }
+            myPos = at.at
+            scope.launch { runCatching { app.backend.reverseGeocode(at.lat, at.lng).copy(lat = at.lat, lng = at.lng) }.onSuccess { p ->
+                if (pickupAuto && p.inServiceArea) { pickup = p; selo.Nachipa01.data.maps.RecentPlaces.remember(p)
+                    app.ok("Pickup set to your current location${at.accuracyM?.let { " (±${it.toInt()} m)" } ?: ""}") } } }
         }
     }
     var error by remember { mutableStateOf<String?>(null) }
     val choice = rememberPaymentChoice(app.session.value?.msisdn)
     val sameCity = if (pickup != null && dropoff != null) Cities.sameCityProblem(pickup!!.lat, pickup!!.lng, dropoff!!.lat, dropoff!!.lng) else null
     val suggested = remember(desc) { suggestCategory(desc) }
-    LaunchedEffect(Unit) { if (pickup == null) app.backend.savedAddresses().collect { l -> if (pickup == null) pickup = l.firstOrNull { it.isDefault }?.place; return@collect } }
+    LaunchedEffect(Unit) { if (pickup == null) app.backend.savedAddresses().collect { l -> if (pickup == null && myPos == null) pickup = l.firstOrNull { it.isDefault }?.place; return@collect } }
     LaunchedEffect(step, pickup, dropoff, insured, declared) {
         if (step != 3) return@LaunchedEffect
         quote = null; error = null
@@ -147,7 +150,7 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                 1 -> {
                     if (locating && pickup == null) Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Selo.Red); Text("  Finding your current location…", color = Selo.Mute, fontSize = 13.sp) }
-                    AddressField("From (pickup)", pickup, { pickup = it })
+                    AddressField("From (pickup)", pickup, { pickupAuto = false; pickup = it })
                     Text("Sending from somewhere else? Tap Change and search or pick any pickup point.", color = Selo.Mute, fontSize = 12.sp)
                     Text("Weight", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
