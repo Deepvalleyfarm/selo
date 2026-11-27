@@ -19,6 +19,7 @@ class SeloApp : Application() {
         selo.Nachipa01.data.maps.PlacesCache.init(this)
         selo.Nachipa01.data.maps.RecentPlaces.init(this)
         selo.Nachipa01.data.repo.OfflineCatalog.init(this)
+        selo.Nachipa01.data.repo.DemoAccounts.init(this)
         val app = if (BuildConfig.HAS_FIREBASE_CONFIG) FirebaseApp.initializeApp(this) else null
         backend = if (app != null) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())

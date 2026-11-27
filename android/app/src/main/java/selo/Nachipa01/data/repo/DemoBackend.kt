@@ -106,6 +106,9 @@ class DemoBackend : Backend {
             throw BackendException(if (n >= 5) "Too many attempts. Locked for 30 minutes." else "Incorrect PIN. ${5 - n} attempt${if (5 - n == 1) "" else "s"} left before a 30-minute lock.")
         }
         wrongPins.remove(msisdn)
+        // Accounts registered on this phone come back with their own role and name (always active in the demo).
+        DemoAccounts.get(msisdn)?.let { a -> return DemoData.demoUser(a.role, msisdn).copy(firstName = a.firstName.ifBlank { a.role.label },
+            fullName = a.fullName.ifBlank { a.firstName }, storeName = a.storeName).also { session = it } }
         val role = when (msisdn.last()) { '2' -> Role.SELLER; '3' -> Role.AGENT; '4' -> Role.RIDER; else -> Role.BUYER }
         return DemoData.demoUser(role, msisdn).also { session = it }
     }
@@ -117,8 +120,8 @@ class DemoBackend : Backend {
         onProgress("Creating your account"); delay(700)
         securityByMsisdn[req.msisdn] = req.questions.map { it.copy(answer = Validation.normaliseAnswer(it.answer)) }
         if (req.kycDocs.isNotEmpty()) { onProgress("Uploading documents"); delay(700) }
-        val status = if (req.role == Role.BUYER) AccountStatus.ACTIVE
-            else if (req.role == Role.RIDER) AccountStatus.PENDING_VERIFICATION else AccountStatus.PENDING_KYC
+        // Demo: every account is approved instantly (no admin review) so riders, sellers and agents get full access right away.
+        val status = AccountStatus.ACTIVE
         val corp = (req.profile["businessType"] as? String)?.contains("orporate") == true && (req.role == Role.SELLER || req.role == Role.AGENT)
         val first = (req.profile["storeName"] as? String)?.takeIf { corp }
             ?: (req.profile["firstName"] as? String)?.ifBlank { null }
@@ -127,7 +130,7 @@ class DemoBackend : Backend {
             firstName = first,
             fullName = if (corp) first else (req.profile["fullName"] as? String) ?: first,
             storeName = (req.profile["storeName"] as? String) ?: "",
-        ).also { session = it }
+        ).also { session = it; DemoAccounts.save(req.msisdn, DemoAccounts.Saved(it.role, it.firstName, it.fullName, it.storeName)) }
     }
 
     override suspend fun recoveryQuestions(msisdn: String): List<SecurityQuestion>? {
