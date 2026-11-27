@@ -39,8 +39,15 @@ data class ReportMetric(val key: String, val label: String, val value: Long, val
     val changePct: Int? get() = if (previous > 0 && unit != "pct") (((value - previous) * 100) / previous).toInt() else null
 }
 data class TopProduct(val title: String, val units: Int, val revenueNgwee: Long)
+data class BreakdownRow(val label: String, val value: String, val sub: String? = null)
+data class ReportBreakdown(val title: String, val rows: List<BreakdownRow>)
+/** Role-specific monthly report: the metrics, breakdowns, highlights and tips differ for sellers, riders and agents. */
 data class PerformanceReport(val month: String, val monthLabel: String, val role: String, val metrics: List<ReportMetric>, val highlights: List<String>,
-                             val tips: List<String>, val top: List<TopProduct> = emptyList())
+                             val tips: List<String>, val top: List<TopProduct> = emptyList(), val breakdowns: List<ReportBreakdown> = emptyList(),
+                             val highlightsTitle: String = "Highlights", val tipsTitle: String = "Tips for next month")
+
+/** Where a rider takes parcel jobs: a city plus chosen neighbourhoods, or the whole city. */
+data class RiderAreas(val cityId: String, val cityName: String, val wholeCity: Boolean, val neighbourhoods: List<String>)
 
 /* ----------------------------------------------------------------- Rider Safety Centre */
 data class SafetyStatus(

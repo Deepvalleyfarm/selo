@@ -836,7 +836,14 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun cancelParcel(id: String) = (call("parcel_cancel", mapOf("parcelId" to id))["refundedNgwee"] as? Number)?.toLong() ?: 0
     override suspend fun editParcelReceiver(id: String, name: String, msisdn: String) { call("parcel_editReceiver", mapOf("parcelId" to id, "name" to name, "msisdn" to msisdn)) }
     override suspend fun confirmParcelPickup(id: String, pin: String) { call("rider_confirmPickup", mapOf("parcelId" to id, "pin" to pin)) }
-    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>) { call("rider_setAreas", mapOf("cityId" to cityId, "neighbourhoods" to neighbourhoods)) }
+    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>, wholeCity: Boolean) {
+        call("rider_setAreas", mapOf("cityId" to cityId, "neighbourhoods" to neighbourhoods, "wholeCity" to wholeCity)) }
+    @Suppress("UNCHECKED_CAST")
+    override suspend fun riderAreas(): RiderAreas? {
+        val d = db.collection("riderAreas").document(uid() ?: return null).get().await()
+        if (!d.exists()) return null
+        return RiderAreas(d.getString("cityId") ?: "", d.getString("cityName") ?: "", d.getBoolean("wholeCity") == true, (d.get("neighbourhoods") as? List<String>).orEmpty())
+    }
     override suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?) { runCatching { call("rider_ping", mapOf("lat" to lat, "lng" to lng, "accuracy" to accuracy?.toDouble())) } }
 
     /* ======================================================== v6.4 delivery confirmation */
@@ -943,7 +950,10 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             (r["metrics"] as? List<Map<*, *>>).orEmpty().map { ReportMetric(it["key"] as? String ?: "", it["label"] as? String ?: "", (it["value"] as? Number)?.toLong() ?: 0,
                 (it["previous"] as? Number)?.toLong() ?: 0, it["unit"] as? String ?: "count") },
             (r["highlights"] as? List<String>).orEmpty(), (r["tips"] as? List<String>).orEmpty(),
-            (r["top"] as? List<Map<*, *>>).orEmpty().map { TopProduct(it["title"] as? String ?: "", (it["units"] as? Number)?.toInt() ?: 0, (it["revenueNgwee"] as? Number)?.toLong() ?: 0) })
+            (r["top"] as? List<Map<*, *>>).orEmpty().map { TopProduct(it["title"] as? String ?: "", (it["units"] as? Number)?.toInt() ?: 0, (it["revenueNgwee"] as? Number)?.toLong() ?: 0) },
+            (r["breakdowns"] as? List<Map<*, *>>).orEmpty().map { b -> ReportBreakdown(b["title"] as? String ?: "", (b["rows"] as? List<Map<*, *>>).orEmpty().map {
+                BreakdownRow(it["label"] as? String ?: "", it["value"] as? String ?: "", it["sub"] as? String) }) },
+            r["highlightsTitle"] as? String ?: "Highlights", r["tipsTitle"] as? String ?: "Tips for next month")
     }
 
     @Suppress("UNCHECKED_CAST")

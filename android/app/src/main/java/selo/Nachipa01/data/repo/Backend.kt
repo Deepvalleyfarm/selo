@@ -170,7 +170,8 @@ interface Backend {
     suspend fun cancelParcel(id: String): Long
     suspend fun editParcelReceiver(id: String, name: String, msisdn: String)
     suspend fun confirmParcelPickup(id: String, pin: String)
-    suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>)
+    suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>, wholeCity: Boolean = false)
+    suspend fun riderAreas(): RiderAreas?
     suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?)
 
     // ------------------------------------------------ v6.4 delivery confirmation (parcels + orders). kind = "parcel" | "order"

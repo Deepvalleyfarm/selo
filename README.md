@@ -162,6 +162,18 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.9.4 — rider profile and role reports
+
+- **Demo:** no registration fee. Sellers and agents tap "Create my account", and all roles are active straight away.
+- **Rider statement:** a formatted A4 PDF for this month, last month, the last 90 days or all deliveries. It has a header, summary boxes, one row per delivery (gross, fee, Social Fund, bonus, net), the column header repeated on every page, totals and page numbers. It's shared through the share sheet.
+- **Zone & availability:** a new "Neighbourhoods you cover" section. Riders pick a city, then up to 10 neighbourhoods or **Whole city**, which means every neighbourhood in that city (`riderAreas.wholeCity`; parcel dispatch honours it).
+- **Monthly reports by role:**
+  - Riders get net earnings from their own deliveries, split into marketplace orders and parcels, plus where the money went, busiest areas, best day, and rider tips.
+  - Agents get net commission at each seller's rate, sales made for sellers, active sellers, sellers onboarded, listings created, commission by seller, and agent tips.
+  - Sellers keep their sales report.
+  - Highlights and tips titles are role-specific, and agents can open the report from their home screen.
+- **Rider tab bar:** fixed on every screen, including during turn-by-turn navigation and while a job offer is showing.
+
 ## v6.9 — growth tools, rider safety, smart dispatch
 
 - **AI Ad Generator** (`ad_generate`, `adgen.ts`):

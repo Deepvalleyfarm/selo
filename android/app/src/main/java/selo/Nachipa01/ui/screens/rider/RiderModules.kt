@@ -154,6 +154,7 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
     var withdrawing by remember { mutableStateOf(false) }
     var walletKey by remember { mutableIntStateOf(0) }
     val wallet by selo.Nachipa01.ui.payments.rememberWalletStatus(walletKey)
+    var statementPicker by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
     val target = profile?.weeklyTargetNgwee ?: 100_000
     val hero = RiderTiers.isHero(stats.tier)
@@ -199,16 +200,18 @@ fun RiderEarnings(profile: RiderProfile?, stats: RiderStats, open: (String) -> U
             msg?.let { NoteBox(it, Tone.OK) }
         }
         Row(Modifier.fillMaxWidth().background(Color.White).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlineButton("Statement", Modifier.weight(1f)) {
-                val csv = "order,date,pickup,dropoff,gross_zmw,platform_fee,social_fund,hero_bonus,net_zmw,km\n" + history.joinToString("\n") {
-                    "${it.orderId},${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.UK).format(Date(it.at))},\"${it.pickupArea}\",\"${it.dropArea}\",${"%.2f".format(it.grossNgwee / 100.0)}," +
-                        "${"%.2f".format(it.platformNgwee / 100.0)},${"%.2f".format(it.fundNgwee / 100.0)},${"%.2f".format(it.bonusNgwee / 100.0)},${"%.2f".format(it.netNgwee / 100.0)},${it.km}" }
-                runCatching { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/csv"; putExtra(Intent.EXTRA_SUBJECT, "SeloNaChipa rider statement"); putExtra(Intent.EXTRA_TEXT, csv) }, "Share statement")) }
-            }
+            OutlineButton("Statement (PDF)", Modifier.weight(1f)) { statementPicker = true }
             selo.Nachipa01.ui.payments.WithdrawButton(wallet, Modifier.weight(1.4f)) { withdrawing = true }
         }
     }
     if (withdrawing) wallet?.let { w -> selo.Nachipa01.ui.payments.WithdrawSheet(w, profile?.payoutWallet) { withdrawing = false; walletKey++ } }
+    if (statementPicker) AlertDialog({ statementPicker = false }, title = { Text("Download statement") },
+        text = { Column { Text("A PDF with every delivery, fees, Social Fund, bonus and net earnings.", color = Selo.Mute, fontSize = 13.sp)
+            StatementPeriod.entries.forEach { p -> TextButton({ statementPicker = false
+                runCatching { shareStatement(ctx, riderStatementPdf(ctx, profile, profile?.fullName ?: app.session.value?.fullName ?: "Rider", history, p)) }
+                    .onFailure { app.fail("Couldn't create the statement PDF.") } }) {
+                Text("${p.label} · ${history.count { it.at in statementRange(p).first..statementRange(p).second }} deliveries", color = Selo.Red, fontWeight = FontWeight.Bold) } } } },
+        confirmButton = {}, dismissButton = { TextButton({ statementPicker = false }) { Text("Cancel") } })
 }
 
 /* =================================================================== SOCIAL FUND (6.8) */

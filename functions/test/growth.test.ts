@@ -88,3 +88,25 @@ describe("mark rider cover premiums as paid", () => {
     expect(remittanceProblem([rows[0]], ["a", "b"], 400, "BANK-1234")).toMatch(/no longer exist/);
   });
 });
+
+import { agentMetrics } from "../src/reports";
+describe("role-specific reports", () => {
+  it("rider: earnings split by orders and parcels, best day, busiest area, rider tips", () => {
+    const at = new Date("2026-11-13T10:00:00Z"); // a Friday
+    const e = (kind: string, net: number) => ({ type: "delivery_credit", kind, net, bonus: 0, socialLevy: 100, km: 3, gross: net + 300, platformFee: 200, dropArea: "Kabwata", at });
+    const r = riderMetrics([e("order", 2_000), e("parcel", 3_000), e("parcel", 3_000)], [], { acceptanceRate: 95 });
+    expect(r.breakdowns[0].rows.map((x) => x.value)).toEqual(["K 20.00", "K 60.00"]);
+    expect(r.highlights.join(" ")).toMatch(/Fridays/);
+    expect(r.tips.join(" ")).toMatch(/Kabwata/);
+    expect(r.tips.join(" ")).not.toMatch(/Marketing Centre|bundle/);
+  });
+  it("agent: commission at each seller's rate, net of the platform cut, agent tips", () => {
+    const o = (seller: string, goods: number) => ({ state: "COMPLETED", goodsNgwee: goods, sellerUid: seller, sellerName: seller });
+    const r = agentMetrics([o("s1", 10_000), o("s2", 20_000)], [], new Map([["s1", 10], ["s2", 5]]), 20, { cur: 0, prev: 0 }, { cur: 2, prev: 0 });
+    const m = Object.fromEntries(r.metrics.map((x) => [x.key, x.value]));
+    expect(m.commission).toBe(800 + 800); // (1000 − 20%) + (1000 − 20%)
+    expect(r.breakdowns[0].title).toBe("Commission by seller");
+    expect(r.tips.join(" ")).toMatch(/Onboard/);
+    expect(r.tips.join(" ")).not.toMatch(/acceptance rate|Marketing Centre/);
+  });
+});

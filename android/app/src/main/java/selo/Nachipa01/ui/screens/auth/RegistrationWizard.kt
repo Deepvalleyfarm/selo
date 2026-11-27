@@ -144,7 +144,9 @@ fun RegistrationWizard(role: Role, onExit: () -> Unit, onRegistered: (SessionUse
             page.body(state)
             ErrorText(error)
             if (last) {
-                val cta = when (role) { Role.BUYER -> "Create my account"; Role.RIDER -> "Submit application"
+                // Demo: no registration fee is charged, so sellers and agents just create the account.
+                val cta = when { role == Role.BUYER -> "Create my account"; role == Role.RIDER -> "Submit application"
+                    app.backend is selo.Nachipa01.data.repo.DemoBackend -> "Create my account"
                     else -> "Authorise K ${app.config.collectAsState().value.sellerRegistrationFee.toInt()} & submit" }
                 PrimaryButton(cta, loading = submitting != null, onClick = ::next)
                 if (submitting != null) Sub("$submitting…")
@@ -496,7 +498,8 @@ private fun SellerReview(s: RegState) {
         "Payout" to "${s.walletNetwork} · ${s.walletHolder ?: ""}", "Security" to "3 questions · PIN set"))
     Tick(s, "terms", "I accept the Seller Terms, Marketplace Rules and Privacy Policy")
     Tick(s, "fee", "I understand a K ${cfg.flatPlatformFeeKwacha.toInt()} platform fee is deducted from each order when the rider collects")
-    SeloCard {
+    if (LocalAppState.current.backend is selo.Nachipa01.data.repo.DemoBackend) NoteBox("Demo: no registration fee — your shop is active as soon as you finish.", Tone.OK)
+    else SeloCard {
         Text("One-time registration fee", fontWeight = FontWeight.ExtraBold)
         KvRow("Amount", Fees.formatK(Fees.kwachaToNgwee(cfg.sellerRegistrationFee)))
         KvRow("Charged to", s.walletNetwork)
@@ -539,7 +542,8 @@ private fun AgentAgreement(s: RegState) {
     }
     Tick(s, "conduct", "I agree to the Agent Code of Conduct: sellers always enter their own PIN and security answers")
     Tick(s, "terms", "I accept the Terms, Marketplace Rules and Privacy Policy")
-    SeloCard { KvRow("One-time registration fee · ${s.walletNetwork}", Fees.formatK(Fees.kwachaToNgwee(cfg.sellerRegistrationFee))) }
+    if (LocalAppState.current.backend is selo.Nachipa01.data.repo.DemoBackend) NoteBox("Demo: no registration fee — your agent tools are active as soon as you finish.", Tone.OK)
+    else SeloCard { KvRow("One-time registration fee · ${s.walletNetwork}", Fees.formatK(Fees.kwachaToNgwee(cfg.sellerRegistrationFee))) }
 }
 
 @Composable

@@ -268,4 +268,26 @@ class ScreensScreenshotTest {
         selo.Nachipa01.ui.nav.SeloNavHost {} }
     @Test fun g17_coverOff() = shot("G17-rider-cover-not-available", Role.RIDER, advance = 1_000,
         act = { rule.onNode(androidx.compose.ui.test.hasText("Not available yet", substring = true)).performScrollTo() }) { RiderShell("more", initialScreen = "safety") {} }
+
+    // v6.9.4: role reports, whole-city areas, statement PDF
+    @Test fun h1_riderReport() = shot("H1-rider-report", Role.RIDER, advance = 1_000, act = { rule.onNode(androidx.compose.ui.test.hasText("Earnings by job type", ignoreCase = true)).performScrollTo() }) {
+        selo.Nachipa01.ui.screens.account.PerformanceReportScreen("2026-10") {} }
+    @Test fun h2_agentReport() = shot("H2-agent-report", Role.AGENT, advance = 1_000, act = { rule.onNode(androidx.compose.ui.test.hasText("Commission by seller", ignoreCase = true)).performScrollTo() }) {
+        selo.Nachipa01.ui.screens.account.PerformanceReportScreen("2026-10") {} }
+    @Test fun h3_wholeCity() = shot("H3-rider-whole-city", Role.RIDER, advance = 1_000, act = { rule.onNode(androidx.compose.ui.test.hasText("Whole city")).performScrollTo() }) {
+        RiderShell("more", initialScreen = "zones") {} }
+    @Test fun h4_statementPdf() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        val now = System.currentTimeMillis()
+        val rows = List(60) { i -> selo.Nachipa01.data.model.RiderDelivery("SNC-48${100 + i}", listOf("Soweto", "Kamwala", "Arcades")[i % 3], listOf("Kabwata", "Woodlands", "Chilenje")[i % 3],
+            "", "", "item", 2_500L + i * 10, 200, 125, if (i % 5 == 0) 250 else 0, 2_175L + i * 10 + (if (i % 5 == 0) 250 else 0), 3.0 + i % 7, now - i * 3_600_000L) }
+        // Render the statement pages to PNGs (PdfDocument isn't available under Robolectric; the drawing code is the same).
+        var bmp: android.graphics.Bitmap? = null; val pages = mutableListOf<android.graphics.Bitmap>()
+        selo.Nachipa01.ui.screens.rider.drawStatement(null, "Chanda Mulenga", rows, selo.Nachipa01.ui.screens.rider.StatementPeriod.ALL,
+            start = { bmp = android.graphics.Bitmap.createBitmap(595 * 2, 842 * 2, android.graphics.Bitmap.Config.ARGB_8888)
+                android.graphics.Canvas(bmp!!).apply { drawColor(android.graphics.Color.WHITE); scale(2f, 2f) } }, finish = { pages += bmp!! })
+        pages.forEachIndexed { i, b -> java.io.File("build/outputs/roborazzi/H4-statement-p${i + 1}.png").outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) } }
+        org.junit.Assert.assertEquals(3, pages.size)
+    }
+    @Test fun h5_demoSellerFee() = shot("H5-demo-seller-no-fee") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 6) }
 }

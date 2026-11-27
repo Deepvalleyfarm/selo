@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -226,6 +227,7 @@ fun ZonesScreen(back: () -> Unit) {
                         border = androidx.compose.foundation.BorderStroke(1.dp, Selo.Red), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)) { Text("Add zone", color = Selo.Red) }
                 }
             }
+            ParcelAreasCard()
             RedHeading("My working hours")
             Text("Outside these hours you won't get jobs, even when you're online.", color = Selo.Mute, fontSize = 12.sp)
             Column(Modifier.background(Color.White, RoundedCornerShape(12.dp))) {
@@ -560,6 +562,60 @@ fun IncidentScreen(back: () -> Unit) {
             ErrorText(error)
             PrimaryButton("Send report", whyDisabled = "Describe what happened in at least 10 characters.", enabled = desc.trim().length >= 10, loading = busy) {
                 busy = true; scope.launch { runCatching { app.backend.reportIncident(IncidentReport(type, desc.trim(), ref, photo)) }.onSuccess { done = it }.onFailure { error = it.message }; busy = false } }
+        }
+    }
+}
+
+
+/**
+ * Parcel jobs area: the rider's city plus up to 10 neighbourhoods, or "Whole city" to take jobs from every
+ * neighbourhood in that city.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ParcelAreasCard() {
+    val app = LocalAppState.current
+    val scope = rememberCoroutineScope()
+    var loaded by remember { mutableStateOf(false) }
+    var cityId by remember { mutableStateOf("lusaka") }
+    var whole by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    var saving by remember { mutableStateOf(false) }
+    var showAll by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        runCatching { app.backend.riderAreas() }.getOrNull()?.let { a -> cityId = a.cityId.ifBlank { "lusaka" }; whole = a.wholeCity; picked = a.neighbourhoods.toSet() }
+        loaded = true
+    }
+    val city = selo.Nachipa01.domain.Cities.byId(cityId) ?: selo.Nachipa01.domain.Cities.ALL.first()
+    RedHeading("Neighbourhoods you cover")
+    Column(Modifier.fillMaxWidth().background(Color.White, RoundedCornerShape(12.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("City", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            selo.Nachipa01.domain.Cities.ALL.forEach { c -> selo.Nachipa01.ui.components.SeloChip(c.name, c.id == cityId) { if (c.id != cityId) { cityId = c.id; picked = emptySet() } } }
+        }
+        Row(Modifier.fillMaxWidth().background(if (whole) Selo.GreenTint else Selo.Surface, RoundedCornerShape(12.dp)).clickable { whole = !whole }.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Whole city", fontWeight = FontWeight.ExtraBold)
+                Text("Take jobs from all ${city.neighbourhoods.size} neighbourhoods in ${city.name}", color = Selo.Mute, fontSize = 12.sp)
+            }
+            Switch(whole, { whole = it }, colors = SwitchDefaults.colors(checkedTrackColor = Selo.Green))
+        }
+        if (!whole) {
+            Text("Or choose up to 10 neighbourhoods (${picked.size}/10)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            val list = if (showAll) city.neighbourhoods else (picked.toList() + city.neighbourhoods.filter { it !in picked }).take(18)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                list.forEach { n -> selo.Nachipa01.ui.components.SeloChip(n, n in picked) {
+                    picked = if (n in picked) picked - n else if (picked.size < 10) picked + n else { app.fail("Up to 10 neighbourhoods — or switch on Whole city."); picked } } }
+            }
+            if (city.neighbourhoods.size > 18) TextButton({ showAll = !showAll }) { Text(if (showAll) "Show fewer" else "Show all ${city.neighbourhoods.size}", color = Selo.Red, fontWeight = FontWeight.Bold) }
+        }
+        selo.Nachipa01.ui.components.PrimaryButton(if (whole) "Save · whole of ${city.name}" else "Save ${picked.size} neighbourhood${if (picked.size == 1) "" else "s"}",
+            enabled = loaded && !saving && (whole || picked.isNotEmpty()), loading = saving, whyDisabled = "Choose at least one neighbourhood, or switch on Whole city.") {
+            saving = true
+            scope.launch { runCatching { app.backend.setRiderAreas(city.id, picked.toList(), whole) }
+                .onSuccess { app.ok(if (whole) "You'll get jobs from all of ${city.name}" else "Saved — you'll get jobs from ${picked.size} neighbourhoods") }
+                .onFailure { app.fail(it.message ?: "Couldn't save your areas.") }; saving = false }
         }
     }
 }

@@ -38,7 +38,8 @@ fun AgentHomeScreen(onLogout: () -> Unit, onAddListing: () -> Unit) {
             WalletCard("Selo Ledger", "Your commission balance", wallet?.availableNgwee ?: 0, listOf(
                 QuickAction(Icons.Outlined.Payments, if (wallet?.active != null) "In progress" else "Withdraw") {
                     val b = wallet?.block; if (b == null && wallet != null) withdrawing = true else app.fail(b ?: "Checking your balance…") },
-                QuickAction(Icons.Outlined.Receipt, "Receipts") { app.navRequest.value = "receipts" }))
+                QuickAction(Icons.Outlined.Receipt, "Receipts") { app.navRequest.value = "receipts" },
+                QuickAction(Icons.Outlined.Assessment, "Report") { app.navRequest.value = "report" }))
             if (!approved) {
                 NoteBox("Verification in progress · 24–48 h", Tone.WARN)
                 SeloCard {

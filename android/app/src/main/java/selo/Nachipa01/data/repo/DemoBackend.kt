@@ -470,9 +470,12 @@ class DemoBackend : Backend {
     override suspend fun cancelParcel(id: String) = v64.cancel(id)
     override suspend fun editParcelReceiver(id: String, name: String, msisdn: String) = v64.editReceiver(id, name, msisdn)
     override suspend fun confirmParcelPickup(id: String, pin: String) = rider.collectParcel(id, pin)
-    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>) {
-        delay(200); if (neighbourhoods.size !in 1..10) throw BackendException("Choose between 1 and 10 neighbourhoods.")
+    private var areas: RiderAreas? = RiderAreas("lusaka", "Lusaka", false, listOf("Kabulonga", "Woodlands", "Kabwata"))
+    override suspend fun setRiderAreas(cityId: String, neighbourhoods: List<String>, wholeCity: Boolean) {
+        delay(200); if (!wholeCity && neighbourhoods.size !in 1..10) throw BackendException("Choose between 1 and 10 neighbourhoods, or the whole city.")
+        areas = RiderAreas(cityId, selo.Nachipa01.domain.Cities.byId(cityId)?.name ?: cityId, wholeCity, if (wholeCity) emptyList() else neighbourhoods)
     }
+    override suspend fun riderAreas(): RiderAreas? { delay(150); return areas }
     override suspend fun pingLocation(lat: Double, lng: Double, accuracy: Float?) { riderPos = lat to lng }
     private var riderPos: Pair<Double, Double>? = null
 
@@ -586,23 +589,48 @@ class DemoBackend : Backend {
     }
     override suspend fun performanceReport(month: String?): PerformanceReport {
         delay(400)
-        return if (session?.role == Role.RIDER) PerformanceReport("2026-10", "October 2026", "RIDER", listOf(
-            ReportMetric("earnings", "Net earnings", 412_350, 365_000, "ngwee"), ReportMetric("deliveries", "Deliveries completed", 184, 161, "count"),
-            ReportMetric("km", "Distance ridden", 1_046, 912, "km"), ReportMetric("perDelivery", "Average per delivery", 2_241, 2_267, "ngwee"),
-            ReportMetric("fund", "Saved in your Social Fund", 27_600, 24_150, "ngwee"), ReportMetric("acceptance", "Acceptance rate", 91, 91, "pct"),
-            ReportMetric("completion", "Completion rate (all time)", 98, 98, "pct")),
-            listOf("23 more deliveries than last month.", "K 276.00 went into your Social Fund."),
-            listOf("Stay online at busy times (12:00–14:00 and 17:00–19:00) near markets to get more top-ranked offers.", "Ride safe: keep your emergency contact up to date in the Safety Centre."))
-        else PerformanceReport("2026-10", "October 2026", "SELLER", listOf(
-            ReportMetric("sales", "Sales", 1_284_500, 1_032_000, "ngwee"), ReportMetric("net", "Your earnings (after platform fee)", 1_254_000, 1_007_500, "ngwee"),
-            ReportMetric("orders", "Paid orders", 61, 49, "count"), ReportMetric("units", "Items sold", 143, 118, "count"),
-            ReportMetric("aov", "Average order", 21_057, 21_061, "ngwee"), ReportMetric("cancelRate", "Cancelled or refunded", 3, 6, "pct"),
-            ReportMetric("promoShare", "Sales from your deals", 24, 0, "pct")),
-            listOf("Sales up 24% on last month.", "Best seller: Fresh Chongwe tomatoes – 5 kg bag (64 sold)."),
-            listOf("Small average orders — a product bundle can raise what each buyer spends.", "Keep your best seller in stock: it sold out twice last month."),
-            listOf(TopProduct("Fresh Chongwe tomatoes – 5 kg bag", 64, 512_000), TopProduct("Rape bundle, freshly cut", 52, 52_000), TopProduct("Relish pack (bundle)", 22, 187_000)))
+        return when (session?.role) {
+            Role.RIDER -> PerformanceReport("2026-10", "October 2026", "RIDER", listOf(
+                ReportMetric("earnings", "Net earnings from deliveries", 412_350, 365_000, "ngwee"), ReportMetric("deliveries", "Deliveries completed", 184, 161, "count"),
+                ReportMetric("km", "Distance ridden", 1_046, 912, "km"), ReportMetric("perDelivery", "Average per delivery", 2_241, 2_267, "ngwee"),
+                ReportMetric("fund", "Saved in your Social Fund", 27_600, 24_150, "ngwee"), ReportMetric("acceptance", "Acceptance rate", 91, 91, "pct"),
+                ReportMetric("completion", "Completion rate (all time)", 98, 98, "pct")),
+                listOf("23 more deliveries than last month.", "Earnings up 13%.", "Your best day was Fridays (K 812.40 from 36 jobs).", "38% of your jobs were parcels.",
+                    "K 276.00 went into your Social Fund.", "Hero bonus paid: K 184.20."),
+                listOf("Plan to be online on Fridays — that's when you earned most.", "Most of your drop-offs were in Kabwata. Add it (or the whole city) in Zone & availability to get more jobs there.",
+                    "Stay online at lunch (12:00–14:00) and evening rush (17:00–19:00) near markets to get more top-ranked offers.",
+                    "Take a photo at every drop-off (Safety Centre → Delivery evidence): it protects your earnings in disputes."),
+                breakdowns = listOf(
+                    ReportBreakdown("Earnings by job type", listOf(BreakdownRow("Marketplace order deliveries", "K 2,512.80", "114 jobs"), BreakdownRow("Parcel deliveries", "K 1,610.70", "70 jobs"))),
+                    ReportBreakdown("Where your money went", listOf(BreakdownRow("Delivery fees earned (gross)", "K 4,792.00"), BreakdownRow("Platform fee", "− K 383.36"),
+                        BreakdownRow("Social Fund (yours, saved)", "− K 276.00"), BreakdownRow("Hero bonus", "+ K 184.20"), BreakdownRow("Net earnings", "K 4,123.50"))),
+                    ReportBreakdown("Your busiest areas", listOf(BreakdownRow("Kabwata", "41 drop-offs"), BreakdownRow("Kabulonga", "33 drop-offs"), BreakdownRow("Woodlands", "27 drop-offs")))),
+                highlightsTitle = "Your riding highlights", tipsTitle = "Earn more next month")
+            Role.AGENT -> PerformanceReport("2026-10", "October 2026", "AGENT", listOf(
+                ReportMetric("commission", "Net commission earned", 96_400, 71_200, "ngwee"), ReportMetric("sales", "Sales you made for sellers", 1_205_000, 890_000, "ngwee"),
+                ReportMetric("orders", "Paid orders", 57, 44, "count"), ReportMetric("activeSellers", "Sellers with sales", 6, 5, "count"),
+                ReportMetric("onboarded", "New sellers onboarded", 3, 1, "count"), ReportMetric("listings", "Listings you created", 24, 15, "count")),
+                listOf("Commission up 35% on last month.", "Top seller for you: Mama Bupe's Veg (K 412.00 commission).", "You brought 3 new sellers onto SeloNaChipa."),
+                listOf("Most of your commission comes from two sellers. Spread your effort to reduce risk.",
+                    "Sellers with 10+ video listings sell more. Help your sellers post short videos with the Listing Studio.",
+                    "Share your referral link on WhatsApp Status every week — new sellers signed up through it are linked to you."),
+                breakdowns = listOf(ReportBreakdown("Commission by seller", listOf(
+                    BreakdownRow("Mama Bupe's Veg", "K 412.00", "21 orders · K 5,150.00 sales · 10% rate"), BreakdownRow("Comesa Fashions", "K 288.00", "14 orders · K 3,600.00 sales · 10% rate"),
+                    BreakdownRow("Kwacha Grill", "K 164.00", "17 orders · K 2,050.00 sales · 10% rate"), BreakdownRow("Mwila Hardware", "K 100.00", "5 orders · K 1,250.00 sales · 10% rate")))),
+                highlightsTitle = "Your agency highlights", tipsTitle = "Grow your commissions next month")
+            else -> PerformanceReport("2026-10", "October 2026", "SELLER", listOf(
+                ReportMetric("sales", "Sales", 1_284_500, 1_032_000, "ngwee"), ReportMetric("net", "Your earnings (after platform fee)", 1_254_000, 1_007_500, "ngwee"),
+                ReportMetric("orders", "Paid orders", 61, 49, "count"), ReportMetric("units", "Items sold", 143, 118, "count"),
+                ReportMetric("aov", "Average order", 21_057, 21_061, "ngwee"), ReportMetric("cancelRate", "Cancelled or refunded", 3, 6, "pct"),
+                ReportMetric("promoShare", "Sales from your deals", 24, 0, "pct")),
+                listOf("Sales up 24% on last month.", "Best seller: Fresh Chongwe tomatoes – 5 kg bag (64 sold)."),
+                listOf("Small average orders — a product bundle can raise what each buyer spends.", "Keep your best seller in stock: it sold out twice last month."),
+                listOf(TopProduct("Fresh Chongwe tomatoes – 5 kg bag", 64, 512_000), TopProduct("Rape bundle, freshly cut", 52, 52_000), TopProduct("Relish pack (bundle)", 22, 187_000)),
+                breakdowns = listOf(ReportBreakdown("Where your sales came from", listOf(BreakdownRow("Sales from your deals (Marketing Centre)", "24%"),
+                    BreakdownRow("Average order", "K 210.57"), BreakdownRow("Items per order", "2.3")))),
+                highlightsTitle = "Your shop's highlights", tipsTitle = "Grow your sales next month")
+        }
     }
-    // Rider cover is off (no insurer confirmed yet) — riders see "Not available yet".
     private var safety = SafetyStatus("Mutale Mulenga", "+260966123456", false, 0, 0, setOf("helmet"), 46)
     override suspend fun safetyStatus(): SafetyStatus { delay(200); return safety }
     override suspend fun setRiderInsurance(on: Boolean, acceptedTerms: Boolean): SafetyStatus { delay(300)

@@ -186,7 +186,7 @@ export async function broadcastParcel(id: string) {
   const riders = ids.filter((_, i) => {
     const a = areas[i]?.data();
     if (!a || a.cityId !== p.cityId) return false; // hard city lock (§11)
-    if (!widen && !(a.neighbourhoods ?? []).includes(p.pickup.neighbourhood)) return false;
+    if (!widen && !a.wholeCity && !(a.neighbourhoods ?? []).includes(p.pickup.neighbourhood)) return false;
     return withinWorkingHours(zones[i]?.get("workingHours"));
   });
   // Smart dispatch: best-scoring riders first (dispatch.ts); the wave grows each round.
@@ -233,9 +233,11 @@ export const rider_setAreas = onCall(async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const city = cityById(String(req.data?.cityId ?? ""));
   if (!city) throw new HttpsError("invalid-argument", "Choose your city.");
-  const nbs = [...new Set((Array.isArray(req.data?.neighbourhoods) ? req.data.neighbourhoods : []).filter((n: unknown) => typeof n === "string" && city.neighbourhoods.includes(n as string)))];
-  if (nbs.length < 1 || nbs.length > 10) throw new HttpsError("invalid-argument", "Choose between 1 and 10 neighbourhoods.");
-  await db.doc(`riderAreas/${uid}`).set({ cityId: city.id, cityName: city.name, neighbourhoods: nbs, updatedAt: FieldValue.serverTimestamp() });
+  // "Whole city": the rider takes jobs from every neighbourhood in the chosen city.
+  const wholeCity = req.data?.wholeCity === true;
+  const nbs = wholeCity ? [] : [...new Set((Array.isArray(req.data?.neighbourhoods) ? req.data.neighbourhoods : []).filter((n: unknown) => typeof n === "string" && city.neighbourhoods.includes(n as string)))];
+  if (!wholeCity && (nbs.length < 1 || nbs.length > 10)) throw new HttpsError("invalid-argument", "Choose between 1 and 10 neighbourhoods, or the whole city.");
+  await db.doc(`riderAreas/${uid}`).set({ cityId: city.id, cityName: city.name, wholeCity, neighbourhoods: nbs, updatedAt: FieldValue.serverTimestamp() });
   return { ok: true };
 });
 

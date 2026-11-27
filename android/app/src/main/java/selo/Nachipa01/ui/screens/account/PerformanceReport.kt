@@ -71,11 +71,20 @@ fun PerformanceReportScreen(initialMonth: String?, onBack: () -> Unit) {
             rep.metrics.drop(1).chunked(2).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { row.forEach { MetricTile(it, Modifier.weight(1f)) }; if (row.size == 1) Spacer(Modifier.weight(1f)) }
             }
-            if (rep.highlights.isNotEmpty()) { SectionLabel("Highlights"); SeloCard { rep.highlights.forEach { h -> Row { Icon(Icons.Outlined.Star, null, tint = Selo.Amber, modifier = Modifier.size(18.dp)); Text("  $h") } } } }
+            // Role-specific detail: a rider's earnings by job type, an agent's commission by seller, a seller's sales sources.
+            rep.breakdowns.forEach { b -> SectionLabel(b.title); SeloCard { b.rows.forEachIndexed { i, row ->
+                if (i > 0) HorizontalDivider(color = Selo.Line)
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text(row.label, fontWeight = FontWeight.SemiBold); row.sub?.let { Text(it, color = Selo.Mute, fontSize = 12.sp) } }
+                    Text(row.value, fontWeight = FontWeight.ExtraBold)
+                } } } }
+            if (rep.highlights.isNotEmpty()) { SectionLabel(rep.highlightsTitle); SeloCard { rep.highlights.forEach { h -> Row { Icon(Icons.Outlined.Star, null, tint = Selo.Amber, modifier = Modifier.size(18.dp)); Text("  $h") } } } }
             if (rep.top.isNotEmpty()) { SectionLabel("Top products"); SeloCard { rep.top.forEachIndexed { i, t -> KvRow("${i + 1}. ${t.title} · ${t.units} sold", Fees.formatK(t.revenueNgwee)) } } }
-            SectionLabel(if (rep.role == "RIDER") "Tips for next month" else "Grow next month")
+            SectionLabel(rep.tipsTitle)
             SeloCard { rep.tips.forEach { t -> Row { Icon(Icons.Outlined.Lightbulb, null, tint = Selo.Red, modifier = Modifier.size(18.dp)); Text("  $t") } } }
-            Sub("Reports are ready on the 1st of each month. Amounts are in Kwacha and exclude refunded orders.")
+            Sub(when (rep.role) { "RIDER" -> "Covers the deliveries you completed (orders and parcels). Ready on the 1st of each month."
+                "AGENT" -> "Covers sales you made for your sellers and your commission after the platform share. Ready on the 1st of each month."
+                else -> "Reports are ready on the 1st of each month. Amounts are in Kwacha and exclude refunded orders." })
             Spacer(Modifier.height(20.dp))
         }
     }

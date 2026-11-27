@@ -58,7 +58,8 @@ fun RiderShell(initialTab: String = "home", initialScreen: String? = null, initi
     BackHandler(enabled = screen != null || navigating) { if (navigating) navigating = false else screen = null }
 
     Box(Modifier.fillMaxSize().background(Selo.Surface)) {
-        Scaffold(bottomBar = { if (!navigating) RiderTabBar(tab, active.size + (if (offer != null) 1 else 0)) { tab = it; screen = null } },
+        // The tab bar is fixed: always on screen (also during navigation and job offers), same position and height everywhere.
+        Scaffold(bottomBar = { RiderTabBar(tab, active.size + (if (offer != null) 1 else 0)) { tab = it; screen = null; navigating = false } },
             containerColor = Selo.Surface) { pad ->
             Box(Modifier.padding(bottom = pad.calculateBottomPadding()).fillMaxSize()) {
                 val s = screen
@@ -74,10 +75,11 @@ fun RiderShell(initialTab: String = "home", initialScreen: String? = null, initi
                     tab == "fund" -> RiderFund(stats, open = { screen = it })
                     else -> MoreMenu(profile, open = { screen = it }, onLogout = onLogout)
                 }
+                // Job offers appear above the content but never cover the tab bar.
+                offer?.let { o ->
+                    DispatchOverlay(o, active, profile, rc, onDone = { accepted -> handled = handled + o.id; if (accepted) { tab = "home"; screen = null } })
+                }
             }
-        }
-        offer?.let { o ->
-            DispatchOverlay(o, active, profile, rc, onDone = { accepted -> handled = handled + o.id; if (accepted) { tab = "home"; screen = null } })
         }
     }
 }
