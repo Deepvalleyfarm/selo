@@ -117,6 +117,37 @@ describe("OpenAPI document", () => {
     for (const p of ["/oauth/token", "/products", "/catalog", "/delivery/quotes", "/deliveries", "/coverage", "/webhooks", "/settlements"]) expect(s.paths[p]).toBeTruthy();
     expect(s.paths["/orders"]).toBeUndefined(); // platforms keep their own checkout and orders
     expect(s.components.securitySchemes.oauth2.flows.clientCredentials.tokenUrl).toBe("https://x/api/v1/oauth/token");
-    expect(Object.keys(s.webhooks)).toHaveLength(11);
+    expect(Object.keys(s.webhooks)).toHaveLength(13);
+    for (const p of ["/ads", "/products/{externalId}/video", "/products/{externalId}/video/apply"]) expect(s.paths[p]).toBeTruthy();
+  });
+});
+
+describe("AI media for partners", () => {
+  it("video view hides unfinished media and reports progress", async () => {
+    const { studioView } = await import("../src/open/media");
+    const v = studioView("ext_1", { origin: { productId: "SKU" }, studio: { status: "processing", videoUrl: "https://x/v.mp4" } }, { steps: ["upload", "script", "animate", "render"], index: 2 });
+    expect(v).toMatchObject({ status: "processing", videoUrl: null, externalProductId: "SKU", progress: { step: "animate", done: 2, total: 4 } });
+    const r = studioView("ext_1", { studio: { status: "ready", videoUrl: "https://x/v.mp4", posterUrl: "https://x/p.jpg", applied: true, generativeMotion: true } });
+    expect(r).toMatchObject({ status: "ready", videoUrl: "https://x/v.mp4", appliedToListing: true, generativeMotion: true, error: null });
+    expect(studioView("ext_1", {}).status).toBe("none");
+    expect(studioView("ext_1", { studio: { status: "failed" } }).error).toMatch(/original media is unchanged/);
+  });
+  it("only downloads public https images", async () => {
+    const { fetchImage } = await import("../src/open/media");
+    for (const u of ["http://cdn.example.com/a.jpg", "https://169.254.169.254/x", "https://localhost/a.jpg", "https://metadata.google.internal/x", "https://[::1]/a", "nope"])
+      await expect(fetchImage(u, (async () => { throw new Error("must not fetch"); }) as any)).rejects.toMatchObject({ status: 422 });
+    const img = (type: string, size = 10) => (async () => ({ ok: true, status: 200, headers: new Headers({ "content-type": type }), arrayBuffer: async () => new ArrayBuffer(size) })) as any;
+    await expect(fetchImage("https://cdn.example.com/a.html", img("text/html"))).rejects.toMatchObject({ status: 422 });
+    expect((await fetchImage("https://cdn.example.com/a.jpg", img("image/jpeg", 4))).length).toBe(4);
+    await expect(fetchImage("https://cdn.example.com/big.jpg", img("image/jpeg", 11 * 1024 * 1024))).rejects.toMatchObject({ status: 422 });
+  });
+  it("media usage is a charge to the partner", async () => {
+    const { signed } = await import("../src/open/settlement");
+    expect(signed({ type: "MEDIA_USAGE", amountNgwee: 500 })).toBe(-500);
+  });
+  it("media scopes belong to the commerce service", async () => {
+    const { effectiveScopes } = await import("../src/open/model");
+    expect(effectiveScopes({ scopes: ["media:write", "media:read"], services: { commerce: false, logistics: true } })).toEqual([]);
+    expect(effectiveScopes({ scopes: ["media:write"], services: { commerce: true, logistics: false } })).toEqual(["media:write"]);
   });
 });

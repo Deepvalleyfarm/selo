@@ -19,6 +19,7 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
     openapi: "3.1.0",
     info: { title: "SeloNachipa Open Network API", version: "1.0.0",
       description: "Open Commerce: list your products on the SeloNachipa marketplace for discovery — buyers are sent to your own checkout (checkoutUrl) and you keep your orders, payments and stock. " +
+        "AI media: make product videos (photo → AI product motion, voiceover, captions, branded 9:16 edit) and social ads (story and square images around your real photo, plus WhatsApp, Facebook and TikTok copy) with the same Listing Studio and Ad Generator SeloNachipa sellers use.\n\n" +
         "Open Logistics: quote and request deliveries by the SeloNachipa rider network. The delivery fee is set by SeloNachipa: charge your buyer the quoted priceNgwee on your checkout; you owe it to SeloNachipa in full, and SeloNachipa splits it to the rider, platform and Social Fund.\n\n" +
         "Authentication: OAuth 2.0 client credentials. POST /oauth/token with your client_id and client_secret (server-side only — never in browser or mobile code), then send `Authorization: Bearer <token>`. Tokens last 1 hour.\n\n" +
         "Money is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox products are never shown to buyers and sandbox deliveries never reach real riders — they move through every status automatically, one step a minute, firing your webhooks.",
@@ -54,6 +55,19 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
         get: op("Deliveries", "Your deliveries", "delivery:read") },
       "/deliveries/{id}": { get: op("Deliveries", "One delivery with live rider position while active", "delivery:read", { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] }) },
       "/deliveries/{id}/cancel": { post: op("Deliveries", "Cancel before pickup (charge reversed)", "delivery:write", { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, idem] }) },
+      "/products/{externalId}/video": {
+        post: op("Media", "Make an AI video of your product (photo → product motion, voiceover, captions, 9:16 branded edit)", "media:write", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem],
+          description: "Runs asynchronously (usually 2–6 minutes). Returns 202 with status processing; you get media.video.ready or media.video.failed. Uses the product's first images. Your original media is never deleted.",
+          requestBody: json({ type: "object", properties: { applyToListing: { type: "boolean", default: true, description: "Show the video on the SeloNachipa listing when ready" }, voiceover: { type: "boolean", default: true } } }, { applyToListing: true, voiceover: true }),
+          responses: { 202: json({ type: "object", properties: { video: ref("Video"), started: { type: "boolean" } } }), ...errs } }),
+        get: op("Media", "AI video status and result", "media:read", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }], responses: { 200: json({ type: "object", properties: { video: ref("Video") } }), ...errs } }) },
+      "/products/{externalId}/video/apply": { post: op("Media", "Use the AI video on the SeloNachipa listing, or go back to the original media", "media:write", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem],
+        requestBody: json({ type: "object", properties: { apply: { type: "boolean", default: true } } }) }) },
+      "/ads": {
+        post: op("Media", "Make an AI ad from a product photo (story + square images, description, WhatsApp/Facebook/TikTok copy)", "media:write", { parameters: [idem],
+          description: "Synchronous (about 10–30 s). The images are built around your real photo; the product is never redrawn. Give imageUrl, or externalProductId to use that product's first image, name and price.",
+          requestBody: json(ref("AdInput"), { externalProductId: "MBL-SKU-0042", offer: "10% off this week" }), responses: { 201: json({ type: "object", properties: { ad: ref("Ad") } }), ...errs } }),
+        get: op("Media", "Your recent AI ads", "media:read") },
       "/coverage": { get: op("Coverage", "Cities, neighbourhoods and online riders per city", "coverage:read") },
       "/riders/availability": { get: op("Coverage", "Riders online within 5 km (counts only)", "coverage:read", { parameters: [{ name: "lat", in: "query", required: true, schema: { type: "number" } }, { name: "lng", in: "query", required: true, schema: { type: "number" } }] }) },
       "/webhooks": { get: op("Webhooks", "Your webhook URL and subscribed events", "webhooks:manage"),
@@ -61,7 +75,7 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
       "/webhooks/events": { get: op("Webhooks", "Event history with delivery status", "webhooks:manage") },
       "/webhooks/events/{id}/replay": { post: op("Webhooks", "Re-send an event", "webhooks:manage", { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, idem] }) },
       "/webhooks/test": { post: op("Webhooks", "Send a test event", "webhooks:manage", { parameters: [idem] }) },
-      "/settlements": { get: op("Settlements", "Ledger: delivery charges and reversals, API usage, subscription, settlements and balance", "settlements:read") },
+      "/settlements": { get: op("Settlements", "Ledger: delivery charges and reversals, API usage, AI media usage, subscription, settlements and balance", "settlements:read") },
     },
     webhooks: Object.fromEntries(EVENTS.map((e) => [e, { post: { summary: e, description: "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
       requestBody: json(ref("Event")), responses: { 200: { description: "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)." } } } }])),
@@ -93,7 +107,19 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
           instructions: { type: "string" }, priority: { enum: ["STANDARD", "EXPRESS"] } } },
         Delivery: { type: "object", properties: { deliveryId: { type: "string" }, externalOrderRef: { type: "string" }, status: { enum: ["AWAITING_RIDER", "RIDER_ASSIGNED", "IN_TRANSIT", "AWAITING_DELIVERY_CODE", "COMPLETED", "DELIVERY_FAILED", "CANCELLED"] },
           priceNgwee: { type: "integer" }, distanceKm: { type: "number" }, rider: { type: ["object", "null"], properties: { firstName: { type: "string" }, plate: { type: "string" } } }, timeline: { type: "object" } } },
-        Event: { type: "object", properties: { id: { type: "string" }, type: { enum: EVENTS }, created: { type: "string", format: "date-time" }, environment: { enum: ["sandbox", "production"] }, data: { type: "object" } } },
+        Video: { type: "object", properties: { listingId: { type: "string" }, externalProductId: { type: "string" }, status: { enum: ["none", "processing", "ready", "failed"] },
+        progress: { type: ["object", "null"], properties: { step: { type: "string" }, done: { type: "integer" }, total: { type: "integer" } } },
+        videoUrl: { type: ["string", "null"], description: "MP4, 9:16, up to 30 s" }, posterUrl: { type: ["string", "null"] }, photoUrls: { type: "array", items: { type: "string" } },
+        headline: { type: ["string", "null"] }, hashtags: { type: "array", items: { type: "string" } }, voiceover: { type: "boolean" }, captions: { type: "boolean" },
+        generativeMotion: { type: "boolean", description: "true when the motion was generated by AI from a still photo" }, appliedToListing: { type: "boolean" },
+        sample: { type: "boolean", description: "Sandbox sample media" }, error: { type: ["string", "null"] }, finishedAt: { type: ["string", "null"], format: "date-time" } } },
+      AdInput: { type: "object", properties: { imageUrl: { type: "string", format: "uri", description: "Public https JPEG/PNG, 10 MB max" }, externalProductId: { type: "string" },
+        productName: { type: "string" }, priceNgwee: { type: "integer", minimum: 1 }, offer: { type: "string", maxLength: 40 }, callToAction: { type: "string", maxLength: 40, description: "Default: Order on {your platform}" } } },
+      Ad: { type: "object", properties: { adId: { type: "string" }, externalProductId: { type: ["string", "null"] }, storyImageUrl: { type: "string", description: "1080×1920 for WhatsApp Status / TikTok" },
+        squareImageUrl: { type: "string", description: "1080×1080 for Facebook" }, productName: { type: "string" }, headline: { type: "string" }, description: { type: "string" },
+        copy: { type: "object", properties: { whatsapp: { type: "string" }, facebook: { type: "string" }, tiktok: { type: "string" } } }, hashtags: { type: "array", items: { type: "string" } },
+        price: { type: ["string", "null"] }, offer: { type: ["string", "null"] }, sample: { type: "boolean" }, createdAt: { type: "string", format: "date-time" } } },
+      Event: { type: "object", properties: { id: { type: "string" }, type: { enum: EVENTS }, created: { type: "string", format: "date-time" }, environment: { enum: ["sandbox", "production"] }, data: { type: "object" } } },
       },
     },
   };

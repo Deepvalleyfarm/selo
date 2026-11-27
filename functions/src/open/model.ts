@@ -26,12 +26,14 @@ export const SCOPES: Record<string, { service: Service | "common"; description: 
   "delivery:write": { service: "logistics", description: "Request and cancel deliveries" },
   "delivery:read": { service: "logistics", description: "Track your deliveries" },
   "coverage:read": { service: "logistics", description: "Cities, neighbourhoods and rider availability" },
+  "media:write": { service: "commerce", description: "Generate AI videos and ads for your products" },
+  "media:read": { service: "commerce", description: "Read your generated videos and ads" },
   "webhooks:manage": { service: "common", description: "Configure webhook URL and event subscriptions" },
   "settlements:read": { service: "common", description: "Your settlement statement" },
 };
 export const ALL_SCOPES = Object.keys(SCOPES);
 
-export const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled"] as const;
+export const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled", "media.video.ready", "media.video.failed"] as const;
 export type EventType = typeof EVENTS[number];
 
 export type Env = "sandbox" | "production";
@@ -41,6 +43,7 @@ export type Env = "sandbox" | "production";
  */
 export interface PartnerPricing {
   subscriptionMonthlyNgwee?: number | null; apiCallNgwee?: number | null;
+  /** Per finished production AI video / per generated ad (0 or unset = included). */ mediaVideoNgwee?: number | null; mediaAdNgwee?: number | null;
   settlementCycle?: "weekly" | "monthly";
 }
 export interface Partner {

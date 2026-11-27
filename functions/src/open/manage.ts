@@ -25,7 +25,7 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").repla
 
 function pricingFrom(p: any = {}): PartnerPricing {
   // Delivery is always SeloNachipa's configured tariff; only subscription and API-usage charges vary per platform.
-  return { subscriptionMonthlyNgwee: num(p.subscriptionMonthlyNgwee), apiCallNgwee: num(p.apiCallNgwee), settlementCycle: p.settlementCycle === "weekly" ? "weekly" : "monthly" };
+  return { subscriptionMonthlyNgwee: num(p.subscriptionMonthlyNgwee), apiCallNgwee: num(p.apiCallNgwee), mediaVideoNgwee: num(p.mediaVideoNgwee), mediaAdNgwee: num(p.mediaAdNgwee), settlementCycle: p.settlementCycle === "weekly" ? "weekly" : "monthly" };
 }
 
 async function createClient(partnerId: string, env: Env, by: string) {
@@ -137,7 +137,7 @@ export const devportal_register = onCall(opts, async (req) => {
   const services = { commerce: d.services?.commerce === true, logistics: d.services?.logistics === true };
   await db.doc(`openPartners/${id}`).create({ name, slug: slugify(name), status: "PENDING", services, environments: { sandbox: true, production: false },
     // requested scopes for the services asked for; an admin confirms them on approval
-    scopes: ALL_SCOPES.filter((s) => s.startsWith("webhooks") || s.startsWith("settlements") || (services.commerce && /^(products|inventory|catalog)/.test(s)) || (services.logistics && /^(delivery|coverage)/.test(s))),
+    scopes: ALL_SCOPES.filter((s) => s.startsWith("webhooks") || s.startsWith("settlements") || (services.commerce && /^(products|inventory|catalog|media)/.test(s)) || (services.logistics && /^(delivery|coverage)/.test(s))),
     rateLimitPerMin: 120, pricing: {}, webhook: null, ownerUids: [u.uid], contact: { name: clean(d.contactName, 80), email: u.email, phone: clean(d.phone, 20) },
     website: clean(d.website, 200), useCase: clean(d.useCase, 1000), createdAt: FieldValue.serverTimestamp(), createdBy: `portal:${u.email}` });
   await db.collection("opsAlerts").add({ type: "OPEN_PARTNER_APPLICATION", partnerId: id, name, createdAt: FieldValue.serverTimestamp() });

@@ -5,6 +5,7 @@
  *                       from its buyer and owes it to SeloNachipa, which splits it to rider / platform / Social Fund)
  *   DELIVERY_REVERSAL + a cancelled delivery's charge returned
  *   API_USAGE / SUBSCRIPTION − monthly charges
+ *   MEDIA_USAGE       − AI video / ad generation for the platform's products (price per item set on the partner)
  *   SETTLEMENT        ± money actually paid between SeloNachipa and the partner (recorded by finance)
  * Rider earnings stay in the existing rider ledger; platform revenue in platformRevenue. Entries are keyed by a
  * deterministic id so a retried trigger can't post twice.
@@ -15,9 +16,9 @@ import { db } from "../config";
 import { sha256 } from "./crypto";
 import type { Env } from "./model";
 
-export type EntryType = "DELIVERY_CHARGE" | "DELIVERY_REVERSAL" | "API_USAGE" | "SUBSCRIPTION" | "SETTLEMENT";
-export interface Entry { type: EntryType; amountNgwee: number; refType: "delivery" | "month" | "manual"; refId: string; env: Env; note?: string }
-const SIGN: Record<EntryType, 1 | -1 | 0> = { DELIVERY_CHARGE: -1, DELIVERY_REVERSAL: 1, API_USAGE: -1, SUBSCRIPTION: -1, SETTLEMENT: 0 };
+export type EntryType = "DELIVERY_CHARGE" | "DELIVERY_REVERSAL" | "API_USAGE" | "SUBSCRIPTION" | "MEDIA_USAGE" | "SETTLEMENT";
+export interface Entry { type: EntryType; amountNgwee: number; refType: "delivery" | "month" | "manual" | "media"; refId: string; env: Env; note?: string }
+const SIGN: Record<EntryType, 1 | -1 | 0> = { DELIVERY_CHARGE: -1, DELIVERY_REVERSAL: 1, API_USAGE: -1, SUBSCRIPTION: -1, MEDIA_USAGE: -1, SETTLEMENT: 0 };
 
 export const entryId = (e: Pick<Entry, "type" | "refType" | "refId">) => `le_${sha256(`${e.type}|${e.refType}|${e.refId}`).slice(0, 24)}`;
 /** Signed amount from the partner's point of view (negative = the partner owes SeloNachipa). SETTLEMENT carries its own sign (+ = partner paid SeloNachipa). */

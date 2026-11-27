@@ -20,6 +20,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { DB_ID, GEMINI_API_KEY, GEMINI_MODEL, db, loadConfig } from "../config";
 import { requireUser } from "../util";
 import { cleanScript, deliveryUrl, photoTransformation, planSteps, posterTransformation, videoTransformation, wordsToVtt, type StudioScript, type StudioStep } from "./edit";
+import { OPEN_SECRETS } from "../open/model";
 import { STUDIO_SECRETS, cloudinaryCreds, cloudinaryEager, cloudinaryUpload, runwayStart, runwayTask, transcribe, voiceover } from "./providers";
 
 const job = (id: string) => db.doc(`studioJobs/${id}`);
@@ -33,7 +34,12 @@ async function underCap(kind: "runway" | "voiceover", cap: number) {
 }
 
 /** Creates (or restarts) the studio job for a listing. */
-export async function startStudio(listingId: string, by: string) {
+export interface StudioOptions {
+  /** Open Network partner that asked (webhooks + usage billing). */ partnerId?: string; env?: "sandbox" | "production";
+  /** Put the result on the SeloNachipa listing when done (default: config studioAutoApply). */ autoApply?: boolean;
+  voiceover?: boolean;
+}
+export async function startStudio(listingId: string, by: string, opt: StudioOptions = {}) {
   const cfg = await loadConfig() as Record<string, any>;
   if (cfg.studioEnabled === false) return { started: false, reason: "Studio is switched off." };
   const l = (await db.doc(`listings/${listingId}`).get()).data();
@@ -42,11 +48,16 @@ export async function startStudio(listingId: string, by: string) {
   if (today.data().count >= Number(cfg.studioMaxJobsPerSellerPerDay ?? 5)) return { started: false, reason: "Daily studio limit reached for this shop. Try again tomorrow." };
   const mediaType: "video" | "photo" = l.videoUrl && l.mediaType === "video" ? "video" : "photo";
   if (mediaType === "photo" && !(l.photoUrls ?? []).length) return { started: false, reason: "No media to enhance." };
-  const steps = planSteps(mediaType, { voiceover: cfg.studioVoiceoverEnabled !== false, runway: cfg.studioRunwayEnabled !== false,
+  if (opt.partnerId) {
+    const n = await db.collection("studioJobs").where("partnerId", "==", opt.partnerId).where("day", "==", day()).count().get();
+    if (n.data().count >= Number(cfg.openStudioDailyCap ?? 50)) return { started: false, reason: "Daily video limit reached for your platform. Try again tomorrow." };
+  }
+  const steps = planSteps(mediaType, { voiceover: cfg.studioVoiceoverEnabled !== false && opt.voiceover !== false, runway: cfg.studioRunwayEnabled !== false,
     captions: cfg.studioCaptionsEnabled !== false, backgroundRemoval: cfg.studioBackgroundRemoval === true });
   await job(listingId).set({ listingId, sellerUid: l.sellerUid, by, mediaType, steps, index: 0, status: "queued", attempts: 0, day: day(),
     title: l.title ?? "", description: String(l.description ?? "").slice(0, 600), category: l.category ?? "", priceNgwee: l.priceNgwee ?? 0, discountPct: l.discountPct ?? 0,
     sources: { video: mediaType === "video" ? l.videoUrl : null, photos: (l.photoUrls ?? []).slice(0, 4) }, out: {}, log: [], error: null,
+    partnerId: opt.partnerId ?? null, env: opt.env ?? null, autoApply: opt.autoApply ?? null,
     createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
   await db.doc(`listings/${listingId}`).set({ studio: { status: "processing", startedAt: FieldValue.serverTimestamp() } }, { merge: true });
   return { started: true, steps };
@@ -170,7 +181,8 @@ async function advance(id: string) {
       await db.doc(`listings/${id}`).set({ studio: { status: "ready", videoUrl: o.videoUrl ?? null, posterUrl: o.posterUrl ?? null, photoUrls: o.photoUrls ?? [],
         headline: o.script?.headline ?? null, hashtags: o.script?.hashtags ?? [], voiceover: !!o.voicePublicId, captions: !!o.captionsPublicId,
         generativeMotion: !!o.runwayPublicId, finishedAt: FieldValue.serverTimestamp(), applied: false } }, { merge: true });
-      if (cfg.studioAutoApply !== false) await applyStudio(id, true);
+      if (claimed.autoApply ?? cfg.studioAutoApply !== false) await applyStudio(id, true);
+      if (claimed.partnerId) await partnerStudioDone(id, claimed, "ready");
     }
   } catch (e) {
     const msg = String((e as Error).message ?? e).slice(0, 300);
@@ -185,10 +197,27 @@ async function advance(id: string) {
     }
     await job(id).update({ status: "failed", error: `${step}: ${msg}`, updatedAt: FieldValue.serverTimestamp() });
     await db.doc(`listings/${id}`).set({ studio: { status: "failed", error: "We couldn't produce the studio version. Your original media is live." } }, { merge: true });
+    if (claimed.partnerId) await partnerStudioDone(id, claimed, "failed").catch((err) => logger.warn("partner studio webhook", String(err)));
   }
 }
 
-export const onStudioJob = onDocumentWritten({ document: "studioJobs/{id}", database: DB_ID, secrets: [...STUDIO_SECRETS, GEMINI_API_KEY], timeoutSeconds: 540, memory: "1GiB" }, async (e) => {
+/** Open Network: tell the partner (webhook) and, for a finished production video, record the usage charge. */
+async function partnerStudioDone(id: string, j: any, outcome: "ready" | "failed") {
+  const { emit } = await import("../open/webhooks");
+  const { studioView } = await import("../open/media");
+  const l = (await db.doc(`listings/${id}`).get()).data() ?? {};
+  const env = j.env ?? "production";
+  await emit(j.partnerId, env, outcome === "ready" ? "media.video.ready" : "media.video.failed", id, { video: studioView(id, l, j) }, `${outcome}-${j.createdAt?.toMillis?.() ?? ""}`);
+  if (outcome !== "ready" || env !== "production") return;
+  const p = (await db.doc(`openPartners/${j.partnerId}`).get()).data();
+  const price = Number(p?.pricing?.mediaVideoNgwee ?? 0);
+  if (price > 0) {
+    const { post } = await import("../open/settlement");
+    await post(j.partnerId, { type: "MEDIA_USAGE", amountNgwee: price, refType: "media", refId: `video:${id}:${j.createdAt?.toMillis?.() ?? ""}`, env, note: "AI video" });
+  }
+}
+
+export const onStudioJob = onDocumentWritten({ document: "studioJobs/{id}", database: DB_ID, secrets: [...STUDIO_SECRETS, GEMINI_API_KEY, ...OPEN_SECRETS], timeoutSeconds: 540, memory: "1GiB" }, async (e) => {
   const after = e.data?.after.data();
   if (after?.status === "queued") await advance(e.params.id);
 });

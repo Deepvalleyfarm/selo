@@ -14,7 +14,7 @@ const call = async (name: string, data: Record<string, unknown> = {}) => {
   if (isDemo || !fns) throw new Error("This preview isn't connected to SeloNachipa. Deploy to use your account.");
   return (await httpsCallable(fns, name)(data)).data as any;
 };
-const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled"];
+const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled", "media.video.ready", "media.video.failed"];
 
 export default function Portal() {
   const [user, setUser] = useState<User | null>(null);
@@ -109,6 +109,9 @@ const SAMPLES: Record<string, { method: string; path: string; body?: unknown }> 
     priceNgwee: 8000, stock: 20, category: "Agriculture", images: ["https://images.example.com/tomatoes.jpg"], location: { lat: -15.4167, lng: 28.2833, address: "Soweto Market, Lusaka" } } },
   "Update stock to 12": { method: "POST", path: "/products/TEST-SKU-1/stock", body: { stock: 12 } },
   "List my products": { method: "GET", path: "/products" },
+  "Make an AI video (sample in sandbox)": { method: "POST", path: "/products/TEST-SKU-1/video", body: { applyToListing: true, voiceover: true } },
+  "AI video status": { method: "GET", path: "/products/TEST-SKU-1/video" },
+  "Make an AI ad (sample in sandbox)": { method: "POST", path: "/ads", body: { externalProductId: "TEST-SKU-1", offer: "10% off this week" } },
   "Delivery quote": { method: "POST", path: "/delivery/quotes", body: { pickup: { lat: -15.4167, lng: 28.2833 }, dropoff: { lat: -15.43, lng: 28.30 } } },
   "Request a test delivery": { method: "POST", path: "/deliveries", body: { externalOrderRef: "TEST-ORDER-1", pickup: { lat: -15.4167, lng: 28.2833, address: "Soweto Market" },
     dropoff: { lat: -15.43, lng: 28.30, address: "Kabwata" }, weightBand: "1–2 kg", description: "Test parcel", receiver: { name: "Test Receiver", msisdn: "+260971234567" } } },
@@ -174,6 +177,7 @@ curl -X POST .../products/SKU-42/stock \\
   -H "idempotency-key: stock-SKU-42-$(date +%s)" \\
   -d '{"stock": 28}'`}</pre><p>Your system stays the source of truth. When stock reaches 0 the product shows as sold out.</p></div>
     <div className="dp-card"><h3>3 · Checkout stays yours</h3><p>Every product needs a <code>checkoutUrl</code>. Buyers who find it on SeloNachipa tap "Buy on your platform" and pay on your checkout. Record the sale once, in your own books.</p></div>
+    <div className="dp-card"><h3>AI videos and ads</h3><p><code>POST /products/:id/video</code> turns your product photo into a short vertical video: AI product motion, a voiceover, captions, your headline and price. It takes a few minutes; you get <code>media.video.ready</code> with <code>videoUrl</code>, which you can also use on your own platform. <code>POST /ads</code> returns story and square ad images built around your real photo, plus WhatsApp, Facebook and TikTok copy, in about 20 seconds. Sandbox returns sample media.</p></div>
     <div className="dp-card"><h3>4 · Delivery fee and deliveries</h3><p>At checkout call <code>POST /delivery/quotes</code> and charge your buyer exactly <code>priceNgwee</code> — that is SeloNachipa's fee, owed to SeloNachipa in full (see <code>GET /settlements</code>). After payment, <code>POST /deliveries</code> with your order id as <code>externalOrderRef</code>: sending it again never creates a second delivery. Give the 4-digit <code>pickupPin</code> to whoever hands over the goods; the receiver gets a delivery code by SMS.</p></div>
     <div className="dp-card"><h3>5 · Verify webhooks (Node.js)</h3><pre>{`import crypto from "node:crypto";
 function verify(req, secret) {

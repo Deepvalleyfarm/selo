@@ -44,8 +44,8 @@ beforeAll(async () => {
   crypto = await import("../src/open/crypto");
   await import("../src/open"); // registers routes
   gw = await import("../src/open/gateway");
-  cidA = await partner(A, "Mabala", { commerce: true, logistics: true }, ["products:write", "products:read", "inventory:write", "delivery:quote", "delivery:write", "delivery:read", "coverage:read", "webhooks:manage", "settlements:read"]);
-  cidB = await partner(B, "Other Shop", { commerce: true, logistics: false }, ["catalog:read", "settlements:read", "delivery:write"]);
+  cidA = await partner(A, "Mabala", { commerce: true, logistics: true }, ["products:write", "products:read", "inventory:write", "delivery:quote", "delivery:write", "delivery:read", "coverage:read", "webhooks:manage", "settlements:read", "media:write", "media:read"]);
+  cidB = await partner(B, "Other Shop", { commerce: true, logistics: false }, ["catalog:read", "settlements:read", "delivery:write", "media:read"]);
   tA = await token(cidA); tB = await token(cidB);
 });
 
@@ -134,5 +134,53 @@ describe("revocation, suspension and rate limits block immediately", () => {
     const codes = [];
     for (let i = 0; i < 3; i++) codes.push((await call(tB, "GET", "/catalog", undefined, null)).status);
     expect(codes.at(-1)).toBe(429);
+  });
+});
+
+describe("AI media (Listing Studio + Ad Generator) for partners", () => {
+  const vid = { ...product, externalProductId: "SKU-VID", checkoutUrl: "https://mabala.example/shop/SKU-VID" };
+  it("production video starts the existing studio pipeline for the partner's own product only", async () => {
+    expect((await call(tA, "POST", "/products", vid)).status).toBe(201);
+    const r = await call(tA, "POST", "/products/SKU-VID/video", { applyToListing: false });
+    expect(r.status).toBe(202);
+    const v = (r.body as any).video;
+    expect(v.status).toBe("processing"); expect(v.videoUrl).toBeNull();
+    const job = (await db.doc(`studioJobs/${v.listingId}`).get()).data()!;
+    expect(job).toMatchObject({ partnerId: A, env: "production", autoApply: false, mediaType: "photo" });
+    expect(job.steps).toContain("animate");
+    // a second start while processing doesn't queue another paid job
+    const again = await call(tA, "POST", "/products/SKU-VID/video", {});
+    expect((again.body as any).started).toBe(false);
+    // isolation: another platform can't see it; a missing scope is refused (fresh rate window for B after the rate-limit test)
+    await db.doc(`openPartners/${B}`).update({ rateLimitPerMin: 600 });
+    await db.collection("openRate").get().then((q) => Promise.all(q.docs.filter((d) => d.id.includes(B)).map((d) => d.ref.delete())));
+    expect((await call(tB, "GET", "/products/SKU-VID/video", undefined, null)).status).toBe(404);
+    expect((await call(tB, "POST", "/products/SKU-VID/video", {})).status).toBe(403);
+    expect((await call(tA, "GET", "/products/NOPE/video", undefined, null)).status).toBe(404);
+  });
+  it("production ads validate the image source before any AI call", async () => {
+    expect((await call(tA, "POST", "/ads", { productName: "x" })).status).toBe(422);
+    expect((await call(tA, "POST", "/ads", { imageUrl: "https://10.0.0.1/a.jpg" })).status).toBe(422);
+    expect((await call(tA, "POST", "/ads", { externalProductId: "NOPE" })).status).toBe(404);
+  });
+  it("sandbox returns sample media and fires the same webhook", async () => {
+    const cid = `sbx_${A}`; const sec = `sns_sbx_${A}`; const { salt, hash } = crypto.hashSecret(sec);
+    await db.doc(`openClients/${cid}`).set({ partnerId: A, env: "sandbox", status: "ACTIVE", salt, hash }); secrets[cid] = sec;
+    const ts = await token(cid);
+    expect((await call(ts, "POST", "/products", vid)).status).toBe(201);
+    const r = await call(ts, "POST", "/products/SKU-VID/video", {});
+    expect(r.status).toBe(202);
+    expect((r.body as any).video).toMatchObject({ status: "ready", sample: true });
+    const ev = await db.collection("openEvents").where("pid", "==", A).where("type", "==", "media.video.ready").get();
+    expect(ev.size).toBeGreaterThan(0);
+    expect(ev.docs[0].get("env")).toBe("sandbox");
+    const ap = await call(ts, "POST", "/products/SKU-VID/video/apply", { apply: true });
+    expect((ap.body as any).video.appliedToListing).toBe(true);
+    const ad = await call(ts, "POST", "/ads", { externalProductId: "SKU-VID", offer: "2 for K300" });
+    expect(ad.status).toBe(201);
+    expect((ad.body as any).ad).toMatchObject({ sample: true, externalProductId: "SKU-VID", offer: "2 for K300" });
+    expect((ad.body as any).ad.copy.whatsapp).toMatch(/Order on Mabala/);
+    const list = await call(ts, "GET", "/ads", undefined, null);
+    expect((list.body as any).ads.length).toBe(1);
   });
 });

@@ -71,7 +71,7 @@ html{scroll-behavior:smooth}
 <div class="wrap">
 <nav aria-label="Contents">
   <div class="top"><a href="#overview">Overview</a><a href="#basics">Basics</a><a href="#flow">Integration flow</a><a href="#events">Webhook events</a><a href="#errors">Errors</a></div>
-  <div class="nav-g"><a class="nav-t" href="#auth">Authentication</a><a href="#post-oauth-token"><span class="m m-post">POST</span> /oauth/token</a></div><div class="nav-g"><a class="nav-t" href="#account">Your account</a><a href="#get-me"><span class="m m-get">GET</span> /me</a><a href="#get-settlements"><span class="m m-get">GET</span> /settlements</a></div><div class="nav-g"><a class="nav-t" href="#products">Products (Open Commerce)</a><a href="#post-products"><span class="m m-post">POST</span> /products</a><a href="#get-products"><span class="m m-get">GET</span> /products</a><a href="#get-products-externalid"><span class="m m-get">GET</span> /products/{externalId}</a><a href="#patch-products-externalid"><span class="m m-patch">PATCH</span> /products/{externalId}</a><a href="#delete-products-externalid"><span class="m m-delete">DELETE</span> /products/{externalId}</a><a href="#post-products-externalid-stock"><span class="m m-post">POST</span> /products/{externalId}/stock</a><a href="#post-products-externalid-unpublish"><span class="m m-post">POST</span> /products/{externalId}/unpublish</a></div><div class="nav-g"><a class="nav-t" href="#catalog">Shared catalog</a><a href="#get-catalog"><span class="m m-get">GET</span> /catalog</a><a href="#get-catalog-listingid"><span class="m m-get">GET</span> /catalog/{listingId}</a></div><div class="nav-g"><a class="nav-t" href="#delivery">Delivery (Open Logistics)</a><a href="#post-delivery-quotes"><span class="m m-post">POST</span> /delivery/quotes</a><a href="#post-deliveries"><span class="m m-post">POST</span> /deliveries</a><a href="#get-deliveries"><span class="m m-get">GET</span> /deliveries</a><a href="#get-deliveries-id"><span class="m m-get">GET</span> /deliveries/{id}</a><a href="#post-deliveries-id-cancel"><span class="m m-post">POST</span> /deliveries/{id}/cancel</a></div><div class="nav-g"><a class="nav-t" href="#coverage">Coverage</a><a href="#get-coverage"><span class="m m-get">GET</span> /coverage</a><a href="#get-riders-availability"><span class="m m-get">GET</span> /riders/availability</a></div><div class="nav-g"><a class="nav-t" href="#webhooks">Webhooks</a><a href="#get-webhooks"><span class="m m-get">GET</span> /webhooks</a><a href="#put-webhooks"><span class="m m-put">PUT</span> /webhooks</a><a href="#get-webhooks-events"><span class="m m-get">GET</span> /webhooks/events</a><a href="#post-webhooks-events-id-replay"><span class="m m-post">POST</span> /webhooks/events/{id}/replay</a><a href="#post-webhooks-test"><span class="m m-post">POST</span> /webhooks/test</a></div>
+  <div class="nav-g"><a class="nav-t" href="#auth">Authentication</a><a href="#post-oauth-token"><span class="m m-post">POST</span> /oauth/token</a></div><div class="nav-g"><a class="nav-t" href="#account">Your account</a><a href="#get-me"><span class="m m-get">GET</span> /me</a><a href="#get-settlements"><span class="m m-get">GET</span> /settlements</a></div><div class="nav-g"><a class="nav-t" href="#products">Products (Open Commerce)</a><a href="#post-products"><span class="m m-post">POST</span> /products</a><a href="#get-products"><span class="m m-get">GET</span> /products</a><a href="#get-products-externalid"><span class="m m-get">GET</span> /products/{externalId}</a><a href="#patch-products-externalid"><span class="m m-patch">PATCH</span> /products/{externalId}</a><a href="#delete-products-externalid"><span class="m m-delete">DELETE</span> /products/{externalId}</a><a href="#post-products-externalid-stock"><span class="m m-post">POST</span> /products/{externalId}/stock</a><a href="#post-products-externalid-unpublish"><span class="m m-post">POST</span> /products/{externalId}/unpublish</a></div><div class="nav-g"><a class="nav-t" href="#media">AI videos and ads</a><a href="#post-products-externalid-video"><span class="m m-post">POST</span> /products/{externalId}/video</a><a href="#get-products-externalid-video"><span class="m m-get">GET</span> /products/{externalId}/video</a><a href="#post-products-externalid-video-apply"><span class="m m-post">POST</span> /products/{externalId}/video/apply</a><a href="#post-ads"><span class="m m-post">POST</span> /ads</a><a href="#get-ads"><span class="m m-get">GET</span> /ads</a></div><div class="nav-g"><a class="nav-t" href="#catalog">Shared catalog</a><a href="#get-catalog"><span class="m m-get">GET</span> /catalog</a><a href="#get-catalog-listingid"><span class="m m-get">GET</span> /catalog/{listingId}</a></div><div class="nav-g"><a class="nav-t" href="#delivery">Delivery (Open Logistics)</a><a href="#post-delivery-quotes"><span class="m m-post">POST</span> /delivery/quotes</a><a href="#post-deliveries"><span class="m m-post">POST</span> /deliveries</a><a href="#get-deliveries"><span class="m m-get">GET</span> /deliveries</a><a href="#get-deliveries-id"><span class="m m-get">GET</span> /deliveries/{id}</a><a href="#post-deliveries-id-cancel"><span class="m m-post">POST</span> /deliveries/{id}/cancel</a></div><div class="nav-g"><a class="nav-t" href="#coverage">Coverage</a><a href="#get-coverage"><span class="m m-get">GET</span> /coverage</a><a href="#get-riders-availability"><span class="m m-get">GET</span> /riders/availability</a></div><div class="nav-g"><a class="nav-t" href="#webhooks">Webhooks</a><a href="#get-webhooks"><span class="m m-get">GET</span> /webhooks</a><a href="#put-webhooks"><span class="m m-put">PUT</span> /webhooks</a><a href="#get-webhooks-events"><span class="m m-get">GET</span> /webhooks/events</a><a href="#post-webhooks-events-id-replay"><span class="m m-post">POST</span> /webhooks/events/{id}/replay</a><a href="#post-webhooks-test"><span class="m m-post">POST</span> /webhooks/test</a></div>
 </nav>
 <main>
 <section id="overview">
@@ -84,6 +84,7 @@ html{scroll-behavior:smooth}
     <div><b>Machine-readable</b><span><a href="openapi.json" target="_blank" rel="noopener">openapi.json</a> (OpenAPI 3.1)</span></div>
   </div>
   <p><b>Open Commerce.</b> Publish your products with images, price and stock. They appear on the SeloNachipa marketplace for discovery and, if you choose, to other approved platforms. Each product carries a <code>checkoutUrl</code>: buyers tap <i>Buy on your platform</i> and pay on your own checkout. Your orders, payments and stock stay in your system.</p>
+  <p><b>AI videos and ads.</b> Turn a product photo into a short vertical video (AI product motion, voiceover, captions, headline and price) or into ready-to-post ads for WhatsApp Status, Facebook and TikTok. These run on the same Listing Studio and Ad Generator SeloNachipa sellers use. The product itself is never redrawn.</p>
   <p><b>Open Logistics.</b> Quote, request and track deliveries carried by verified SeloNachipa riders, with a pickup PIN, a receiver delivery code by SMS and proof of delivery.</p>
   <div class="money">
     <p><b>Who pays for delivery</b></p>
@@ -98,7 +99,7 @@ html{scroll-behavior:smooth}
   <h4>Access tokens</h4>
   <p>Exchange your client id and secret for a token at <code>POST /oauth/token</code>, then send <code>Authorization: Bearer &lt;token&gt;</code>. Tokens last 1 hour; fetch a new one when <code>expires_in</code> runs out or on a 401. Keep the client secret on your server, never in browser or mobile code. Secrets can be rotated or revoked at any time, and revocation takes effect on the next request.</p>
   <h4>Scopes</h4>
-  <div class="tbl"><table><thead><tr><th>Scope</th><th>Allows</th></tr></thead><tbody><tr><td><code>products:write</code></td><td>Publish, update, unpublish and archive your own products</td></tr><tr><td><code>products:read</code></td><td>Read your own published products</td></tr><tr><td><code>inventory:write</code></td><td>Update stock for your own products</td></tr><tr><td><code>catalog:read</code></td><td>Discover products other platforms explicitly shared with you</td></tr><tr><td><code>delivery:quote</code></td><td>Delivery prices and service coverage</td></tr><tr><td><code>delivery:write</code></td><td>Request and cancel deliveries</td></tr><tr><td><code>delivery:read</code></td><td>Track your deliveries</td></tr><tr><td><code>coverage:read</code></td><td>Cities, neighbourhoods and rider availability</td></tr><tr><td><code>webhooks:manage</code></td><td>Configure webhook URL and event subscriptions</td></tr><tr><td><code>settlements:read</code></td><td>Your settlement statement</td></tr></tbody></table></div>
+  <div class="tbl"><table><thead><tr><th>Scope</th><th>Allows</th></tr></thead><tbody><tr><td><code>products:write</code></td><td>Publish, update, unpublish and archive your own products</td></tr><tr><td><code>products:read</code></td><td>Read your own published products</td></tr><tr><td><code>inventory:write</code></td><td>Update stock for your own products</td></tr><tr><td><code>catalog:read</code></td><td>Discover products other platforms explicitly shared with you</td></tr><tr><td><code>delivery:quote</code></td><td>Delivery prices and service coverage</td></tr><tr><td><code>delivery:write</code></td><td>Request and cancel deliveries</td></tr><tr><td><code>delivery:read</code></td><td>Track your deliveries</td></tr><tr><td><code>coverage:read</code></td><td>Cities, neighbourhoods and rider availability</td></tr><tr><td><code>media:write</code></td><td>Generate AI videos and ads for your products</td></tr><tr><td><code>media:read</code></td><td>Read your generated videos and ads</td></tr><tr><td><code>webhooks:manage</code></td><td>Configure webhook URL and event subscriptions</td></tr><tr><td><code>settlements:read</code></td><td>Your settlement statement</td></tr></tbody></table></div>
   <p>A token carries only scopes that SeloNachipa granted and whose service (Commerce or Logistics) is enabled for your platform. Scopes are checked again on every call.</p>
   <h4>Idempotency</h4>
   <p>Every write (<code>POST</code>, <code>PATCH</code>, <code>PUT</code>, <code>DELETE</code>, except token and quote calls) needs an <code>Idempotency-Key</code> header. Repeating a request with the same key returns the first response. Reusing a key with a different body returns <code>409 idempotency_conflict</code>. Deliveries are also unique per <code>externalOrderRef</code>, so sending the same order twice returns the existing delivery with <code>"duplicate": true</code>.</p>
@@ -114,6 +115,7 @@ html{scroll-behavior:smooth}
     <li><b>Price delivery at checkout</b><code>POST /delivery/quotes</code>; add <code>priceNgwee</code> to the buyer's total</li>
     <li><b>Request the rider</b>After payment, <code>POST /deliveries</code> with your order id as <code>externalOrderRef</code></li>
     <li><b>Hand over the goods</b>Give the 4-digit <code>pickupPin</code> to whoever hands the parcel to the rider</li>
+    <li><b>Optional: AI media</b><code>POST /products/{id}/video</code> or <code>POST /ads</code> to promote it</li>
     <li><b>Follow progress</b><code>delivery.*</code> webhooks or <code>GET /deliveries/{id}</code></li>
   </ol>
   <h4>Delivery statuses</h4>
@@ -172,7 +174,7 @@ html{scroll-behavior:smooth}
   </div>
 </article><article class="op" id="get-settlements">
   <h3><span class="m m-get">GET</span><code class="path">/settlements</code></h3>
-  <p class="sum">Ledger: delivery charges and reversals, API usage, subscription, settlements and balance</p>
+  <p class="sum">Ledger: delivery charges and reversals, API usage, AI media usage, subscription, settlements and balance</p>
   <p class="meta">Scope <code>settlements:read</code></p>
   
   
@@ -342,6 +344,145 @@ html{scroll-behavior:smooth}
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: 3b7e1c0a-…"</code></pre></div>
+    
+  </div>
+</article></section><section id="media"><h2>AI videos and ads</h2><article class="op" id="post-products-externalid-video">
+  <h3><span class="m m-post">POST</span><code class="path">/products/{externalId}/video</code></h3>
+  <p class="sum">Make an AI video of your product (photo → product motion, voiceover, captions, 9:16 branded edit)</p>
+  <p class="meta">Scope <code>media:write</code> · Requires <code>Idempotency-Key</code></p>
+  <p>Runs asynchronously (usually 2–6 minutes). Returns 202 with status processing; you get media.video.ready or media.video.failed. Uses the product's first images. Your original media is never deleted.</p>
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>applyToListing</code></td><td class="ty">boolean</td><td>Show the video on the SeloNachipa listing when ready</td></tr><tr><td><code>voiceover</code></td><td class="ty">boolean</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30/video" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "applyToListing": true,
+    "voiceover": true
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 202</div><pre><code>{
+  "video": {
+    "listingId": "ext_3fa9c2…",
+    "externalProductId": "EGG-TRAY-30",
+    "status": "processing",
+    "progress": {
+      "step": "upload",
+      "done": 0,
+      "total": 5
+    },
+    "videoUrl": null,
+    "posterUrl": null,
+    "appliedToListing": false,
+    "sample": false
+  },
+  "started": true
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-products-externalid-video">
+  <h3><span class="m m-get">GET</span><code class="path">/products/{externalId}/video</code></h3>
+  <p class="sum">AI video status and result</p>
+  <p class="meta">Scope <code>media:read</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30/video" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "video": {
+    "listingId": "ext_3fa9c2…",
+    "externalProductId": "EGG-TRAY-30",
+    "status": "ready",
+    "videoUrl": "https://res.cloudinary.com/…/motion.mp4",
+    "posterUrl": "https://res.cloudinary.com/…/motion.jpg",
+    "headline": "Farm-fresh eggs daily",
+    "hashtags": [
+      "#Lusaka",
+      "#FarmFresh"
+    ],
+    "voiceover": true,
+    "captions": false,
+    "generativeMotion": true,
+    "appliedToListing": true,
+    "error": null,
+    "finishedAt": "2026-11-27T10:21:07Z"
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="post-products-externalid-video-apply">
+  <h3><span class="m m-post">POST</span><code class="path">/products/{externalId}/video/apply</code></h3>
+  <p class="sum">Use the AI video on the SeloNachipa listing, or go back to the original media</p>
+  <p class="meta">Scope <code>media:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>apply</code></td><td class="ty">boolean</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30/video/apply" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "apply": false
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "video": {
+    "status": "ready",
+    "appliedToListing": false
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="post-ads">
+  <h3><span class="m m-post">POST</span><code class="path">/ads</code></h3>
+  <p class="sum">Make an AI ad from a product photo (story + square images, description, WhatsApp/Facebook/TikTok copy)</p>
+  <p class="meta">Scope <code>media:write</code> · Requires <code>Idempotency-Key</code></p>
+  <p>Synchronous (about 10–30 s). The images are built around your real photo; the product is never redrawn. Give imageUrl, or externalProductId to use that product's first image, name and price.</p>
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>imageUrl</code></td><td class="ty">string</td><td>Public https JPEG/PNG, 10 MB max</td></tr><tr><td><code>externalProductId</code></td><td class="ty">string</td><td></td></tr><tr><td><code>productName</code></td><td class="ty">string</td><td></td></tr><tr><td><code>priceNgwee</code></td><td class="ty">integer</td><td> Minimum 1.</td></tr><tr><td><code>offer</code></td><td class="ty">string</td><td></td></tr><tr><td><code>callToAction</code></td><td class="ty">string</td><td>Default: Order on {your platform}</td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/ads" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "externalProductId": "EGG-TRAY-30",
+    "offer": "2 trays for K180"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 201</div><pre><code>{
+  "ad": {
+    "adId": "Hq2v…",
+    "externalProductId": "EGG-TRAY-30",
+    "storyImageUrl": "https://res.cloudinary.com/…/w_1080,h_1920/…",
+    "squareImageUrl": "https://res.cloudinary.com/…/w_1080,h_1080/…",
+    "productName": "Free-range eggs",
+    "headline": "Fresh eggs, every morning",
+    "description": "Trays of 30 free-range eggs collected daily…",
+    "copy": {
+      "whatsapp": "🥚 Fresh free-range eggs, K 95 a tray. Order on Mabala",
+      "facebook": "…",
+      "tiktok": "…"
+    },
+    "hashtags": [
+      "#Lusaka",
+      "#FarmFresh"
+    ],
+    "price": "K 95",
+    "offer": "2 trays for K180",
+    "sample": false
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-ads">
+  <h3><span class="m m-get">GET</span><code class="path">/ads</code></h3>
+  <p class="sum">Your recent AI ads</p>
+  <p class="meta">Scope <code>media:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/ads" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
     
   </div>
 </article></section><section id="catalog"><h2>Shared catalog</h2><article class="op" id="get-catalog">
@@ -595,7 +736,7 @@ html{scroll-behavior:smooth}
   <p class="meta">Scope <code>webhooks:manage</code> · Requires <code>Idempotency-Key</code></p>
   
   
-  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>url</code></td><td class="ty">string</td><td></td></tr><tr><td><code>events</code></td><td class="ty">array of "product.created" | "product.updated" | "product.stock_updated" | "product.unpublished" | "delivery.created" | "delivery.assigned" | "delivery.picked_up" | "delivery.in_transit" | "delivery.completed" | "delivery.failed" | "delivery.cancelled"</td><td></td></tr><tr><td><code>rotateSecret</code></td><td class="ty">boolean</td><td></td></tr></tbody></table></div>
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>url</code></td><td class="ty">string</td><td></td></tr><tr><td><code>events</code></td><td class="ty">array of "product.created" | "product.updated" | "product.stock_updated" | "product.unpublished" | "delivery.created" | "delivery.assigned" | "delivery.picked_up" | "delivery.in_transit" | "delivery.completed" | "delivery.failed" | "delivery.cancelled" | "media.video.ready" | "media.video.failed"</td><td></td></tr><tr><td><code>rotateSecret</code></td><td class="ty">boolean</td><td></td></tr></tbody></table></div>
   <div class="pair">
     <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X PUT "https://mabala-f2d65.web.app/api/v1/webhooks" \
   -H "Authorization: Bearer $TOKEN" \
@@ -664,8 +805,8 @@ html{scroll-behavior:smooth}
 
 <section id="events">
   <h2>Webhook events</h2>
-  <p>Set your endpoint with <code>PUT /webhooks</code>. Each event is a <code>POST</code> with a JSON body <code>{ id, type, created, environment, data }</code>. Delivery events carry <code>data.delivery</code> in the same shape as <code>GET /deliveries/{id}</code>; product events carry <code>data.product</code>.</p>
-  <div class="chips"><code>product.created</code><code>product.updated</code><code>product.stock_updated</code><code>product.unpublished</code><code>delivery.created</code><code>delivery.assigned</code><code>delivery.picked_up</code><code>delivery.in_transit</code><code>delivery.completed</code><code>delivery.failed</code><code>delivery.cancelled</code></div>
+  <p>Set your endpoint with <code>PUT /webhooks</code>. Each event is a <code>POST</code> with a JSON body <code>{ id, type, created, environment, data }</code>. Delivery events carry <code>data.delivery</code> in the same shape as <code>GET /deliveries/{id}</code>; product events carry <code>data.product</code>; <code>media.video.*</code> events carry <code>data.video</code> in the same shape as <code>GET /products/{externalId}/video</code>.</p>
+  <div class="chips"><code>product.created</code><code>product.updated</code><code>product.stock_updated</code><code>product.unpublished</code><code>delivery.created</code><code>delivery.assigned</code><code>delivery.picked_up</code><code>delivery.in_transit</code><code>delivery.completed</code><code>delivery.failed</code><code>delivery.cancelled</code><code>media.video.ready</code><code>media.video.failed</code></div>
   <h4>Verify the signature</h4>
   <p>Every request carries <code>webhook-id</code>, <code>webhook-timestamp</code> and <code>webhook-signature</code> (Standard Webhooks). The signature is <code>v1,</code> followed by base64 HMAC-SHA256 of <code>{id}.{timestamp}.{raw body}</code>, keyed with the base64-decoded part of your <code>whsec_</code> secret. Reject timestamps more than 5 minutes old, and use <code>webhook-id</code> to ignore repeats.</p>
   <div class="pair"><div class="code"><div class="code-h">Node.js<button class="copy" type="button">Copy</button></div><pre><code>import { createHmac, timingSafeEqual } from "node:crypto";
@@ -706,7 +847,7 @@ export function verify(secret, headers, rawBody) {
   <h2>Errors</h2>
   <p>API errors return <code>{ "error": { "code", "message", "details" } }</code>. The token endpoint uses OAuth's own shape, <code>{ "error", "error_description" }</code>.</p>
   <div class="tbl"><table><thead><tr><th>Status</th><th>Code</th><th>What to do</th></tr></thead><tbody>
-  <tr><td>400</td><td><code>idempotency_key_required</code></td><td>Add an Idempotency-Key header to the write.</td></tr><tr><td>401</td><td><code>unauthorized</code></td><td>The token is missing, invalid or expired. Get a new one.</td></tr><tr><td>401</td><td><code>invalid_client (token)</code></td><td>Check the client id and secret.</td></tr><tr><td>403</td><td><code>forbidden</code></td><td>Your platform is suspended or not approved, the client was revoked, or the environment isn't enabled.</td></tr><tr><td>403</td><td><code>insufficient_scope</code></td><td>This call needs a scope your platform wasn't granted. Ask SeloNachipa.</td></tr><tr><td>404</td><td><code>not_found</code></td><td>The product or delivery doesn't exist or isn't yours.</td></tr><tr><td>409</td><td><code>conflict</code></td><td>The action doesn't fit the current state, for example cancelling after pickup.</td></tr><tr><td>409</td><td><code>idempotency_conflict</code></td><td>This key was used with a different body. Use a new key.</td></tr><tr><td>422</td><td><code>validation_failed</code></td><td>Fix the fields listed in details.</td></tr><tr><td>429</td><td><code>rate_limited</code></td><td>Wait for Retry-After seconds.</td></tr><tr><td>500</td><td><code>internal</code></td><td>Retry with the same Idempotency-Key.</td></tr>
+  <tr><td>400</td><td><code>idempotency_key_required</code></td><td>Add an Idempotency-Key header to the write.</td></tr><tr><td>401</td><td><code>unauthorized</code></td><td>The token is missing, invalid or expired. Get a new one.</td></tr><tr><td>401</td><td><code>invalid_client (token)</code></td><td>Check the client id and secret.</td></tr><tr><td>403</td><td><code>forbidden</code></td><td>Your platform is suspended or not approved, the client was revoked, or the environment isn't enabled.</td></tr><tr><td>403</td><td><code>insufficient_scope</code></td><td>This call needs a scope your platform wasn't granted. Ask SeloNachipa.</td></tr><tr><td>404</td><td><code>not_found</code></td><td>The product or delivery doesn't exist or isn't yours.</td></tr><tr><td>409</td><td><code>conflict</code></td><td>The action doesn't fit the current state, for example cancelling after pickup.</td></tr><tr><td>409</td><td><code>idempotency_conflict</code></td><td>This key was used with a different body. Use a new key.</td></tr><tr><td>422</td><td><code>validation_failed</code></td><td>Fix the fields listed in details.</td></tr><tr><td>429</td><td><code>limit_reached</code></td><td>A daily AI video or ad limit was reached. Try again tomorrow.</td></tr><tr><td>503</td><td><code>unavailable</code></td><td>The AI service is busy. Retry in a minute with the same Idempotency-Key.</td></tr><tr><td>429</td><td><code>rate_limited</code></td><td>Wait for Retry-After seconds.</td></tr><tr><td>500</td><td><code>internal</code></td><td>Retry with the same Idempotency-Key.</td></tr>
   </tbody></table></div>
   <p>Questions: support@mabala.cloud</p>
 </section>

@@ -3,7 +3,7 @@
   "info": {
     "title": "SeloNachipa Open Network API",
     "version": "1.0.0",
-    "description": "Open Commerce: list your products on the SeloNachipa marketplace for discovery — buyers are sent to your own checkout (checkoutUrl) and you keep your orders, payments and stock. Open Logistics: quote and request deliveries by the SeloNachipa rider network. The delivery fee is set by SeloNachipa: charge your buyer the quoted priceNgwee on your checkout; you owe it to SeloNachipa in full, and SeloNachipa splits it to the rider, platform and Social Fund.\n\nAuthentication: OAuth 2.0 client credentials. POST /oauth/token with your client_id and client_secret (server-side only — never in browser or mobile code), then send `Authorization: Bearer <token>`. Tokens last 1 hour.\n\nMoney is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox products are never shown to buyers and sandbox deliveries never reach real riders — they move through every status automatically, one step a minute, firing your webhooks.",
+    "description": "Open Commerce: list your products on the SeloNachipa marketplace for discovery — buyers are sent to your own checkout (checkoutUrl) and you keep your orders, payments and stock. AI media: make product videos (photo → AI product motion, voiceover, captions, branded 9:16 edit) and social ads (story and square images around your real photo, plus WhatsApp, Facebook and TikTok copy) with the same Listing Studio and Ad Generator SeloNachipa sellers use.\n\nOpen Logistics: quote and request deliveries by the SeloNachipa rider network. The delivery fee is set by SeloNachipa: charge your buyer the quoted priceNgwee on your checkout; you owe it to SeloNachipa in full, and SeloNachipa splits it to the rider, platform and Social Fund.\n\nAuthentication: OAuth 2.0 client credentials. POST /oauth/token with your client_id and client_secret (server-side only — never in browser or mobile code), then send `Authorization: Bearer <token>`. Tokens last 1 hour.\n\nMoney is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox products are never shown to buyers and sandbox deliveries never reach real riders — they move through every status automatically, one step a minute, firing your webhooks.",
     "contact": {
       "name": "SeloNachipa developer support",
       "email": "support@mabala.cloud"
@@ -1102,6 +1102,389 @@
         }
       }
     },
+    "/products/{externalId}/video": {
+      "post": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Make an AI video of your product (photo → product motion, voiceover, captions, 9:16 branded edit)",
+        "security": [
+          {
+            "oauth2": [
+              "media:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "description": "Runs asynchronously (usually 2–6 minutes). Returns 202 with status processing; you get media.video.ready or media.video.failed. Uses the product's first images. Your original media is never deleted.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "applyToListing": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show the video on the SeloNachipa listing when ready"
+                  },
+                  "voiceover": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              },
+              "example": {
+                "applyToListing": true,
+                "voiceover": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "video": {
+                      "$ref": "#/components/schemas/Video"
+                    },
+                    "started": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "AI video status and result",
+        "security": [
+          {
+            "oauth2": [
+              "media:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "video": {
+                      "$ref": "#/components/schemas/Video"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/products/{externalId}/video/apply": {
+      "post": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Use the AI video on the SeloNachipa listing, or go back to the original media",
+        "security": [
+          {
+            "oauth2": [
+              "media:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "apply": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/ads": {
+      "post": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Make an AI ad from a product photo (story + square images, description, WhatsApp/Facebook/TikTok copy)",
+        "security": [
+          {
+            "oauth2": [
+              "media:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "description": "Synchronous (about 10–30 s). The images are built around your real photo; the product is never redrawn. Give imageUrl, or externalProductId to use that product's first image, name and price.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdInput"
+              },
+              "example": {
+                "externalProductId": "MBL-SKU-0042",
+                "offer": "10% off this week"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ad": {
+                      "$ref": "#/components/schemas/Ad"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Your recent AI ads",
+        "security": [
+          {
+            "oauth2": [
+              "media:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
     "/coverage": {
       "get": {
         "tags": [
@@ -1308,7 +1691,9 @@
                         "delivery.in_transit",
                         "delivery.completed",
                         "delivery.failed",
-                        "delivery.cancelled"
+                        "delivery.cancelled",
+                        "media.video.ready",
+                        "media.video.failed"
                       ]
                     }
                   },
@@ -1532,7 +1917,7 @@
         "tags": [
           "Settlements"
         ],
-        "summary": "Ledger: delivery charges and reversals, API usage, subscription, settlements and balance",
+        "summary": "Ledger: delivery charges and reversals, API usage, AI media usage, subscription, settlements and balance",
         "security": [
           {
             "oauth2": [
@@ -1795,6 +2180,46 @@
           }
         }
       }
+    },
+    "media.video.ready": {
+      "post": {
+        "summary": "media.video.ready",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "media.video.failed": {
+      "post": {
+        "summary": "media.video.failed",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1813,6 +2238,8 @@
               "delivery:write": "Request and cancel deliveries",
               "delivery:read": "Track your deliveries",
               "coverage:read": "Cities, neighbourhoods and rider availability",
+              "media:write": "Generate AI videos and ads for your products",
+              "media:read": "Read your generated videos and ads",
               "webhooks:manage": "Configure webhook URL and event subscriptions",
               "settlements:read": "Your settlement statement"
             }
@@ -2264,6 +2691,202 @@
           }
         }
       },
+      "Video": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "externalProductId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "none",
+              "processing",
+              "ready",
+              "failed"
+            ]
+          },
+          "progress": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "step": {
+                "type": "string"
+              },
+              "done": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          },
+          "videoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "MP4, 9:16, up to 30 s"
+          },
+          "posterUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "photoUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headline": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hashtags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "voiceover": {
+            "type": "boolean"
+          },
+          "captions": {
+            "type": "boolean"
+          },
+          "generativeMotion": {
+            "type": "boolean",
+            "description": "true when the motion was generated by AI from a still photo"
+          },
+          "appliedToListing": {
+            "type": "boolean"
+          },
+          "sample": {
+            "type": "boolean",
+            "description": "Sandbox sample media"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdInput": {
+        "type": "object",
+        "properties": {
+          "imageUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public https JPEG/PNG, 10 MB max"
+          },
+          "externalProductId": {
+            "type": "string"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "priceNgwee": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "offer": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "callToAction": {
+            "type": "string",
+            "maxLength": 40,
+            "description": "Default: Order on {your platform}"
+          }
+        }
+      },
+      "Ad": {
+        "type": "object",
+        "properties": {
+          "adId": {
+            "type": "string"
+          },
+          "externalProductId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storyImageUrl": {
+            "type": "string",
+            "description": "1080×1920 for WhatsApp Status / TikTok"
+          },
+          "squareImageUrl": {
+            "type": "string",
+            "description": "1080×1080 for Facebook"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "copy": {
+            "type": "object",
+            "properties": {
+              "whatsapp": {
+                "type": "string"
+              },
+              "facebook": {
+                "type": "string"
+              },
+              "tiktok": {
+                "type": "string"
+              }
+            }
+          },
+          "hashtags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "price": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "offer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "Event": {
         "type": "object",
         "properties": {
@@ -2282,7 +2905,9 @@
               "delivery.in_transit",
               "delivery.completed",
               "delivery.failed",
-              "delivery.cancelled"
+              "delivery.cancelled",
+              "media.video.ready",
+              "media.video.failed"
             ]
           },
           "created": {

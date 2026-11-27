@@ -12,12 +12,13 @@ import { Drawer, Kpi, Page, Panel, StatePill, Table, useAction } from "../lib/ui
 
 const SCOPES: [string, string, string][] = [
   ["products:write", "commerce", "Publish & update products"], ["products:read", "commerce", "Read own products"], ["inventory:write", "commerce", "Stock updates"],
-  ["catalog:read", "commerce", "See products shared with it"],
+  ["catalog:read", "commerce", "See products shared with it"], ["media:write", "commerce", "Make AI videos & ads"], ["media:read", "commerce", "Read AI videos & ads"],
   ["delivery:quote", "logistics", "Delivery quotes"], ["delivery:write", "logistics", "Request & cancel deliveries"], ["delivery:read", "logistics", "Track deliveries"],
   ["coverage:read", "logistics", "Coverage & rider availability"], ["webhooks:manage", "common", "Webhooks"], ["settlements:read", "common", "Settlement statement"]];
-const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled"];
+const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled", "media.video.ready", "media.video.failed"];
 // Delivery is always SeloNachipa's configured tariff (Configuration → parcel fees; express premium = openExpressPremiumPct).
-const PRICING: [string, string][] = [["subscriptionMonthlyNgwee", "Subscription / month (ngwee)"], ["apiCallNgwee", "Per API call (ngwee)"]];
+const PRICING: [string, string][] = [["subscriptionMonthlyNgwee", "Subscription / month (ngwee)"], ["apiCallNgwee", "Per API call (ngwee)"],
+  ["mediaVideoNgwee", "Per finished AI video (ngwee)"], ["mediaAdNgwee", "Per AI ad (ngwee)"]];
 
 export default function OpenNetwork() {
   const partners = useCollection("openPartners", [orderBy("name")], "all").rows;
@@ -185,7 +186,7 @@ function Settlement({ pid }: { pid: string }) {
   const by: Record<string, number> = {}; rows.filter((r) => r.env !== "sandbox").forEach((r) => { by[r.type] = (by[r.type] ?? 0) + (r.signedNgwee ?? 0); });
   const bal = Object.values(by).reduce((a, b) => a + b, 0);
   return <><Msg />
-    <div className="kpis">{["DELIVERY_CHARGE", "DELIVERY_REVERSAL", "API_USAGE", "SUBSCRIPTION", "SETTLEMENT"].map((t) => <Kpi key={t} label={t.replace(/_/g, " ").toLowerCase()} value={k(by[t] ?? 0)} />)}
+    <div className="kpis">{["DELIVERY_CHARGE", "DELIVERY_REVERSAL", "API_USAGE", "MEDIA_USAGE", "SUBSCRIPTION", "SETTLEMENT"].map((t) => <Kpi key={t} label={t.replace(/_/g, " ").toLowerCase()} value={k(by[t] ?? 0)} />)}
       <Kpi label={bal >= 0 ? "SeloNachipa owes partner" : "Partner owes SeloNachipa"} value={k(Math.abs(bal))} tone={bal < 0 ? "wn" : "up"} /></div>
     <h4>Record a settlement payment</h4>
     <div style={{ display: "flex", gap: 8 }}><input placeholder="Amount K received from the platform" value={amt} onChange={(e) => setAmt(e.target.value)} />
