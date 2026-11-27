@@ -34,6 +34,9 @@ service cloud.firestore {
     // Marketing Centre campaigns: written only by campaign_* functions (prices are worked out on the server).
     match /campaigns/{id} { allow read: if signedIn() && (resource.data.sellerUid == request.auth.uid || admin()); allow write: if false; }
     // Rider safety: SOS alerts and verified rider IDs are server-written.
+    // Rider cover: insurer setup and premiums held for the insurer — server-written, back office read only.
+    match /riderCover/{id} { allow read: if admin(); allow write: if false; }
+    match /riderCoverPremiums/{id} { allow read: if admin(); allow write: if false; }
     match /sosAlerts/{id} { allow read: if signedIn() && (resource.data.riderUid == request.auth.uid || admin()); allow write: if false; }
     match /performanceReports/{id} { allow read: if signedIn() && (resource.data.uid == request.auth.uid || admin()); allow write: if false; }
     match /listings/{id} {

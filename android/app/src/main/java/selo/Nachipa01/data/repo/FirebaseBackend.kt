@@ -949,9 +949,11 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     @Suppress("UNCHECKED_CAST")
     private fun Map<*, *>.toSafety() = SafetyStatus(this["emergencyName"] as? String, this["emergencyPhone"] as? String, this["insurance"] == true,
         (this["premiumNgwee"] as? Number)?.toLong() ?: 0, (this["coverNgwee"] as? Number)?.toLong() ?: 0, (this["lessons"] as? List<String>).orEmpty().toSet(),
-        (this["evidenceCount"] as? Number)?.toInt() ?: 0, this["openAlertId"] as? String, this["openAlertUrl"] as? String)
+        (this["evidenceCount"] as? Number)?.toInt() ?: 0, this["openAlertId"] as? String, this["openAlertUrl"] as? String,
+        this["coverAvailable"] == true, this["insurerName"] as? String, this["policyNumber"] as? String, this["claimsPhone"] as? String,
+        this["claimsEmail"] as? String, this["termsUrl"] as? String, this["benefits"] as? String)
     override suspend fun safetyStatus() = call("rider_safety", emptyMap()).toSafety()
-    override suspend fun setRiderInsurance(on: Boolean) = call("rider_safety", mapOf("insurance" to on)).toSafety()
+    override suspend fun setRiderInsurance(on: Boolean, acceptedTerms: Boolean) = call("rider_safety", mapOf("insurance" to on, "acceptedTerms" to acceptedTerms)).toSafety()
     override suspend fun completeLesson(id: String) = call("rider_safety", mapOf("lessonDone" to id)).toSafety()
     override suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String): SosResult {
         val r = call("rider_sos", mapOf("lat" to lat, "lng" to lng, "accuracy" to accuracy, "kind" to kind, "note" to note))

@@ -266,4 +266,6 @@ class ScreensScreenshotTest {
     @Test fun g15_feedDeal() = shot("G15-feed-deal-badge", Role.BUYER, advance = 1_500) { BuyerShell(rememberNavController(), "home") {} }
     @Test fun g16_offline() = shot("G16-offline-banner", Role.BUYER, advance = 1_500, prep = { selo.Nachipa01.data.repo.OfflineCatalog.offline.value = true }) {
         selo.Nachipa01.ui.nav.SeloNavHost {} }
+    @Test fun g17_coverOff() = shot("G17-rider-cover-not-available", Role.RIDER, advance = 1_000,
+        act = { rule.onNode(androidx.compose.ui.test.hasText("Not available yet", substring = true)).performScrollTo() }) { RiderShell("more", initialScreen = "safety") {} }
 }

@@ -13,6 +13,7 @@ import { getMessaging } from "firebase-admin/messaging";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
+import { coverProblem } from "./safety";
 import { DELIVERY_CODE_SECRET, LIPILA_API_KEY, SMS_API_KEY, db, loadConfig, type PlatformConfig } from "./config";
 import { heroBonus, normaliseMsisdn, riderTier, split } from "./domain";
 import { coll, releaseGuard, statusField, writeLedger, type OrderKind } from "./ledger";
@@ -208,7 +209,8 @@ export async function verifyDeliveryCodeCore(inp: VerifyInput, deps: Deps = live
     const ref = docRef(inp.kind, inp.id);
     // all reads first (Firestore transactions), including the wallet the release may credit
     const wRef = db.doc(`riderWallets/${inp.riderUid}`);
-    const [snap, cSnap, guard, wSnap] = await Promise.all([tx.get(ref), tx.get(codeRef(inp.kind, inp.id)), tx.get(releaseGuard(inp.kind, inp.id)), tx.get(wRef)]);
+    const [snap, cSnap, guard, wSnap, coverSnap] = await Promise.all([tx.get(ref), tx.get(codeRef(inp.kind, inp.id)), tx.get(releaseGuard(inp.kind, inp.id)), tx.get(wRef),
+      tx.get(db.doc("riderCover/active"))]);
     const d = snap.data();
     if (!d) throw new HttpsError("not-found", "Order not found.");
     const v = view(inp.kind, d);
@@ -230,7 +232,7 @@ export async function verifyDeliveryCodeCore(inp: VerifyInput, deps: Deps = live
       return { kind: "fail" as const, outcome, v, justLocked: outcome.result === "locked" && cur?.state === "sent" };
     }
     // verified → release in the same transaction
-    const w = wSnap.data() ?? {};
+    const w = withCover(wSnap.data() ?? {}, coverSnap.data());
     const post = releaseInTx(tx, inp.kind, inp.id, d, w, cfg, { by: `rider:${inp.riderUid}`, override: false,
       verification: { verifiedAt: Timestamp.fromMillis(t), riderGeo: pos.at ?? null, positionSource: pos.source, channel: cur?.channel ?? null, attempts: next?.attempts ?? 1 } });
     return { kind: "released" as const, earnings: post.riderEarningsNgwee, post };
@@ -253,6 +255,15 @@ interface ReleasePost {
  * Releases escrow inside the caller's transaction. All reads (order doc, wallet, guard) must already be done.
  * Amounts come from the fee snapshot stored at payment time, never from current config or client input.
  */
+/**
+ * Rider cover premium for this release: only when cover is switched on in the back office with a complete insurer setup
+ * (riderCover/active) AND the rider opted in. Otherwise nothing is deducted.
+ */
+export function withCover(w: DocumentData, cover: DocumentData | undefined): DocumentData {
+  const on = !!cover?.enabled && !coverProblem(cover) && w.insurance?.on === true;
+  return { ...w, coverPremiumNgwee: on ? Math.max(0, Math.round(Number(cover!.premiumNgwee))) : 0, coverInsurer: on ? cover!.insurerName : null, coverPolicy: on ? cover!.policyNumber : null };
+}
+
 export function releaseInTx(tx: Transaction, kind: OrderKind, id: string, d: DocumentData, w: DocumentData, cfg: PlatformConfig,
   o: { by: string; override: boolean; reason?: string; verification?: Record<string, unknown> }): ReleasePost {
   const v = view(kind, d);
@@ -287,8 +298,13 @@ export function releaseInTx(tx: Transaction, kind: OrderKind, id: string, d: Doc
     }
   }
   // Optional rider cover (Safety Centre): a small premium per completed delivery, taken from that delivery's earnings.
-  const premium = w.insurance?.on ? Math.min(riderEarnings, Math.max(0, Math.round(Number(w.insurance.premiumNgwee ?? 0)))) : 0;
-  if (premium > 0) { L("insurance", "platform", premium, { partyUid: riderUid, note: "rider cover premium" }); riderEarnings -= premium; revenue.rider_insurance = premium; }
+  const premium = Math.min(riderEarnings, Math.max(0, Number(w.coverPremiumNgwee ?? 0)));
+  if (premium > 0) {
+    L("insurance", "platform", premium, { partyUid: riderUid, note: `rider cover premium · held for ${w.coverInsurer}` }); riderEarnings -= premium;
+    // Premiums are held for the insurer (not platform revenue) and remitted by finance against this log.
+    tx.set(db.collection("riderCoverPremiums").doc(), { riderUid, kind, orderId: id, amountNgwee: premium, insurer: w.coverInsurer, policyNumber: w.coverPolicy,
+      remitted: false, at: FieldValue.serverTimestamp() });
+  }
   const before = w.availableNgwee ?? 0;
   L("rider_earnings", "rider", riderEarnings, { partyUid: riderUid, balanceBefore: before, balanceAfter: before + riderEarnings });
   L("social_fund", "rider_social_fund", fund, { partyUid: riderUid, balanceBefore: w.socialFundNgwee ?? 0, balanceAfter: (w.socialFundNgwee ?? 0) + fund });
@@ -501,7 +517,8 @@ export async function overrideDeliveryCore(kind: OrderKind, id: string, admin: {
     const v = view(kind, d);
     if (!v.riderUid) throw new HttpsError("failed-precondition", "No rider is assigned.");
     if (!["IN_TRANSIT", "AWAITING_DELIVERY_CODE", "DELIVERY_FAILED", "DISPUTED"].includes(v.status)) throw new HttpsError("failed-precondition", `Can't force-complete from ${v.status}.`);
-    const w = (await tx.get(db.doc(`riderWallets/${v.riderUid}`))).data() ?? {};
+    const [wSnap, coverSnap] = await Promise.all([tx.get(db.doc(`riderWallets/${v.riderUid}`)), tx.get(db.doc("riderCover/active"))]);
+    const w = withCover(wSnap.data() ?? {}, coverSnap.data());
     if (v.status === "DELIVERY_FAILED") { // pending was cleared on failure; put it back so the release nets correctly
       w.pendingNgwee = (w.pendingNgwee ?? 0) + (kind === "parcel" ? d.fees.riderEarningsNgwee : split(d.goodsNgwee, d.deliveryNgwee, d.feeSnapshot).riderNetNgwee);
       w.activeCount = (w.activeCount ?? 0) + 1;

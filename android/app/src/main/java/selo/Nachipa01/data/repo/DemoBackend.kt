@@ -599,9 +599,12 @@ class DemoBackend : Backend {
             listOf("Small average orders — a product bundle can raise what each buyer spends.", "Keep your best seller in stock: it sold out twice last month."),
             listOf(TopProduct("Fresh Chongwe tomatoes – 5 kg bag", 64, 512_000), TopProduct("Rape bundle, freshly cut", 52, 52_000), TopProduct("Relish pack (bundle)", 22, 187_000)))
     }
-    private var safety = SafetyStatus("Mutale Mulenga", "+260966123456", false, 200, 1_000_000, setOf("helmet"), 46)
+    // Rider cover is off (no insurer confirmed yet) — riders see "Not available yet".
+    private var safety = SafetyStatus("Mutale Mulenga", "+260966123456", false, 0, 0, setOf("helmet"), 46)
     override suspend fun safetyStatus(): SafetyStatus { delay(200); return safety }
-    override suspend fun setRiderInsurance(on: Boolean): SafetyStatus { delay(300); safety = safety.copy(insurance = on); return safety }
+    override suspend fun setRiderInsurance(on: Boolean, acceptedTerms: Boolean): SafetyStatus { delay(300)
+        if (on && !safety.coverAvailable) throw BackendException("Rider cover isn't available yet. We'll notify you when an insurer is confirmed.")
+        safety = safety.copy(insurance = on); return safety }
     override suspend fun completeLesson(id: String): SafetyStatus { delay(150); safety = safety.copy(lessons = safety.lessons + id); return safety }
     override suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String): SosResult {
         delay(600); safety = safety.copy(openAlertId = "sos1", openAlertUrl = "https://mabala-f2d65.web.app/s/demo")

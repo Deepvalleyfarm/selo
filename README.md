@@ -177,7 +177,11 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Incident location sharing.
   - Verified rider ID with a QR code that opens `/v/{code}`.
   - Geotagged delivery evidence photos.
-  - Optional accident cover: a premium per completed delivery, taken in the payout transaction and recorded in the ledger. Defaults are K 2 per delivery for K 10,000 of cover.
+  - Optional accident cover is OFF until an insurer is confirmed. Finance enters the insurer in back office → Rider cover (insurer): registered name, group policy number, claims phone and email, policy terms link, premium per delivery, cover amount and benefits. Then they switch it on (`admin_setRiderCover`, audited).
+    - Switching on is refused while any insurer field is missing.
+    - Riders can opt in only while cover is on, and only after accepting the policy terms.
+    - Premiums are deducted only while cover is on and the rider has opted in. They're held for the insurer in `riderCoverPremiums` for finance to remit, and aren't counted as platform revenue.
+    - Switching off stops all deductions immediately.
   - Seven short safety lessons.
 - **Smart dispatch** (`dispatch.ts`):
   - Each rider gets a 0–100 score: distance to the seller (30), distance to the buyer (10), fit with their current route (15), availability and GPS freshness (15), acceptance and completion history (20), and estimated pickup time (10).

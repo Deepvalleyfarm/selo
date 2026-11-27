@@ -66,6 +66,8 @@ fun SafetyCentreScreen(back: () -> Unit, open: (String) -> Unit) {
     var showId by remember { mutableStateOf(false) }
     var lesson by remember { mutableStateOf<Lesson?>(null) }
     var confirmSos by remember { mutableStateOf(false) }
+    var coverTerms by remember { mutableStateOf(false) }
+    var termsTicked by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf<String?>(null) }
     var alert by remember { mutableStateOf<SosResult?>(null) }
     val locator = selo.Nachipa01.ui.components.rememberLocator()
@@ -160,18 +162,24 @@ fun SafetyCentreScreen(back: () -> Unit, open: (String) -> Unit) {
                         Text("${st?.evidenceCount ?: 0} geotagged photos on file. Take one at pickup and at the door — it protects you in disputes.", color = Selo.Mute, fontSize = 12.sp) }
                 }
             }
-            // insurance
+            // insurance — off until an insurer is confirmed and switched on in the back office
             st?.let { s -> SeloCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.HealthAndSafety, null, tint = Selo.Red)
+                    Icon(Icons.Outlined.HealthAndSafety, null, tint = if (s.coverAvailable) Selo.Red else Selo.Mute)
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
                         Text("Rider accident cover (optional)", fontWeight = FontWeight.Bold)
-                        Text("${Fees.formatK(s.premiumNgwee)} per completed delivery · up to ${Fees.formatK(s.coverNgwee)} medical and accident cover", color = Selo.Mute, fontSize = 12.sp)
+                        if (s.coverAvailable) Text("${Fees.formatK(s.premiumNgwee)} per completed delivery · up to ${Fees.formatK(s.coverNgwee)} · insured by ${s.insurerName}", color = Selo.Mute, fontSize = 12.sp)
+                        else Text("Not available yet. We're finalising an insurance partner — you'll get a notification when you can join. Nothing is deducted.", color = Selo.Mute, fontSize = 12.sp)
                     }
-                    Switch(s.insurance, { on -> scope.launch { runCatching { app.backend.setRiderInsurance(on) }.onSuccess { st = it; app.ok(if (on) "Cover is on from your next delivery" else "Cover switched off") }
-                        .onFailure { app.fail(it.message ?: "Couldn't change your cover.") } } }, colors = SwitchDefaults.colors(checkedTrackColor = Selo.Green))
+                    if (s.coverAvailable) Switch(s.insurance, { on -> if (on) coverTerms = true else scope.launch {
+                        runCatching { app.backend.setRiderInsurance(false) }.onSuccess { st = it; app.ok("Cover switched off — no more premiums") }.onFailure { app.fail(it.message ?: "Couldn't change your cover.") } } },
+                        colors = SwitchDefaults.colors(checkedTrackColor = Selo.Green))
+                    else StatusChip("Coming soon", Tone.GREY)
                 }
-                if (s.insurance) Sub("The premium comes off each delivery's earnings and shows in your statement. Claims go through Social Fund → File a claim.")
+                if (s.coverAvailable) {
+                    s.benefits?.let { Sub(it) }
+                    if (s.insurance) Sub("Policy ${s.policyNumber ?: ""}. The premium comes off each delivery's earnings and shows in your statement. Claims: ${s.claimsPhone ?: ""} · ${s.claimsEmail ?: ""}")
+                }
             } }
             // lessons
             val done = st?.lessons ?: emptySet()
@@ -190,6 +198,17 @@ fun SafetyCentreScreen(back: () -> Unit, open: (String) -> Unit) {
             Spacer(Modifier.height(20.dp))
         }
     }
+    if (coverTerms) st?.let { s -> AlertDialog({ coverTerms = false }, title = { Text("Join rider cover") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Insured by ${s.insurerName} · policy ${s.policyNumber}. ${Fees.formatK(s.premiumNgwee)} comes off each completed delivery for up to ${Fees.formatK(s.coverNgwee)} of cover.")
+            s.benefits?.let { Text(it, color = Selo.Mute, fontSize = 13.sp) }
+            s.termsUrl?.let { u -> TextButton({ ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u))) }) { Text("Read the policy terms", color = Selo.Red, fontWeight = FontWeight.Bold) } }
+            CheckRow(termsTicked, { termsTicked = it }, "I've read the policy terms and agree to the premium per delivery")
+        } },
+        confirmButton = { Button({ coverTerms = false; scope.launch { runCatching { app.backend.setRiderInsurance(true, acceptedTerms = true) }
+            .onSuccess { st = it; app.ok("Cover is on from your next delivery") }.onFailure { app.fail(it.message ?: "Couldn't turn on cover.") } } },
+            enabled = termsTicked, colors = ButtonDefaults.buttonColors(containerColor = Selo.Green)) { Text("Join", fontWeight = FontWeight.Bold) } },
+        dismissButton = { TextButton({ coverTerms = false }) { Text("Not now") } }) }
     if (confirmSos) AlertDialog({ confirmSos = false }, title = { Text("Send SOS?") },
         text = { Text("We'll send your live location to ${st?.emergencyName ?: "SeloNaChipa operations"}${if (st?.emergencyPhone != null) " and SeloNaChipa operations" else ""}.") },
         confirmButton = { Button({ confirmSos = false; send("SOS") }, colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) { Text("Send SOS", fontWeight = FontWeight.Bold) } },

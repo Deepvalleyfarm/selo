@@ -220,7 +220,7 @@ interface Backend {
     suspend fun generateAd(photo: android.net.Uri, productName: String, priceNgwee: Long, offer: String): AdPack
     suspend fun performanceReport(month: String?): PerformanceReport
     suspend fun safetyStatus(): SafetyStatus
-    suspend fun setRiderInsurance(on: Boolean): SafetyStatus
+    suspend fun setRiderInsurance(on: Boolean, acceptedTerms: Boolean = false): SafetyStatus
     suspend fun completeLesson(id: String): SafetyStatus
     /** kind = "SOS" (texts the emergency contact) or "SHARE" (live link only). */
     suspend fun sendSos(lat: Double, lng: Double, accuracy: Float?, kind: String, note: String = ""): SosResult

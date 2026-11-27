@@ -10,9 +10,9 @@
 import { randomBytes } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { SMS_API_KEY, TRACKING_BASE_URL, db, loadConfig } from "./config";
+import { SMS_API_KEY, TRACKING_BASE_URL, db } from "./config";
 import { sendSms } from "./sms";
-import { requireAdmin, requireUser } from "./util";
+import { audit, requireAdmin, requireUser } from "./util";
 
 const base = () => { try { return TRACKING_BASE_URL.value().replace(/\/t\/?$/, ""); } catch { return "https://mabala-f2d65.web.app"; } };
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -20,8 +20,29 @@ const isLL = (v: any) => v && Number.isFinite(Number(v.lat)) && Number.isFinite(
 export const mapsLink = (lat: number, lng: number) => `https://maps.google.com/?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
 
 export const LESSONS = ["helmet", "night", "robbery", "weather", "road", "cash", "first-aid"] as const;
-/** Default rider cover (admin can change in config): K 2 per delivery for up to K 10,000 accident / medical cover. */
-export const DEFAULT_COVER = { premiumNgwee: 200, coverNgwee: 1_000_000 };
+/**
+ * Rider cover is OFF until an insurer is confirmed. Finance / super admin configure the insurer in the back office
+ * (riderCover/active, server-only) and only then can it be switched on; riders can't opt in before that, and no premium
+ * is ever deducted while it's off.
+ */
+export interface CoverConfig { enabled: boolean; insurerName: string; policyNumber: string; claimsPhone: string; claimsEmail: string; termsUrl: string;
+  premiumNgwee: number; coverNgwee: number; benefits: string }
+export const COVER_REF = "riderCover/active";
+export function coverProblem(c: Partial<CoverConfig>): string | null {
+  if (!c.insurerName || c.insurerName.trim().length < 2) return "Enter the insurer's registered name.";
+  if (!c.policyNumber || c.policyNumber.trim().length < 3) return "Enter the group policy number from the insurer.";
+  if (!/^\+?260(9[567]|7[567])\d{7}$/.test(String(c.claimsPhone ?? "").replace(/\s/g, ""))) return "Enter the insurer's claims phone number (+260…).";
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(c.claimsEmail ?? ""))) return "Enter the insurer's claims email.";
+  if (!/^https:\/\//.test(String(c.termsUrl ?? ""))) return "Add the link to the policy terms riders must read (https://…).";
+  if (!(Number(c.premiumNgwee) > 0 && Number(c.premiumNgwee) <= 5_000)) return "Set the premium per delivery (K 0.01 – K 50).";
+  if (!(Number(c.coverNgwee) > 0)) return "Set the cover amount.";
+  if (!c.benefits || c.benefits.trim().length < 10) return "Describe what the cover pays for (shown to riders).";
+  return null;
+}
+export async function loadCover(): Promise<CoverConfig | null> {
+  const c = (await db.doc(COVER_REF).get()).data() as CoverConfig | undefined;
+  return c && c.enabled && !coverProblem(c) ? c : null;
+}
 
 export function sosSms(name: string, msisdn: string, lat: number, lng: number, link: string, kind: "SOS" | "SAFE") {
   return kind === "SAFE" ? `SeloNaChipa: ${name} has marked themselves SAFE. Thank you.`
@@ -143,22 +164,49 @@ export const delivery_addEvidence = onCall(async (req) => {
 
 export const rider_safety = onCall(async (req) => {
   const { uid } = requireUser(req, "RIDER");
-  const cfg = await loadConfig() as unknown as Record<string, unknown>;
-  const cover = { premiumNgwee: Number(cfg.riderCoverPremiumNgwee ?? DEFAULT_COVER.premiumNgwee), coverNgwee: Number(cfg.riderCoverNgwee ?? DEFAULT_COVER.coverNgwee) };
+  const cover = await loadCover();
   const d = req.data ?? {};
   const uRef = db.doc(`users/${uid}`), wRef = db.doc(`riderWallets/${uid}`);
   if (typeof d.insurance === "boolean") {
-    await wRef.set({ insurance: { on: d.insurance, premiumNgwee: cover.premiumNgwee, coverNgwee: cover.coverNgwee, since: d.insurance ? FieldValue.serverTimestamp() : null } }, { merge: true });
+    if (d.insurance && !cover) throw new HttpsError("failed-precondition", "Rider cover isn't available yet. We'll notify you when an insurer is confirmed.");
+    if (d.insurance && d.acceptedTerms !== true) throw new HttpsError("failed-precondition", "Read and accept the policy terms first.");
+    await wRef.set({ insurance: { on: d.insurance, insurer: cover?.insurerName ?? null, policyNumber: cover?.policyNumber ?? null,
+      since: d.insurance ? FieldValue.serverTimestamp() : null, acceptedTermsAt: d.insurance ? FieldValue.serverTimestamp() : null } }, { merge: true });
     await uRef.update({ "safety.insurance": d.insurance });
   }
   if (typeof d.lessonDone === "string" && (LESSONS as readonly string[]).includes(d.lessonDone)) await uRef.update({ "safety.lessons": FieldValue.arrayUnion(d.lessonDone) });
   const [u, w] = await Promise.all([uRef.get(), wRef.get()]);
   const open = await db.collection("sosAlerts").where("riderUid", "==", uid).where("status", "==", "OPEN").limit(1).get();
   return { emergencyName: u.get("emergencyContact.name") ?? null, emergencyPhone: u.get("emergencyContact.phone") ?? null,
-    insurance: w.get("insurance.on") === true, premiumNgwee: cover.premiumNgwee, coverNgwee: cover.coverNgwee, lessons: u.get("safety.lessons") ?? [],
+    coverAvailable: !!cover, insurance: !!cover && w.get("insurance.on") === true, premiumNgwee: cover?.premiumNgwee ?? 0, coverNgwee: cover?.coverNgwee ?? 0,
+    insurerName: cover?.insurerName ?? null, policyNumber: cover?.policyNumber ?? null, claimsPhone: cover?.claimsPhone ?? null, claimsEmail: cover?.claimsEmail ?? null,
+    termsUrl: cover?.termsUrl ?? null, benefits: cover?.benefits ?? null, lessons: u.get("safety.lessons") ?? [],
     evidenceCount: u.get("safety.evidenceCount") ?? 0, openAlertId: open.docs[0]?.id ?? null, openAlertUrl: open.docs[0] ? `${base()}/s/${open.docs[0].get("token")}` : null };
 });
 
+/**
+ * Back office: configure the insurer and switch rider cover on or off (finance / super admin, audited).
+ * Switching on is refused until every insurer field is complete. Switching off stops all premium deductions at once.
+ */
+export const admin_setRiderCover = onCall(async (req) => {
+  const a = requireAdmin(req, "finance");
+  const d = req.data ?? {};
+  const ref = db.doc(COVER_REF);
+  const before = (await ref.get()).data() ?? null;
+  const next: CoverConfig = {
+    enabled: d.enabled === true,
+    insurerName: String(d.insurerName ?? before?.insurerName ?? "").trim().slice(0, 100), policyNumber: String(d.policyNumber ?? before?.policyNumber ?? "").trim().slice(0, 60),
+    claimsPhone: String(d.claimsPhone ?? before?.claimsPhone ?? "").replace(/\s/g, "").slice(0, 16), claimsEmail: String(d.claimsEmail ?? before?.claimsEmail ?? "").trim().slice(0, 120),
+    termsUrl: String(d.termsUrl ?? before?.termsUrl ?? "").trim().slice(0, 300), benefits: String(d.benefits ?? before?.benefits ?? "").trim().slice(0, 600),
+    premiumNgwee: Math.round(Number(d.premiumNgwee ?? before?.premiumNgwee ?? 0)), coverNgwee: Math.round(Number(d.coverNgwee ?? before?.coverNgwee ?? 0)),
+  };
+  if (next.enabled) { const p = coverProblem(next); if (p) throw new HttpsError("failed-precondition", `Can't switch cover on yet: ${p}`); }
+  await ref.set({ ...next, updatedAt: FieldValue.serverTimestamp(), updatedBy: a.email,
+    ...(next.enabled && !before?.enabled ? { activatedAt: FieldValue.serverTimestamp(), activatedBy: a.email } : {}),
+    ...(!next.enabled && before?.enabled ? { deactivatedAt: FieldValue.serverTimestamp(), deactivatedBy: a.email } : {}) }, { merge: true });
+  await audit(a, next.enabled ? "riderCover.enable" : before?.enabled ? "riderCover.disable" : "riderCover.configure", COVER_REF, before, next);
+  return { ok: true, enabled: next.enabled };
+});
 
 /** Operations close an alert once the rider is reached. */
 export const admin_closeSos = onCall(async (req) => {

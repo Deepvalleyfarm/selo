@@ -46,6 +46,9 @@ data class PerformanceReport(val month: String, val monthLabel: String, val role
 data class SafetyStatus(
     val emergencyName: String?, val emergencyPhone: String?, val insurance: Boolean, val premiumNgwee: Long, val coverNgwee: Long,
     val lessons: Set<String>, val evidenceCount: Int, val openAlertId: String? = null, val openAlertUrl: String? = null,
+    /** Rider cover stays off until finance configures a confirmed insurer and switches it on in the back office. */
+    val coverAvailable: Boolean = false, val insurerName: String? = null, val policyNumber: String? = null, val claimsPhone: String? = null,
+    val claimsEmail: String? = null, val termsUrl: String? = null, val benefits: String? = null,
 )
 data class SosResult(val alertId: String, val shareUrl: String, val mapsUrl: String, val contactNotified: Boolean, val hasContact: Boolean, val contactName: String?)
 data class RiderIdCard(val code: String, val verifyUrl: String, val name: String, val photoUrl: String?, val plate: String, val vehicle: String,

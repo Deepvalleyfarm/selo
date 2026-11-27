@@ -54,3 +54,24 @@ describe("rider SOS", () => {
     expect(t.length).toBeLessThan(300);
   });
 });
+
+import { coverProblem } from "../src/safety";
+import { withCover } from "../src/deliveryConfirmation";
+describe("rider cover stays off until an insurer is configured", () => {
+  const insurer = { enabled: true, insurerName: "Example Insurance Zambia Ltd", policyNumber: "GRP-2026-0001", claimsPhone: "+260971000000",
+    claimsEmail: "claims@example.co.zm", termsUrl: "https://example.co.zm/rider-cover", premiumNgwee: 200, coverNgwee: 1_000_000, benefits: "Accident medical costs up to K 10,000." };
+  it("requires every insurer field before it can be switched on", () => {
+    expect(coverProblem(insurer)).toBeNull();
+    expect(coverProblem({ ...insurer, insurerName: "" })).toMatch(/insurer/);
+    expect(coverProblem({ ...insurer, policyNumber: "" })).toMatch(/policy number/);
+    expect(coverProblem({ ...insurer, termsUrl: "http://x" })).toMatch(/terms/);
+  });
+  it("deducts nothing unless cover is on, the setup is complete and the rider opted in", () => {
+    const optedIn = { insurance: { on: true } };
+    expect(withCover(optedIn, undefined).coverPremiumNgwee).toBe(0);                       // never configured
+    expect(withCover(optedIn, { ...insurer, enabled: false }).coverPremiumNgwee).toBe(0);  // switched off
+    expect(withCover(optedIn, { ...insurer, policyNumber: "" }).coverPremiumNgwee).toBe(0); // incomplete
+    expect(withCover({ insurance: { on: false } }, insurer).coverPremiumNgwee).toBe(0);    // rider didn't opt in
+    expect(withCover(optedIn, insurer)).toMatchObject({ coverPremiumNgwee: 200, coverInsurer: "Example Insurance Zambia Ltd" });
+  });
+});

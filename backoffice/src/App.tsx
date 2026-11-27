@@ -15,6 +15,7 @@ import Content from "./pages/Content";
 import Disputes from "./pages/Disputes";
 import Kyc from "./pages/Kyc";
 import Safety from "./pages/Safety";
+import RiderCover from "./pages/RiderCover";
 import Listings from "./pages/Listings";
 import Login from "./pages/Login";
 import Notify from "./pages/Notify";
@@ -34,7 +35,7 @@ function Gate() {
   return <Routes>
     <Route element={<Layout />}>
       <Route index element={<Overview />} /><Route path="users" element={<Users />} /><Route path="kyc" element={<Kyc />} />
-      <Route path="orders" element={<Orders />} /><Route path="riders" element={<Riders />} /><Route path="safety" element={<Safety />} /><Route path="zones" element={<Zones />} />
+      <Route path="orders" element={<Orders />} /><Route path="riders" element={<Riders />} /><Route path="safety" element={<Safety />} /><Route path="rider-cover" element={<RiderCover />} /><Route path="zones" element={<Zones />} />
       <Route path="payouts" element={<Payouts />} /><Route path="disputes" element={<Disputes />} /><Route path="social-fund" element={<SocialFund />} />
       <Route path="listings" element={<Listings />} /><Route path="content" element={<Content />} /><Route path="notify" element={<Notify />} />
       <Route path="config" element={<Config />} /><Route path="reports" element={<Reports />} /><Route path="audit" element={<Audit />} />
