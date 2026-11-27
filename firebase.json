@@ -77,6 +77,10 @@
         }
       },
       {
+        "source": "/developers{,/**}",
+        "destination": "/developers.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

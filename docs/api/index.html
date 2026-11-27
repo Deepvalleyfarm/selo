@@ -1,0 +1,721 @@
+<title>SeloNachipa Open Network API</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky endpoint index on the left, reference column on the right; stacks to one column on phones. */
+:root{--bg:#fbfaf9;--panel:#f3efec;--fg:#1d1a19;--mute:#6b625e;--line:#e4dcd7;--accent:#b0281a;--accent-soft:#f7e3df;
+--get:#17694a;--post:#b0281a;--patch:#8a5a00;--put:#6b3fa0;--delete:#9c1c3a;--code-bg:#1f1b1a;--code-fg:#efe7e3;
+--f-head:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;--f-body:"Inter",ui-sans-serif,system-ui,sans-serif;--f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151211;--panel:#1d1918;--fg:#efe9e6;--mute:#a69c97;--line:#332c2a;--accent:#ff7a63;--accent-soft:#3a1d18;
+--get:#5fd3a2;--post:#ff7a63;--patch:#f0b44c;--put:#c4a1f2;--delete:#ff8aa5;--code-bg:#0e0c0b;--code-fg:#efe7e3;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151211;--panel:#1d1918;--fg:#efe9e6;--mute:#a69c97;--line:#332c2a;--accent:#ff7a63;--accent-soft:#3a1d18;
+--get:#5fd3a2;--post:#ff7a63;--patch:#f0b44c;--put:#c4a1f2;--delete:#ff8aa5;--code-bg:#0e0c0b;--code-fg:#efe7e3;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:260px minmax(0,1fr);gap:48px;padding-block:32px 80px}
+nav{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);align-self:start;max-height:calc(100vh - 32px);overflow:auto;font-size:13px;padding-right:8px}
+nav a{display:block;color:var(--mute);text-decoration:none;padding:3px 0;font-family:var(--f-mono);font-size:12px;overflow-wrap:anywhere}
+nav a:hover,nav a:focus-visible{color:var(--fg)}
+nav .nav-t{font-family:var(--f-head);font-weight:600;color:var(--fg);font-size:14px;margin-top:14px}
+nav .top a{font-family:var(--f-head);font-size:14px;color:var(--fg);font-weight:500}
+main{min-width:0}
+h1,h2,h3,h4{font-family:var(--f-head);text-wrap:balance;line-height:1.2}
+h1{font-size:40px;margin:0 0 8px;letter-spacing:-.01em}
+h2{font-size:26px;margin:56px 0 16px;padding-top:12px;border-top:1px solid var(--line)}
+h3{font-size:18px;margin:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+h4{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:18px 0 6px}
+p{max-width:70ch}
+.lede{font-size:17px;color:var(--mute);max-width:66ch}
+code{font-family:var(--f-mono);font-size:.88em}
+p code,li code,td code,.meta code{background:var(--panel);padding:1px 5px;border-radius:4px}
+a{color:var(--accent)}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:24px 0}
+.facts div{background:var(--bg);padding:14px 16px}.facts b{display:block;font-family:var(--f-head);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600}
+.facts span{font-family:var(--f-mono);font-size:13px;overflow-wrap:anywhere}
+.money{border-left:3px solid var(--accent);background:var(--accent-soft);padding:14px 18px;border-radius:0 8px 8px 0;max-width:78ch}
+.money p{margin:6px 0}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:16px 0;padding:0;list-style:none;counter-reset:s}
+.flow li{counter-increment:s;padding:14px;border:1px solid var(--line);border-radius:8px;font-size:14px}
+.flow li::before{content:counter(s);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--fg);color:var(--bg);font:600 12px var(--f-head);margin-bottom:6px}
+.flow li b{display:block;font-family:var(--f-head)}
+.op{padding:28px 0;border-bottom:1px solid var(--line)}
+.sum{font-size:16px;margin:6px 0 2px}
+.meta{color:var(--mute);font-size:13px;margin:0 0 8px}
+.m{font:600 11px var(--f-mono);letter-spacing:.04em;padding:2px 7px;border-radius:4px;border:1px solid currentColor}
+.m-get{color:var(--get)}.m-post{color:var(--post)}.m-patch{color:var(--patch)}.m-put{color:var(--put)}.m-delete{color:var(--delete)}
+nav .m{font-size:9px;padding:0 4px;margin-right:4px}
+.path{font-size:16px;background:none!important;padding:0!important;overflow-wrap:anywhere}
+.tbl{overflow-x:auto;margin:8px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-family:var(--f-head);font-weight:600;color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--line);padding:6px 10px 6px 0}
+td{border-bottom:1px solid var(--line);padding:7px 10px 7px 0;vertical-align:top}
+td.ty{font-family:var(--f-mono);font-size:12px;color:var(--mute)}
+.sub{display:block;font-size:11px}
+.req{font:600 10px var(--f-head);color:var(--accent);text-transform:uppercase;letter-spacing:.05em}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-top:14px}
+.code{background:var(--code-bg);color:var(--code-fg);border-radius:8px;min-width:0;overflow:hidden}
+.code-h{display:flex;justify-content:space-between;align-items:center;font:500 11px var(--f-head);text-transform:uppercase;letter-spacing:.06em;color:#a89e99;padding:8px 12px;border-bottom:1px solid #2e2826}
+.code pre{margin:0;padding:12px;overflow-x:auto;font:12.5px/1.55 var(--f-mono)}
+.code pre code{font-size:inherit;background:none;padding:0}
+.copy{background:none;border:1px solid #4a413e;color:#d9cfca;border-radius:4px;font:500 11px var(--f-head);padding:2px 8px;cursor:pointer}
+.copy:focus-visible,nav a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.chips code{background:var(--panel);padding:3px 8px;border-radius:999px}
+.lifecycle{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-family:var(--f-mono);font-size:12px;margin:10px 0}
+.lifecycle span{border:1px solid var(--line);padding:3px 8px;border-radius:4px;background:var(--panel)}
+.lifecycle i{color:var(--mute);font-style:normal}
+@media (max-width:860px){.wrap{grid-template-columns:1fr;gap:16px}nav{position:static;max-height:none;border-bottom:1px solid var(--line);padding-bottom:12px}nav .nav-g a:not(.nav-t){display:none}h1{font-size:30px}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+</style>
+<div class="wrap">
+<nav aria-label="Contents">
+  <div class="top"><a href="#overview">Overview</a><a href="#basics">Basics</a><a href="#flow">Integration flow</a><a href="#events">Webhook events</a><a href="#errors">Errors</a></div>
+  <div class="nav-g"><a class="nav-t" href="#auth">Authentication</a><a href="#post-oauth-token"><span class="m m-post">POST</span> /oauth/token</a></div><div class="nav-g"><a class="nav-t" href="#account">Your account</a><a href="#get-me"><span class="m m-get">GET</span> /me</a><a href="#get-settlements"><span class="m m-get">GET</span> /settlements</a></div><div class="nav-g"><a class="nav-t" href="#products">Products (Open Commerce)</a><a href="#post-products"><span class="m m-post">POST</span> /products</a><a href="#get-products"><span class="m m-get">GET</span> /products</a><a href="#get-products-externalid"><span class="m m-get">GET</span> /products/{externalId}</a><a href="#patch-products-externalid"><span class="m m-patch">PATCH</span> /products/{externalId}</a><a href="#delete-products-externalid"><span class="m m-delete">DELETE</span> /products/{externalId}</a><a href="#post-products-externalid-stock"><span class="m m-post">POST</span> /products/{externalId}/stock</a><a href="#post-products-externalid-unpublish"><span class="m m-post">POST</span> /products/{externalId}/unpublish</a></div><div class="nav-g"><a class="nav-t" href="#catalog">Shared catalog</a><a href="#get-catalog"><span class="m m-get">GET</span> /catalog</a><a href="#get-catalog-listingid"><span class="m m-get">GET</span> /catalog/{listingId}</a></div><div class="nav-g"><a class="nav-t" href="#delivery">Delivery (Open Logistics)</a><a href="#post-delivery-quotes"><span class="m m-post">POST</span> /delivery/quotes</a><a href="#post-deliveries"><span class="m m-post">POST</span> /deliveries</a><a href="#get-deliveries"><span class="m m-get">GET</span> /deliveries</a><a href="#get-deliveries-id"><span class="m m-get">GET</span> /deliveries/{id}</a><a href="#post-deliveries-id-cancel"><span class="m m-post">POST</span> /deliveries/{id}/cancel</a></div><div class="nav-g"><a class="nav-t" href="#coverage">Coverage</a><a href="#get-coverage"><span class="m m-get">GET</span> /coverage</a><a href="#get-riders-availability"><span class="m m-get">GET</span> /riders/availability</a></div><div class="nav-g"><a class="nav-t" href="#webhooks">Webhooks</a><a href="#get-webhooks"><span class="m m-get">GET</span> /webhooks</a><a href="#put-webhooks"><span class="m m-put">PUT</span> /webhooks</a><a href="#get-webhooks-events"><span class="m m-get">GET</span> /webhooks/events</a><a href="#post-webhooks-events-id-replay"><span class="m m-post">POST</span> /webhooks/events/{id}/replay</a><a href="#post-webhooks-test"><span class="m m-post">POST</span> /webhooks/test</a></div>
+</nav>
+<main>
+<section id="overview">
+  <h1>SeloNachipa Open Network API</h1>
+  <p class="lede">REST API v1.0.0 for platforms that list products on the SeloNachipa marketplace and send deliveries to the SeloNachipa rider network.</p>
+  <div class="facts">
+    <div><b>Base URL</b><span>https://mabala-f2d65.web.app/api/v1</span></div>
+    <div><b>Auth</b><span>OAuth 2.0 client credentials</span></div>
+    <div><b>Format</b><span>JSON · money in ngwee (K 1.00 = 100)</span></div>
+    <div><b>Machine-readable</b><span><a href="openapi.json" target="_blank" rel="noopener">openapi.json</a> (OpenAPI 3.1)</span></div>
+  </div>
+  <p><b>Open Commerce.</b> Publish your products with images, price and stock. They appear on the SeloNachipa marketplace for discovery and, if you choose, to other approved platforms. Each product carries a <code>checkoutUrl</code>: buyers tap <i>Buy on your platform</i> and pay on your own checkout. Your orders, payments and stock stay in your system.</p>
+  <p><b>Open Logistics.</b> Quote, request and track deliveries carried by verified SeloNachipa riders, with a pickup PIN, a receiver delivery code by SMS and proof of delivery.</p>
+  <div class="money">
+    <p><b>Who pays for delivery</b></p>
+    <p>The delivery fee is set by SeloNachipa. At checkout, call <code>POST /delivery/quotes</code> and charge your buyer exactly <code>priceNgwee</code>. You owe that amount to SeloNachipa in full. SeloNachipa splits it between the rider, the platform and the Social Fund as configured on SeloNachipa. Each delivery appears in <code>GET /settlements</code> as a <code>DELIVERY_CHARGE</code>; a cancellation before pickup adds a matching <code>DELIVERY_REVERSAL</code>.</p>
+  </div>
+</section>
+
+<section id="basics">
+  <h2>Basics</h2>
+  <h4>Environments</h4>
+  <p>Sandbox and production share the base URL. The client you sign in with decides the environment: sandbox client ids start <code>sbx_</code>, production ids start <code>live_</code>. Sandbox products are never shown to buyers. Sandbox deliveries never reach real riders: they move through every status automatically, one step a minute, and fire your webhooks. Request production access from the developer portal once your sandbox tests pass.</p>
+  <h4>Access tokens</h4>
+  <p>Exchange your client id and secret for a token at <code>POST /oauth/token</code>, then send <code>Authorization: Bearer &lt;token&gt;</code>. Tokens last 1 hour; fetch a new one when <code>expires_in</code> runs out or on a 401. Keep the client secret on your server, never in browser or mobile code. Secrets can be rotated or revoked at any time, and revocation takes effect on the next request.</p>
+  <h4>Scopes</h4>
+  <div class="tbl"><table><thead><tr><th>Scope</th><th>Allows</th></tr></thead><tbody><tr><td><code>products:write</code></td><td>Publish, update, unpublish and archive your own products</td></tr><tr><td><code>products:read</code></td><td>Read your own published products</td></tr><tr><td><code>inventory:write</code></td><td>Update stock for your own products</td></tr><tr><td><code>catalog:read</code></td><td>Discover products other platforms explicitly shared with you</td></tr><tr><td><code>delivery:quote</code></td><td>Delivery prices and service coverage</td></tr><tr><td><code>delivery:write</code></td><td>Request and cancel deliveries</td></tr><tr><td><code>delivery:read</code></td><td>Track your deliveries</td></tr><tr><td><code>coverage:read</code></td><td>Cities, neighbourhoods and rider availability</td></tr><tr><td><code>webhooks:manage</code></td><td>Configure webhook URL and event subscriptions</td></tr><tr><td><code>settlements:read</code></td><td>Your settlement statement</td></tr></tbody></table></div>
+  <p>A token carries only scopes that SeloNachipa granted and whose service (Commerce or Logistics) is enabled for your platform. Scopes are checked again on every call.</p>
+  <h4>Idempotency</h4>
+  <p>Every write (<code>POST</code>, <code>PATCH</code>, <code>PUT</code>, <code>DELETE</code>, except token and quote calls) needs an <code>Idempotency-Key</code> header. Repeating a request with the same key returns the first response. Reusing a key with a different body returns <code>409 idempotency_conflict</code>. Deliveries are also unique per <code>externalOrderRef</code>, so sending the same order twice returns the existing delivery with <code>"duplicate": true</code>.</p>
+  <h4>Rate limits</h4>
+  <p>Each platform has a per-minute limit (120 by default, set by SeloNachipa). Over the limit you get <code>429 rate_limited</code> with <code>Retry-After: 60</code>.</p>
+</section>
+
+<section id="flow">
+  <h2>Integration flow</h2>
+  <ol class="flow">
+    <li><b>Get a token</b><code>POST /oauth/token</code></li>
+    <li><b>Publish products</b><code>POST /products</code> with a <code>checkoutUrl</code>; keep stock in sync with <code>/stock</code></li>
+    <li><b>Price delivery at checkout</b><code>POST /delivery/quotes</code>; add <code>priceNgwee</code> to the buyer's total</li>
+    <li><b>Request the rider</b>After payment, <code>POST /deliveries</code> with your order id as <code>externalOrderRef</code></li>
+    <li><b>Hand over the goods</b>Give the 4-digit <code>pickupPin</code> to whoever hands the parcel to the rider</li>
+    <li><b>Follow progress</b><code>delivery.*</code> webhooks or <code>GET /deliveries/{id}</code></li>
+  </ol>
+  <h4>Delivery statuses</h4>
+  <div class="lifecycle"><span>AWAITING_RIDER</span><i>→</i><span>RIDER_ASSIGNED</span><i>→</i><span>IN_TRANSIT</span><i>→</i><span>AWAITING_DELIVERY_CODE</span><i>→</i><span>COMPLETED</span></div>
+  <p>A delivery can end in <code>DELIVERY_FAILED</code> (the receiver couldn't be reached or refused) or <code>CANCELLED</code> (cancelled before pickup). The receiver gets a 5-digit delivery code by SMS; the rider enters it at the door, and that is the proof of delivery. While a job is active you see the rider's first name and number plate only.</p>
+</section>
+
+<section id="auth"><h2>Authentication</h2><article class="op" id="post-oauth-token">
+  <h3><span class="m m-post">POST</span><code class="path">/oauth/token</code></h3>
+  <p class="sum">Get an access token (client credentials)</p>
+  <p class="meta">No token needed</p>
+  
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>grant_type</code> <span class="req">required</span></td><td class="ty">"client_credentials"</td><td></td></tr><tr><td><code>client_id</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>client_secret</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>scope</code></td><td class="ty">string</td><td>Space-separated subset of your granted scopes</td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/oauth/token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "sbx_7f3k2m9q",
+    "client_secret": "sns_…"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "access_token": "eyJhbGciOiJIUzI1NiIs…",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "products:write products:read inventory:write delivery:quote delivery:write delivery:read",
+  "environment": "sandbox"
+}</code></pre></div>
+  </div>
+</article></section><section id="account"><h2>Your account</h2><article class="op" id="get-me">
+  <h3><span class="m m-get">GET</span><code class="path">/me</code></h3>
+  <p class="sum">Your platform, environment, services and scopes</p>
+  <p class="meta">Scope <code>settlements:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/me" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "partnerId": "mabala",
+  "name": "Mabala",
+  "environment": "sandbox",
+  "services": {
+    "commerce": true,
+    "logistics": true
+  },
+  "scopes": [
+    "products:write",
+    "delivery:write",
+    "…"
+  ],
+  "rateLimitPerMin": 120
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-settlements">
+  <h3><span class="m m-get">GET</span><code class="path">/settlements</code></h3>
+  <p class="sum">Ledger: delivery charges and reversals, API usage, subscription, settlements and balance</p>
+  <p class="meta">Scope <code>settlements:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/settlements" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "byType": {
+    "DELIVERY_CHARGE": -105000,
+    "DELIVERY_REVERSAL": 3500,
+    "API_USAGE": -1200,
+    "SUBSCRIPTION": 0,
+    "SETTLEMENT": 90000
+  },
+  "balanceNgwee": -12700,
+  "direction": "Partner owes SeloNachipa"
+}</code></pre></div>
+  </div>
+</article></section><section id="products"><h2>Products (Open Commerce)</h2><article class="op" id="post-products">
+  <h3><span class="m m-post">POST</span><code class="path">/products</code></h3>
+  <p class="sum">Publish a product (create or replace by externalProductId)</p>
+  <p class="meta">Scope <code>products:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>checkoutUrl</code> <span class="req">required</span></td><td class="ty">string</td><td>https link to buy this product on your platform; SeloNachipa sends buyers here</td></tr><tr><td><code>externalProductId</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>externalSellerId</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>sellerName</code></td><td class="ty">string</td><td></td></tr><tr><td><code>title</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>description</code></td><td class="ty">string</td><td></td></tr><tr><td><code>category</code></td><td class="ty">string</td><td></td></tr><tr><td><code>images</code></td><td class="ty">array of string</td><td> Up to 10.</td></tr><tr><td><code>priceNgwee</code> <span class="req">required</span></td><td class="ty">integer</td><td> Minimum 1.</td></tr><tr><td><code>currency</code></td><td class="ty">"ZMW"</td><td></td></tr><tr><td><code>stock</code> <span class="req">required</span></td><td class="ty">integer</td><td> Minimum 0.</td></tr><tr><td><code>location</code></td><td class="ty">object <span class="sub">{ lat, lng, address, district, province }</span></td><td></td></tr><tr><td><code>deliveryOptions</code></td><td class="ty">object <span class="sub">{ selonachipaDelivery, pickup }</span></td><td></td></tr><tr><td><code>sharing</code></td><td class="ty">object <span class="sub">{ selonachipaMarketplace, partners }</span></td><td></td></tr><tr><td><code>status</code></td><td class="ty">"published" | "draft"</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/products" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "externalProductId": "EGG-TRAY-30",
+    "externalSellerId": "mwila-farm",
+    "sellerName": "Mwila Family Farm",
+    "title": "Free-range eggs, tray of 30",
+    "description": "Collected daily in Chongwe.",
+    "category": "Agriculture",
+    "images": [
+      "https://cdn.example.com/eggs-1.jpg"
+    ],
+    "priceNgwee": 9500,
+    "currency": "ZMW",
+    "stock": 40,
+    "checkoutUrl": "https://mabala.cloud/marketplace/product/EGG-TRAY-30",
+    "location": {
+      "lat": -15.33,
+      "lng": 28.68,
+      "address": "Chongwe"
+    },
+    "deliveryOptions": {
+      "selonachipaDelivery": true,
+      "pickup": true
+    },
+    "sharing": {
+      "selonachipaMarketplace": true,
+      "partners": []
+    },
+    "status": "published"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 201</div><pre><code>{
+  "product": {
+    "listingId": "ext_3fa9c2…",
+    "externalProductId": "EGG-TRAY-30",
+    "originPlatform": "Mabala",
+    "checkoutUrl": "https://mabala.cloud/marketplace/product/EGG-TRAY-30",
+    "title": "Free-range eggs, tray of 30",
+    "priceNgwee": 9500,
+    "availableStock": 40,
+    "status": "pending_review"
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-products">
+  <h3><span class="m m-get">GET</span><code class="path">/products</code></h3>
+  <p class="sum">List your published products</p>
+  <p class="meta">Scope <code>products:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/products" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="get-products-externalid">
+  <h3><span class="m m-get">GET</span><code class="path">/products/{externalId}</code></h3>
+  <p class="sum">Get one of your products</p>
+  <p class="meta">Scope <code>products:read</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="patch-products-externalid">
+  <h3><span class="m m-patch">PATCH</span><code class="path">/products/{externalId}</code></h3>
+  <p class="sum">Update fields (title, price, images, sharing, …)</p>
+  <p class="meta">Scope <code>products:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>checkoutUrl</code> <span class="req">required</span></td><td class="ty">string</td><td>https link to buy this product on your platform; SeloNachipa sends buyers here</td></tr><tr><td><code>externalProductId</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>externalSellerId</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>sellerName</code></td><td class="ty">string</td><td></td></tr><tr><td><code>title</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>description</code></td><td class="ty">string</td><td></td></tr><tr><td><code>category</code></td><td class="ty">string</td><td></td></tr><tr><td><code>images</code></td><td class="ty">array of string</td><td> Up to 10.</td></tr><tr><td><code>priceNgwee</code> <span class="req">required</span></td><td class="ty">integer</td><td> Minimum 1.</td></tr><tr><td><code>currency</code></td><td class="ty">"ZMW"</td><td></td></tr><tr><td><code>stock</code> <span class="req">required</span></td><td class="ty">integer</td><td> Minimum 0.</td></tr><tr><td><code>location</code></td><td class="ty">object <span class="sub">{ lat, lng, address, district, province }</span></td><td></td></tr><tr><td><code>deliveryOptions</code></td><td class="ty">object <span class="sub">{ selonachipaDelivery, pickup }</span></td><td></td></tr><tr><td><code>sharing</code></td><td class="ty">object <span class="sub">{ selonachipaMarketplace, partners }</span></td><td></td></tr><tr><td><code>status</code></td><td class="ty">"published" | "draft"</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X PATCH "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "priceNgwee": 9000
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "product": {
+    "externalProductId": "EGG-TRAY-30",
+    "priceNgwee": 9000,
+    "status": "live"
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="delete-products-externalid">
+  <h3><span class="m m-delete">DELETE</span><code class="path">/products/{externalId}</code></h3>
+  <p class="sum">Archive (remove from all marketplaces)</p>
+  <p class="meta">Scope <code>products:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X DELETE "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="post-products-externalid-stock">
+  <h3><span class="m m-post">POST</span><code class="path">/products/{externalId}/stock</code></h3>
+  <p class="sum">Set available stock (your system stays authoritative)</p>
+  <p class="meta">Scope <code>inventory:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>stock</code> <span class="req">required</span></td><td class="ty">integer</td><td> Minimum 0.</td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30/stock" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "stock": 28
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "product": {
+    "externalProductId": "EGG-TRAY-30",
+    "availableStock": 28,
+    "status": "live"
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="post-products-externalid-unpublish">
+  <h3><span class="m m-post">POST</span><code class="path">/products/{externalId}/unpublish</code></h3>
+  <p class="sum">Hide from marketplaces (keeps the record)</p>
+  <p class="meta">Scope <code>products:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/products/EGG-TRAY-30/unpublish" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…"</code></pre></div>
+    
+  </div>
+</article></section><section id="catalog"><h2>Shared catalog</h2><article class="op" id="get-catalog">
+  <h3><span class="m m-get">GET</span><code class="path">/catalog</code></h3>
+  <p class="sum">Products other platforms shared with you</p>
+  <p class="meta">Scope <code>catalog:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/catalog" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "products": [
+    {
+      "listingId": "ext_91bd…",
+      "originPlatform": "Mabala",
+      "checkoutUrl": "https://mabala.cloud/marketplace/product/EGG-TRAY-30",
+      "title": "Free-range eggs, tray of 30",
+      "priceNgwee": 9500,
+      "availableStock": 28
+    }
+  ]
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-catalog-listingid">
+  <h3><span class="m m-get">GET</span><code class="path">/catalog/{listingId}</code></h3>
+  <p class="sum">One shared product</p>
+  <p class="meta">Scope <code>catalog:read</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>listingId</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/catalog/ext_91bd…" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article></section><section id="delivery"><h2>Delivery (Open Logistics)</h2><article class="op" id="post-delivery-quotes">
+  <h3><span class="m m-post">POST</span><code class="path">/delivery/quotes</code></h3>
+  <p class="sum">SeloNachipa delivery fee to charge your buyer, with distance and ETA</p>
+  <p class="meta">Scope <code>delivery:quote</code></p>
+  
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>pickup</code> <span class="req">required</span></td><td class="ty">object <span class="sub">{ lat, lng, address, label, landmark }</span></td><td></td></tr><tr><td><code>dropoff</code> <span class="req">required</span></td><td class="ty">object <span class="sub">{ lat, lng, address, label, landmark }</span></td><td></td></tr><tr><td><code>priority</code></td><td class="ty">"STANDARD" | "EXPRESS"</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/delivery/quotes" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "pickup": {
+      "lat": -15.4167,
+      "lng": 28.2833,
+      "address": "Soweto Market"
+    },
+    "dropoff": {
+      "lat": -15.3982,
+      "lng": 28.3228,
+      "address": "Kabulonga"
+    },
+    "priority": "STANDARD"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "priceNgwee": 3500,
+  "currency": "ZMW",
+  "breakdown": {
+    "deliveryFeeNgwee": 3000,
+    "serviceFeeNgwee": 500
+  },
+  "distanceKm": 5.2,
+  "etaMin": 24,
+  "city": "Lusaka",
+  "approximate": false,
+  "priority": "STANDARD",
+  "validForMin": 15
+}</code></pre></div>
+  </div>
+</article><article class="op" id="post-deliveries">
+  <h3><span class="m m-post">POST</span><code class="path">/deliveries</code></h3>
+  <p class="sum">Request a delivery (dispatched to the SeloNachipa rider network)</p>
+  <p class="meta">Scope <code>delivery:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>externalOrderRef</code> <span class="req">required</span></td><td class="ty">string</td><td></td></tr><tr><td><code>pickup</code> <span class="req">required</span></td><td class="ty">object <span class="sub">{ lat, lng, address, label, landmark }</span></td><td></td></tr><tr><td><code>dropoff</code> <span class="req">required</span></td><td class="ty">object <span class="sub">{ lat, lng, address, label, landmark }</span></td><td></td></tr><tr><td><code>weightBand</code> <span class="req">required</span></td><td class="ty">"Under 1 kg" | "1–2 kg" | "2–3 kg" | "3–4 kg" | "4–5 kg"</td><td></td></tr><tr><td><code>description</code></td><td class="ty">string</td><td></td></tr><tr><td><code>receiver</code> <span class="req">required</span></td><td class="ty">object <span class="sub">{ name, msisdn }</span></td><td></td></tr><tr><td><code>instructions</code></td><td class="ty">string</td><td></td></tr><tr><td><code>priority</code></td><td class="ty">"STANDARD" | "EXPRESS"</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/deliveries" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ORD-10293" \
+  -d '{
+    "externalOrderRef": "ORD-10293",
+    "pickup": {
+      "lat": -15.4167,
+      "lng": 28.2833,
+      "address": "Soweto Market, stall 14"
+    },
+    "dropoff": {
+      "lat": -15.3982,
+      "lng": 28.3228,
+      "address": "Plot 12, Kabulonga Rd"
+    },
+    "weightBand": "2–3 kg",
+    "description": "2 × egg tray",
+    "receiver": {
+      "name": "Bupe",
+      "msisdn": "0971234567"
+    },
+    "instructions": "Call at the gate",
+    "priority": "STANDARD"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 201</div><pre><code>{
+  "delivery": {
+    "deliveryId": "PCL-X4F2A91C",
+    "externalOrderRef": "ORD-10293",
+    "status": "AWAITING_RIDER",
+    "priority": "STANDARD",
+    "distanceKm": 5.2,
+    "etaMin": 24,
+    "priceNgwee": 3500,
+    "currency": "ZMW",
+    "rider": null,
+    "environment": "sandbox"
+  },
+  "pickupPin": "4821",
+  "trackingUrl": "https://…/t/Qm9x…",
+  "duplicate": false
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-deliveries">
+  <h3><span class="m m-get">GET</span><code class="path">/deliveries</code></h3>
+  <p class="sum">Your deliveries</p>
+  <p class="meta">Scope <code>delivery:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/deliveries" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="get-deliveries-id">
+  <h3><span class="m m-get">GET</span><code class="path">/deliveries/{id}</code></h3>
+  <p class="sum">One delivery with live rider position while active</p>
+  <p class="meta">Scope <code>delivery:read</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/deliveries/PCL-X4F2A91C" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "delivery": {
+    "deliveryId": "PCL-X4F2A91C",
+    "externalOrderRef": "ORD-10293",
+    "status": "IN_TRANSIT",
+    "rider": {
+      "firstName": "Chanda",
+      "plate": "ABZ 4471"
+    },
+    "riderLocation": {
+      "lat": -15.405,
+      "lng": 28.3,
+      "at": "2026-11-27T10:42:10Z"
+    },
+    "timeline": {
+      "AWAITING_RIDER": "…",
+      "RIDER_ASSIGNED": "…",
+      "IN_TRANSIT": "…"
+    }
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="post-deliveries-id-cancel">
+  <h3><span class="m m-post">POST</span><code class="path">/deliveries/{id}/cancel</code></h3>
+  <p class="sum">Cancel before pickup (charge reversed)</p>
+  <p class="meta">Scope <code>delivery:write</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/deliveries/PCL-X4F2A91C/cancel" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "reason": "Buyer cancelled"
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "delivery": {
+    "deliveryId": "PCL-X4F2A91C",
+    "status": "CANCELLED"
+  }
+}</code></pre></div>
+  </div>
+</article></section><section id="coverage"><h2>Coverage</h2><article class="op" id="get-coverage">
+  <h3><span class="m m-get">GET</span><code class="path">/coverage</code></h3>
+  <p class="sum">Cities, neighbourhoods and online riders per city</p>
+  <p class="meta">Scope <code>coverage:read</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/coverage" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "cities": [
+    {
+      "cityId": "lusaka",
+      "name": "Lusaka",
+      "neighbourhoods": [
+        "Kabulonga",
+        "Woodlands",
+        "…"
+      ],
+      "onlineRiders": 42
+    }
+  ],
+  "rules": {
+    "maxWeight": "5 kg (weight bands: Under 1 kg … 4–5 kg)",
+    "sameCityOnly": true
+  }
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-riders-availability">
+  <h3><span class="m m-get">GET</span><code class="path">/riders/availability</code></h3>
+  <p class="sum">Riders online within 5 km (counts only)</p>
+  <p class="meta">Scope <code>coverage:read</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>lat</code></td><td>query</td><td class="ty">number</td></tr><tr><td><code>lng</code></td><td>query</td><td class="ty">number</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/riders/availability?lat=-15.41&amp;lng=28.29" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article></section><section id="webhooks"><h2>Webhooks</h2><article class="op" id="get-webhooks">
+  <h3><span class="m m-get">GET</span><code class="path">/webhooks</code></h3>
+  <p class="sum">Your webhook URL and subscribed events</p>
+  <p class="meta">Scope <code>webhooks:manage</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/webhooks" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="put-webhooks">
+  <h3><span class="m m-put">PUT</span><code class="path">/webhooks</code></h3>
+  <p class="sum">Set URL and events (returns the signing secret once)</p>
+  <p class="meta">Scope <code>webhooks:manage</code> · Requires <code>Idempotency-Key</code></p>
+  
+  
+  <h4>Request body</h4><div class="tbl"><table><thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead><tbody><tr><td><code>url</code></td><td class="ty">string</td><td></td></tr><tr><td><code>events</code></td><td class="ty">array of "product.created" | "product.updated" | "product.stock_updated" | "product.unpublished" | "delivery.created" | "delivery.assigned" | "delivery.picked_up" | "delivery.in_transit" | "delivery.completed" | "delivery.failed" | "delivery.cancelled"</td><td></td></tr><tr><td><code>rotateSecret</code></td><td class="ty">boolean</td><td></td></tr></tbody></table></div>
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X PUT "https://mabala-f2d65.web.app/api/v1/webhooks" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…" \
+  -d '{
+    "url": "https://api.example.com/selonachipa/webhook",
+    "events": [
+      "delivery.assigned",
+      "delivery.picked_up",
+      "delivery.completed",
+      "delivery.failed",
+      "delivery.cancelled"
+    ]
+  }'</code></pre></div>
+    <div class="code"><div class="code-h">Response · 200</div><pre><code>{
+  "url": "https://api.example.com/selonachipa/webhook",
+  "events": [
+    "delivery.assigned",
+    "…"
+  ],
+  "secret": "whsec_…  (shown once)"
+}</code></pre></div>
+  </div>
+</article><article class="op" id="get-webhooks-events">
+  <h3><span class="m m-get">GET</span><code class="path">/webhooks/events</code></h3>
+  <p class="sum">Event history with delivery status</p>
+  <p class="meta">Scope <code>webhooks:manage</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X GET "https://mabala-f2d65.web.app/api/v1/webhooks/events" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="post-webhooks-events-id-replay">
+  <h3><span class="m m-post">POST</span><code class="path">/webhooks/events/{id}/replay</code></h3>
+  <p class="sum">Re-send an event</p>
+  <p class="meta">Scope <code>webhooks:manage</code> · Requires <code>Idempotency-Key</code></p>
+  
+  <div class="tbl"><table><thead><tr><th>Parameter</th><th>In</th><th>Type</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td class="ty">string</td></tr></tbody></table></div>
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/webhooks/events/evt_9a1c…/replay" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…"</code></pre></div>
+    
+  </div>
+</article><article class="op" id="post-webhooks-test">
+  <h3><span class="m m-post">POST</span><code class="path">/webhooks/test</code></h3>
+  <p class="sum">Send a test event</p>
+  <p class="meta">Scope <code>webhooks:manage</code> · Requires <code>Idempotency-Key</code></p>
+  
+  
+  
+  <div class="pair">
+    <div class="code"><div class="code-h">Request<button class="copy" type="button">Copy</button></div><pre><code>curl -X POST "https://mabala-f2d65.web.app/api/v1/webhooks/test" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 3b7e1c0a-…"</code></pre></div>
+    
+  </div>
+</article></section>
+
+<section id="events">
+  <h2>Webhook events</h2>
+  <p>Set your endpoint with <code>PUT /webhooks</code>. Each event is a <code>POST</code> with a JSON body <code>{ id, type, created, environment, data }</code>. Delivery events carry <code>data.delivery</code> in the same shape as <code>GET /deliveries/{id}</code>; product events carry <code>data.product</code>.</p>
+  <div class="chips"><code>product.created</code><code>product.updated</code><code>product.stock_updated</code><code>product.unpublished</code><code>delivery.created</code><code>delivery.assigned</code><code>delivery.picked_up</code><code>delivery.in_transit</code><code>delivery.completed</code><code>delivery.failed</code><code>delivery.cancelled</code></div>
+  <h4>Verify the signature</h4>
+  <p>Every request carries <code>webhook-id</code>, <code>webhook-timestamp</code> and <code>webhook-signature</code> (Standard Webhooks). The signature is <code>v1,</code> followed by base64 HMAC-SHA256 of <code>{id}.{timestamp}.{raw body}</code>, keyed with the base64-decoded part of your <code>whsec_</code> secret. Reject timestamps more than 5 minutes old, and use <code>webhook-id</code> to ignore repeats.</p>
+  <div class="pair"><div class="code"><div class="code-h">Node.js<button class="copy" type="button">Copy</button></div><pre><code>import { createHmac, timingSafeEqual } from "node:crypto";
+
+export function verify(secret, headers, rawBody) {
+  const id = headers["webhook-id"], ts = Number(headers["webhook-timestamp"]);
+  if (Math.abs(Date.now() / 1000 - ts) &gt; 300) return false;
+  const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+  const want = Buffer.from("v1," + createHmac("sha256", key)
+    .update(`${id}.${ts}.${rawBody}`).digest("base64"));
+  return String(headers["webhook-signature"]).split(" ").some((s) =&gt; {
+    const got = Buffer.from(s);
+    return got.length === want.length &amp;&amp; timingSafeEqual(got, want);
+  });
+}</code></pre></div>
+  <div class="code"><div class="code-h">Example body · delivery.completed</div><pre><code>{
+  "id": "evt_PCL-X4F2A91C_delivery.completed_COMPLETED",
+  "type": "delivery.completed",
+  "created": "2026-11-27T11:05:44Z",
+  "environment": "production",
+  "data": {
+    "delivery": {
+      "deliveryId": "PCL-X4F2A91C",
+      "externalOrderRef": "ORD-10293",
+      "status": "COMPLETED",
+      "proofOfDelivery": {
+        "method": "receiver_code",
+        "at": "2026-11-27T11:05:41Z"
+      }
+    }
+  }
+}</code></pre></div></div>
+  <h4>Retries</h4>
+  <p>Answer with any 2xx within 10 seconds. Otherwise SeloNachipa retries after 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, 12 h and 24 h, then marks the event failed. You can list events with <code>GET /webhooks/events</code> and resend one with <code>POST /webhooks/events/{id}/replay</code>.</p>
+</section>
+
+<section id="errors">
+  <h2>Errors</h2>
+  <p>API errors return <code>{ "error": { "code", "message", "details" } }</code>. The token endpoint uses OAuth's own shape, <code>{ "error", "error_description" }</code>.</p>
+  <div class="tbl"><table><thead><tr><th>Status</th><th>Code</th><th>What to do</th></tr></thead><tbody>
+  <tr><td>400</td><td><code>idempotency_key_required</code></td><td>Add an Idempotency-Key header to the write.</td></tr><tr><td>401</td><td><code>unauthorized</code></td><td>The token is missing, invalid or expired. Get a new one.</td></tr><tr><td>401</td><td><code>invalid_client (token)</code></td><td>Check the client id and secret.</td></tr><tr><td>403</td><td><code>forbidden</code></td><td>Your platform is suspended or not approved, the client was revoked, or the environment isn't enabled.</td></tr><tr><td>403</td><td><code>insufficient_scope</code></td><td>This call needs a scope your platform wasn't granted. Ask SeloNachipa.</td></tr><tr><td>404</td><td><code>not_found</code></td><td>The product or delivery doesn't exist or isn't yours.</td></tr><tr><td>409</td><td><code>conflict</code></td><td>The action doesn't fit the current state, for example cancelling after pickup.</td></tr><tr><td>409</td><td><code>idempotency_conflict</code></td><td>This key was used with a different body. Use a new key.</td></tr><tr><td>422</td><td><code>validation_failed</code></td><td>Fix the fields listed in details.</td></tr><tr><td>429</td><td><code>rate_limited</code></td><td>Wait for Retry-After seconds.</td></tr><tr><td>500</td><td><code>internal</code></td><td>Retry with the same Idempotency-Key.</td></tr>
+  </tbody></table></div>
+  <p>Questions: support@mabala.cloud</p>
+</section>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", () => {
+  const pre = b.closest(".code").querySelector("pre");
+  const done = (t) => { b.textContent = t; setTimeout(() => (b.textContent = "Copy"), 1500); };
+  navigator.clipboard.writeText(pre.innerText).then(() => done("Copied"), () => { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); done("Selected"); });
+}));
+</script>

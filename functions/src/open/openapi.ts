@@ -9,7 +9,7 @@ const idem = { name: "Idempotency-Key", in: "header", required: true, schema: { 
 const op = (tag: string, summary: string, scope: string, extra: Record<string, unknown> = {}) => ({ tags: [tag], summary, security: [{ oauth2: [scope] }], ...extra,
   responses: { 200: json({ type: "object" }), ...errs, ...(extra.responses as object ?? {}) } });
 
-const productExample = { externalProductId: "MBL-SKU-0042", externalSellerId: "farm-node-117", sellerName: "Mwila Family Farm", title: "Fresh tomatoes, 20 kg crate",
+const productExample = { checkoutUrl: "https://www.mabala.cloud/shop/p/MBL-SKU-0042", externalProductId: "MBL-SKU-0042", externalSellerId: "farm-node-117", sellerName: "Mwila Family Farm", title: "Fresh tomatoes, 20 kg crate",
   description: "Grade A tomatoes harvested this week in Chongwe.", category: "Agriculture", images: ["https://cdn.example.com/p/42.jpg"], priceNgwee: 18000, currency: "ZMW", stock: 35,
   location: { lat: -15.36, lng: 28.45, address: "Chongwe Farm Block 3", district: "Chongwe", province: "Lusaka" }, deliveryOptions: { selonachipaDelivery: true, pickup: false },
   sharing: { selonachipaMarketplace: true, partners: [] } };
@@ -18,12 +18,13 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
   return {
     openapi: "3.1.0",
     info: { title: "SeloNachipa Open Network API", version: "1.0.0",
-      description: "Open Commerce (publish products, sync stock, receive marketplace orders) and Open Logistics (quote and request deliveries carried by the SeloNachipa rider network).\n\n" +
+      description: "Open Commerce: list your products on the SeloNachipa marketplace for discovery — buyers are sent to your own checkout (checkoutUrl) and you keep your orders, payments and stock. " +
+        "Open Logistics: quote and request deliveries by the SeloNachipa rider network. The delivery fee is set by SeloNachipa: charge your buyer the quoted priceNgwee on your checkout; you owe it to SeloNachipa in full, and SeloNachipa splits it to the rider, platform and Social Fund.\n\n" +
         "Authentication: OAuth 2.0 client credentials. POST /oauth/token with your client_id and client_secret (server-side only — never in browser or mobile code), then send `Authorization: Bearer <token>`. Tokens last 1 hour.\n\n" +
-        "Money is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox credentials never reach real buyers or riders; sandbox deliveries move through every status automatically, one step a minute.",
+        "Money is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox products are never shown to buyers and sandbox deliveries never reach real riders — they move through every status automatically, one step a minute, firing your webhooks.",
       contact: { name: "SeloNachipa developer support", email: "support@mabala.cloud" } },
     servers: [{ url: server }],
-    tags: ["Auth", "Products", "Catalog", "Orders", "Deliveries", "Coverage", "Webhooks", "Settlements", "Sandbox"].map((name) => ({ name })),
+    tags: ["Auth", "Products", "Catalog", "Deliveries", "Coverage", "Webhooks", "Settlements"].map((name) => ({ name })),
     paths: {
       "/oauth/token": { post: { tags: ["Auth"], summary: "Get an access token (client credentials)", security: [],
         requestBody: json({ type: "object", required: ["grant_type", "client_id", "client_secret"], properties: { grant_type: { const: "client_credentials" }, client_id: { type: "string" },
@@ -38,22 +39,12 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
         get: op("Products", "Get one of your products", "products:read", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }] }),
         patch: op("Products", "Update fields (title, price, images, sharing, …)", "products:write", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem], requestBody: json(ref("ProductInput")) }),
         delete: op("Products", "Archive (remove from all marketplaces)", "products:write", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem] }) },
-      "/products/{externalId}/stock": { post: op("Products", "Set available stock (your system stays authoritative; open reservations are subtracted)", "inventory:write",
+      "/products/{externalId}/stock": { post: op("Products", "Set available stock (your system stays authoritative)", "inventory:write",
         { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem], requestBody: json({ type: "object", required: ["stock"], properties: { stock: { type: "integer", minimum: 0 } } }, { stock: 28 }) }) },
       "/products/{externalId}/unpublish": { post: op("Products", "Hide from marketplaces (keeps the record)", "products:write", { parameters: [{ name: "externalId", in: "path", required: true, schema: { type: "string" } }, idem] }) },
       "/catalog": { get: op("Catalog", "Products other platforms shared with you", "catalog:read") },
       "/catalog/{listingId}": { get: op("Catalog", "One shared product", "catalog:read", { parameters: [{ name: "listingId", in: "path", required: true, schema: { type: "string" } }] }) },
-      "/orders": {
-        get: op("Orders", "Orders for your products (SeloNachipa buyers) and marketplace orders you placed or received", "orders:read"),
-        post: { ...op("Orders", "Place a marketplace order for products shared with you (stock is reserved until the seller answers)", "orders:write"), parameters: [idem],
-          requestBody: json(ref("MarketplaceOrderInput"), { externalOrderRef: "SHOP-8812", items: [{ listingId: "ext_…", qty: 2 }] }) } },
-      "/orders/{orderId}": { get: op("Orders", "One order", "orders:read", { parameters: [{ name: "orderId", in: "path", required: true, schema: { type: "string" } }] }) },
-      "/orders/{orderId}/accept": { post: op("Orders", "Accept (stock confirmed; for SeloNachipa orders a rider is dispatched)", "orders:write",
-        { parameters: [{ name: "orderId", in: "path", required: true, schema: { type: "string" } }, idem], requestBody: json({ type: "object", properties: { partnerOrderRef: { type: "string" } } }) }) },
-      "/orders/{orderId}/reject": { post: op("Orders", "Reject (reservation released; SeloNachipa buyer refunded in full)", "orders:write",
-        { parameters: [{ name: "orderId", in: "path", required: true, schema: { type: "string" } }, idem], requestBody: json({ type: "object", properties: { reason: { type: "string" } } }) }) },
-      "/orders/{orderId}/cancel": { post: op("Orders", "Cancel a marketplace (partner-to-partner) order", "orders:write", { parameters: [{ name: "orderId", in: "path", required: true, schema: { type: "string" } }, idem] }) },
-      "/delivery/quotes": { post: { ...op("Deliveries", "Price, distance and ETA for a delivery", "delivery:quote"), requestBody: json(ref("QuoteInput"),
+      "/delivery/quotes": { post: { ...op("Deliveries", "SeloNachipa delivery fee to charge your buyer, with distance and ETA", "delivery:quote"), requestBody: json(ref("QuoteInput"),
         { pickup: { lat: -15.4167, lng: 28.2833, address: "Soweto Market" }, dropoff: { lat: -15.43, lng: 28.30, address: "Kabwata" }, priority: "STANDARD" }), responses: { 200: json(ref("Quote")), ...errs } } },
       "/deliveries": {
         post: { ...op("Deliveries", "Request a delivery (dispatched to the SeloNachipa rider network)", "delivery:write"), parameters: [idem], requestBody: json(ref("DeliveryInput"),
@@ -70,33 +61,32 @@ export function openApiSpec(server = "https://mabala-f2d65.web.app/api/v1") {
       "/webhooks/events": { get: op("Webhooks", "Event history with delivery status", "webhooks:manage") },
       "/webhooks/events/{id}/replay": { post: op("Webhooks", "Re-send an event", "webhooks:manage", { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }, idem] }) },
       "/webhooks/test": { post: op("Webhooks", "Send a test event", "webhooks:manage", { parameters: [idem] }) },
-      "/settlements": { get: op("Settlements", "Ledger: sales, fees, commissions, delivery charges, settlements and balance", "settlements:read") },
-      "/sandbox/orders": { post: op("Sandbox", "Simulate a SeloNachipa buyer paying for your sandbox product", "orders:read", { parameters: [idem],
-        requestBody: json({ type: "object", properties: { externalProductId: { type: "string" }, qty: { type: "integer" } } }) }) },
+      "/settlements": { get: op("Settlements", "Ledger: delivery charges and reversals, API usage, subscription, settlements and balance", "settlements:read") },
     },
     webhooks: Object.fromEntries(EVENTS.map((e) => [e, { post: { summary: e, description: "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
       requestBody: json(ref("Event")), responses: { 200: { description: "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)." } } } }])),
     components: {
       securitySchemes: { oauth2: { type: "oauth2", flows: { clientCredentials: { tokenUrl: `${server}/oauth/token`, scopes: Object.fromEntries(Object.entries(SCOPES).map(([k, v]) => [k, v.description])) } } } },
       responses: Object.fromEntries([["BadRequest", 400, "idempotency_key_required"], ["Unauthorized", 401, "unauthorized"], ["Forbidden", 403, "insufficient_scope"], ["NotFound", 404, "not_found"],
-        ["Conflict", 409, "idempotency_conflict / insufficient_stock / conflict"], ["Validation", 422, "validation_failed"], ["RateLimited", 429, "rate_limited (see Retry-After)"]]
+        ["Conflict", 409, "idempotency_conflict / conflict"], ["Validation", 422, "validation_failed"], ["RateLimited", 429, "rate_limited (see Retry-After)"]]
         .map(([n, , code]) => [n, { description: String(code), ...json(ref("Error")) }])),
       schemas: {
         Error: { type: "object", properties: { error: { type: "object", properties: { code: { type: "string" }, message: { type: "string" }, details: {} } } } },
         OAuthError: { type: "object", properties: { error: { type: "string" }, error_description: { type: "string" } } },
         Token: { type: "object", properties: { access_token: { type: "string" }, token_type: { const: "Bearer" }, expires_in: { type: "integer" }, scope: { type: "string" }, environment: { enum: ["sandbox", "production"] } } },
-        ProductInput: { type: "object", required: ["externalProductId", "externalSellerId", "title", "priceNgwee", "stock"], properties: {
+        ProductInput: { type: "object", required: ["externalProductId", "externalSellerId", "title", "priceNgwee", "stock", "checkoutUrl"], properties: {
+          checkoutUrl: { type: "string", format: "uri", description: "https link to buy this product on your platform; SeloNachipa sends buyers here" },
           externalProductId: { type: "string" }, externalSellerId: { type: "string" }, sellerName: { type: "string" }, title: { type: "string", minLength: 3 }, description: { type: "string" },
           category: { type: "string" }, images: { type: "array", maxItems: 10, items: { type: "string", format: "uri" } }, priceNgwee: { type: "integer", minimum: 1 }, currency: { const: "ZMW" },
           stock: { type: "integer", minimum: 0 }, location: { type: "object", properties: { lat: { type: "number" }, lng: { type: "number" }, address: { type: "string" }, district: { type: "string" }, province: { type: "string" } } },
           deliveryOptions: { type: "object", properties: { selonachipaDelivery: { type: "boolean" }, pickup: { type: "boolean" } } },
           sharing: { type: "object", properties: { selonachipaMarketplace: { type: "boolean" }, partners: { type: "array", items: { type: "string" }, description: "Partner ids allowed to resell" } } },
           status: { enum: ["published", "draft"] } } },
-        Product: { type: "object", properties: { listingId: { type: "string" }, externalProductId: { type: "string" }, originPlatform: { type: "string" }, title: { type: "string" }, priceNgwee: { type: "integer" },
+        Product: { type: "object", properties: { listingId: { type: "string" }, externalProductId: { type: "string" }, originPlatform: { type: "string" }, checkoutUrl: { type: "string" }, title: { type: "string" }, priceNgwee: { type: "integer" },
           availableStock: { type: "integer" }, status: { type: "string", description: "pending_review → live (after automatic moderation), paused, archived, sandbox" }, lastSyncedAt: { type: "string", format: "date-time" } } },
-        MarketplaceOrderInput: { type: "object", required: ["externalOrderRef", "items"], properties: { externalOrderRef: { type: "string" }, items: { type: "array", items: { type: "object", properties: { listingId: { type: "string" }, qty: { type: "integer", minimum: 1 } } } } } },
         QuoteInput: { type: "object", required: ["pickup", "dropoff"], properties: { pickup: ref("Point"), dropoff: ref("Point"), priority: { enum: ["STANDARD", "EXPRESS"] } } },
-        Quote: { type: "object", properties: { priceNgwee: { type: "integer" }, currency: { const: "ZMW" }, distanceKm: { type: "number" }, etaMin: { type: "integer" }, city: { type: "string" }, validForMin: { type: "integer" } } },
+        Quote: { type: "object", properties: { priceNgwee: { type: "integer", description: "Total SeloNachipa delivery fee: charge your buyer this; owed to SeloNachipa in full" },
+          breakdown: { type: "object", properties: { deliveryFeeNgwee: { type: "integer" }, serviceFeeNgwee: { type: "integer" } } }, currency: { const: "ZMW" }, distanceKm: { type: "number" }, etaMin: { type: "integer" }, city: { type: "string" }, validForMin: { type: "integer" } } },
         Point: { type: "object", required: ["lat", "lng"], properties: { lat: { type: "number" }, lng: { type: "number" }, address: { type: "string" }, label: { type: "string" }, landmark: { type: "string" } } },
         DeliveryInput: { type: "object", required: ["externalOrderRef", "pickup", "dropoff", "weightBand", "receiver"], properties: { externalOrderRef: { type: "string" }, pickup: ref("Point"), dropoff: ref("Point"),
           weightBand: { enum: ["Under 1 kg", "1–2 kg", "2–3 kg", "3–4 kg", "4–5 kg"] }, description: { type: "string" }, receiver: { type: "object", properties: { name: { type: "string" }, msisdn: { type: "string" } } },

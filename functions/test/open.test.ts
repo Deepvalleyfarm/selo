@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decrypt, encrypt, hashSecret, signToken, signWebhook, verifySecret, verifyToken, verifyWebhook } from "../src/open/crypto";
-import { accessProblem, commissionOn, deliveryEventsFor, effectiveScopes, partnerDeliveryPrice, partnerSellerUid, riderForPartner } from "../src/open/model";
+import { accessProblem, deliveryEventsFor, effectiveScopes, partnerSellerUid, riderForPartner, seloDeliveryFee } from "../src/open/model";
 import { entryId, signed, summarise } from "../src/open/settlement";
 import { eventId, nextDelayMin } from "../src/open/webhooks";
 import { listingIdFor, productProblems } from "../src/open/commerce";
@@ -54,21 +54,23 @@ describe("partner access and scopes", () => {
   });
 });
 
-describe("pricing, commission and ledger", () => {
-  it("partner tariffs, wholesale discount and express surcharge", () => {
-    expect(partnerDeliveryPrice(5_000, 6, {})).toBe(5_000);
-    expect(partnerDeliveryPrice(5_000, 6, { deliveryBaseNgwee: 1_000, deliveryPerKmNgwee: 300 })).toBe(2_800);
-    expect(partnerDeliveryPrice(5_000, 6, { wholesaleDiscountPct: 20 })).toBe(4_000);
-    expect(partnerDeliveryPrice(5_000, 6, { expressSurchargePct: 50 }, true)).toBe(7_500);
-    expect(commissionOn(10_000, { marketplaceCommissionPct: 5 })).toBe(500);
-    expect(commissionOn(10_000)).toBe(800);
+describe("SeloNachipa delivery fee and ledger", () => {
+  const q = { deliveryNgwee: 5_000, sendingNgwee: 750, riderEarningsNgwee: 4_350, platformFeeNgwee: 400, socialFundNgwee: 250 };
+  it("platforms are charged SeloNachipa's configured fee, split exactly as configured", () => {
+    const f = seloDeliveryFee(q, false);
+    expect(f).toMatchObject({ deliveryNgwee: 5_000, serviceFeeNgwee: 750, totalNgwee: 5_750 });
+    expect(f.split.riderEarningsNgwee + f.split.platformFeeNgwee + f.split.socialFundNgwee).toBe(5_000);
   });
-  it("ledger entries are signed from the partner's side, deterministic and reconcile", () => {
-    const es = [{ type: "SALE", amountNgwee: 10_000 }, { type: "PLATFORM_FEE", amountNgwee: 500 }, { type: "COMMISSION", amountNgwee: 800 },
-      { type: "DELIVERY_CHARGE", amountNgwee: 3_000 }, { type: "SETTLEMENT", amountNgwee: -5_700 }] as const;
-    expect(es.map((e) => signed(e as any))).toEqual([10_000, -500, -800, -3_000, -5_700]);
-    expect(summarise(es as any).balanceNgwee).toBe(0);
-    expect(entryId({ type: "SALE", refType: "order", refId: "SNC-1" })).toBe(entryId({ type: "SALE", refType: "order", refId: "SNC-1" }));
+  it("express premium is set on SeloNachipa and flows through the same split", () => {
+    const f = seloDeliveryFee(q, true, 40);
+    expect(f.deliveryNgwee).toBe(7_000); expect(f.totalNgwee).toBe(7_750); expect(f.split.riderEarningsNgwee).toBe(6_090);
+  });
+  it("ledger: delivery charges are owed by the platform; settlements and reversals clear them", () => {
+    const es = [{ type: "DELIVERY_CHARGE", amountNgwee: 5_750 }, { type: "DELIVERY_CHARGE", amountNgwee: 3_000 }, { type: "DELIVERY_REVERSAL", amountNgwee: 3_000 },
+      { type: "API_USAGE", amountNgwee: 250 }, { type: "SETTLEMENT", amountNgwee: 6_000 }] as const;
+    expect(es.map((e) => signed(e as any))).toEqual([-5_750, -3_000, 3_000, -250, 6_000]);
+    expect(summarise(es as any)).toMatchObject({ balanceNgwee: 0, direction: "Settled" });
+    expect(entryId({ type: "DELIVERY_CHARGE", refType: "delivery", refId: "PCL-1" })).toBe(entryId({ type: "DELIVERY_CHARGE", refType: "delivery", refId: "PCL-1" }));
   });
 });
 
@@ -99,11 +101,12 @@ describe("product syndication", () => {
     expect(partnerSellerUid("p1", "farm node/117")).toBe("partner:p1:farmnode117");
   });
   it("validates product input", () => {
-    const good = { externalProductId: "SKU-1", externalSellerId: "farm-1", title: "Tomatoes", priceNgwee: 18_000, stock: 5 };
+    const good = { externalProductId: "SKU-1", externalSellerId: "farm-1", title: "Tomatoes", priceNgwee: 18_000, stock: 5, checkoutUrl: "https://mabala.example/p/1" };
     expect(productProblems(good)).toEqual([]);
     expect(productProblems({ ...good, priceNgwee: 1.5 }).join()).toMatch(/priceNgwee/);
     expect(productProblems({ ...good, images: ["http://x"] }).join()).toMatch(/https/);
     expect(productProblems({ ...good, currency: "USD" }).join()).toMatch(/ZMW/);
+    expect(productProblems({ ...good, checkoutUrl: "" }).join()).toMatch(/checkoutUrl/); // buyers must have somewhere to pay
     expect(productProblems({ stock: 3 }, true)).toEqual([]);
   });
 });
@@ -111,8 +114,9 @@ describe("product syndication", () => {
 describe("OpenAPI document", () => {
   it("documents every route group, the OAuth flow and all webhook events", () => {
     const s = openApiSpec("https://x/api/v1") as any;
-    for (const p of ["/oauth/token", "/products", "/catalog", "/orders", "/delivery/quotes", "/deliveries", "/coverage", "/webhooks", "/settlements"]) expect(s.paths[p]).toBeTruthy();
+    for (const p of ["/oauth/token", "/products", "/catalog", "/delivery/quotes", "/deliveries", "/coverage", "/webhooks", "/settlements"]) expect(s.paths[p]).toBeTruthy();
+    expect(s.paths["/orders"]).toBeUndefined(); // platforms keep their own checkout and orders
     expect(s.components.securitySchemes.oauth2.flows.clientCredentials.tokenUrl).toBe("https://x/api/v1/oauth/token");
-    expect(Object.keys(s.webhooks)).toHaveLength(15);
+    expect(Object.keys(s.webhooks)).toHaveLength(11);
   });
 });

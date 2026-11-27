@@ -13,7 +13,7 @@ const NAV: [string, [string, string, string, string?, string?][]][] = [
     ["/withdrawals", "coins", "Withdrawals", "withdrawals"], ["/transactions", "report", "Transactions (Lipila)", "", "super"]]],
   ["DISCOVERY", [["/engagement", "report", "Engagement & outcomes"], ["/algorithm", "sliders", "Discovery algorithm"], ["/leads", "users", "Buyer leads"]]],
   ["CONTENT", [["/listings", "flag", "Listings moderation", "moderation"], ["/content", "image", "Banners & content"], ["/notify", "send", "Notifications"], ["/support", "users", "Support inbox"]]],
-  ["SYSTEM", [["/config", "sliders", "Configuration"], ["/reports", "report", "Reports"], ["/audit", "log", "Audit log"], ["/admins", "lock", "Admin users"], ["/maps-usage", "pin", "Google Maps usage"], ["/beem", "send", "Beem OTP & SMS", "", "super"]]],
+  ["SYSTEM", [["/config", "sliders", "Configuration"], ["/reports", "report", "Reports"], ["/audit", "log", "Audit log"], ["/admins", "lock", "Admin users"], ["/maps-usage", "pin", "Google Maps usage"], ["/beem", "send", "Beem OTP & SMS", "", "super"], ["/integrations", "sliders", "Developer & Platform Integrations", "open", "super"]]],
 ];
 
 export default function Layout() {
@@ -25,6 +25,7 @@ export default function Layout() {
     payouts: useCollection("payouts", [where("status", "in", ["FAILED_RETRY", "ESCALATED"])], "failing").rows.filter((r) => ["FAILED_RETRY", "ESCALATED"].includes(r.status)).length,
     disputes: useCollection("disputes", [where("status", "==", "OPEN")], "open").rows.filter((r) => r.status === "OPEN").length,
     moderation: useCollection("moderationQueue").rows.length,
+    open: useCollection("openPartners", [where("status", "==", "PENDING")], "pending").rows.filter((r) => r.status === "PENDING").length,
     sos: useCollection("sosAlerts", [where("status", "==", "OPEN")], "open").rows.filter((r) => r.status === "OPEN").length,
     withdrawals: useCollection("withdrawal_requests", [where("status", "==", "MANUAL_REVIEW")], "review").rows.filter((r) => r.status === "MANUAL_REVIEW").length,
   };

@@ -117,10 +117,13 @@ data class Listing(
     val aiEnhanced: Boolean = false, val aiGeneratedMotion: Boolean = false,
     /** Marketing Centre deal on this product ("Buy 1 Get 1 Free", "Limited time · 20% off", "Bundle deal"). */
     val promoLabel: String? = null, val promoType: String? = null, val promoEndsAt: Long? = null,
+    /** Open Network: listed by another platform (e.g. "Mabala"). Bought on that platform's own checkout, never in the SeloNachipa cart. */
+    val originPlatform: String? = null, val checkoutUrl: String? = null,
     /** Demo only: gradient colours used when a listing has no media yet. */
     val colorA: Long = 0xFFB0281A, val colorB: Long = 0xFFF2B33D,
 ) {
     val isVideo get() = mediaType == "video"
+    val isExternal get() = !checkoutUrl.isNullOrBlank()
     val hasOffer get() = discountPct > 0 || discountNgwee > 0
     val offerPriceNgwee: Long get() = when {
         discountNgwee > 0 -> (priceNgwee - discountNgwee).coerceAtLeast(0)

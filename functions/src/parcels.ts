@@ -500,20 +500,20 @@ const trackBase = () => { try { return TRACKING_BASE_URL.value(); } catch { retu
 
 export interface PartnerDeliveryInput {
   partnerId: string; partnerName: string; env: "sandbox" | "production"; externalOrderRef: string; pickup: any; dropoff: any; weightBand: string;
-  description: string; receiver: { name: string; msisdn: string }; instructions?: string; express?: boolean; declaredValueNgwee?: number;
-  pricing?: import("./open/model").PartnerPricing;
+  description: string; receiver: { name: string; msisdn: string }; instructions?: string; express?: boolean;
 }
-/** Partner delivery price (no Lipila: charged to the partner's ledger). Same distance engine as app parcels. */
-export async function partnerQuote(pickupIn: any, dropoffIn: any, express: boolean, pricing: import("./open/model").PartnerPricing | undefined) {
+/**
+ * SeloNachipa's delivery fee for an API delivery — the same configured tariff as app parcels (delivery + service fee),
+ * plus the configured express premium. The platform charges this to its buyer on its own checkout and owes it in full
+ * to SeloNachipa, which splits it (rider, platform fee, Social Fund) exactly as configured.
+ */
+export async function partnerQuote(pickupIn: any, dropoffIn: any, express: boolean) {
   const cfg = await loadConfig();
   const pickup = stop(pickupIn, "pickup"), dropoff = stop(dropoffIn, "dropoff");
   const q = await quote(pickup, dropoff, 0, cfg);
-  const { partnerDeliveryPrice } = await import("./open/model");
-  const deliveryNgwee = partnerDeliveryPrice(q.deliveryNgwee, q.distanceKm, pricing, express);
-  // the rider's share follows the delivery price; the sending fee is waived for API deliveries (priced in the partner tariff)
-  const ratio = q.deliveryNgwee > 0 ? deliveryNgwee / q.deliveryNgwee : 1;
-  return { pickup, dropoff, cfg, q, deliveryNgwee, riderEarningsNgwee: Math.round(q.riderEarningsNgwee * ratio), platformFeeNgwee: Math.round(q.platformFeeNgwee * ratio),
-    socialFundNgwee: Math.round(q.socialFundNgwee * ratio) };
+  const { seloDeliveryFee } = await import("./open/model");
+  const fee = seloDeliveryFee(q, express, Number((cfg as unknown as Record<string, unknown>).openExpressPremiumPct ?? 25));
+  return { pickup, dropoff, cfg, q, fee };
 }
 
 /**
@@ -527,8 +527,8 @@ export async function createPartnerParcel(d: PartnerDeliveryInput): Promise<{ id
   if (!weightOk(d.weightBand)) throw new HttpsError("invalid-argument", "weightBand must be one of: Under 1 kg, 1–2 kg, 2–3 kg, 3–4 kg, 4–5 kg.");
   const receiverMsisdn = normaliseMsisdn(d.receiver?.msisdn);
   if (!receiverMsisdn) throw new HttpsError("invalid-argument", "receiver.msisdn must be an Airtel, MTN or Zamtel number — the delivery code is sent to it.");
-  const pq = await partnerQuote(d.pickup, d.dropoff, !!d.express, d.pricing);
-  const { q, cfg } = pq;
+  const pq = await partnerQuote(d.pickup, d.dropoff, !!d.express);
+  const { q, cfg, fee } = pq;
   const pin = generatePickupPin();
   const trackingToken = randomBytes(12).toString("base64url");
   const senderUid = `partner:${d.partnerId}`;
@@ -540,19 +540,21 @@ export async function createPartnerParcel(d: PartnerDeliveryInput): Promise<{ id
       handlingNotes: "", receiver: { name: String(d.receiver?.name ?? "").slice(0, 60), msisdn: receiverMsisdn, uid: null },
       deliveryInstructions: String(d.instructions ?? "").slice(0, 300), distanceKm: q.distanceKm, distanceApproximate: q.approximate, etaMin: q.etaMin,
       declaredValueNgwee: 0, creditAppliedNgwee: 0,
-      fees: { deliveryNgwee: pq.deliveryNgwee, sendingNgwee: 0, insuranceNgwee: 0, totalNgwee: pq.deliveryNgwee, riderEarningsNgwee: pq.riderEarningsNgwee,
-        platformFeeNgwee: pq.platformFeeNgwee, socialFundNgwee: pq.socialFundNgwee,
-        rates: { base: cfg.parcelBaseFee, perKm: cfg.parcelPerKmRate, sendingPct: 0, platformPct: cfg.parcelPlatformFeePct, fundPct: cfg.parcelSocialFundPct, partnerTariff: !!d.pricing } },
+      // SeloNachipa's own tariff and split (the platform collected this from its buyer and owes it in full)
+      fees: { deliveryNgwee: fee.deliveryNgwee, sendingNgwee: fee.serviceFeeNgwee, insuranceNgwee: 0, totalNgwee: fee.totalNgwee, riderEarningsNgwee: fee.split.riderEarningsNgwee,
+        platformFeeNgwee: fee.split.platformFeeNgwee, socialFundNgwee: fee.split.socialFundNgwee,
+        rates: { base: cfg.parcelBaseFee, perKm: cfg.parcelPerKmRate, sendingPct: cfg.sendingFeeRate, platformPct: cfg.parcelPlatformFeePct, fundPct: cfg.parcelSocialFundPct, express: !!d.express } },
       status: "AWAITING_RIDER", paymentStatus: "PARTNER_ACCOUNT", escrowStatus: "HELD", paidAt: FieldValue.serverTimestamp(), walletMsisdn: null, riderUid: null,
       notifiedRiders: [], broadcastRound: d.express ? 2 : 0, scheduledFor: null, trackingToken, codeSummary: null,
       timeline: { AWAITING_RIDER: FieldValue.serverTimestamp() }, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
     tx.set(db.doc(`parcels/${id}/private/pickup`), { senderUid, pin, attempts: 0 });
     tx.set(db.collection(`parcels/${id}/timeline`).doc(), { event: "CREATED", by: `partner:${d.partnerId}`, at: FieldValue.serverTimestamp() });
-    writeLedger(tx, { kind: "parcel", orderId: id, type: "HELD", leg: "delivery_fee", party: "escrow", amountNgwee: pq.deliveryNgwee, ref: `partner:${d.partnerId}` });
+    writeLedger(tx, { kind: "parcel", orderId: id, type: "HELD", leg: "delivery_fee", party: "escrow", amountNgwee: fee.deliveryNgwee, ref: `partner:${d.partnerId}` });
+    if (fee.serviceFeeNgwee > 0) writeLedger(tx, { kind: "parcel", orderId: id, type: "HELD", leg: "sending_fee", party: "escrow", amountNgwee: fee.serviceFeeNgwee, ref: `partner:${d.partnerId}` });
   });
   const { post } = await import("./open/settlement");
-  await post(d.partnerId, { type: "DELIVERY_CHARGE", amountNgwee: pq.deliveryNgwee, refType: "delivery", refId: id, env: d.env });
+  await post(d.partnerId, { type: "DELIVERY_CHARGE", amountNgwee: fee.totalNgwee, refType: "delivery", refId: id, env: d.env });
   await broadcastParcel(id); // no-op in sandbox
   return { id, duplicate: false, pin, trackingUrl: `${trackBase()}${trackingToken}` };
 }

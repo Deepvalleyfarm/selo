@@ -1,0 +1,2305 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SeloNachipa Open Network API",
+    "version": "1.0.0",
+    "description": "Open Commerce: list your products on the SeloNachipa marketplace for discovery — buyers are sent to your own checkout (checkoutUrl) and you keep your orders, payments and stock. Open Logistics: quote and request deliveries by the SeloNachipa rider network. The delivery fee is set by SeloNachipa: charge your buyer the quoted priceNgwee on your checkout; you owe it to SeloNachipa in full, and SeloNachipa splits it to the rider, platform and Social Fund.\n\nAuthentication: OAuth 2.0 client credentials. POST /oauth/token with your client_id and client_secret (server-side only — never in browser or mobile code), then send `Authorization: Bearer <token>`. Tokens last 1 hour.\n\nMoney is in ngwee (K 1.00 = 100). Every write needs an Idempotency-Key header. Sandbox products are never shown to buyers and sandbox deliveries never reach real riders — they move through every status automatically, one step a minute, firing your webhooks.",
+    "contact": {
+      "name": "SeloNachipa developer support",
+      "email": "support@mabala.cloud"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://mabala-f2d65.web.app/api/v1"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Products"
+    },
+    {
+      "name": "Catalog"
+    },
+    {
+      "name": "Deliveries"
+    },
+    {
+      "name": "Coverage"
+    },
+    {
+      "name": "Webhooks"
+    },
+    {
+      "name": "Settlements"
+    }
+  ],
+  "paths": {
+    "/oauth/token": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Get an access token (client credentials)",
+        "security": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "grant_type",
+                  "client_id",
+                  "client_secret"
+                ],
+                "properties": {
+                  "grant_type": {
+                    "const": "client_credentials"
+                  },
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "description": "Space-separated subset of your granted scopes"
+                  }
+                }
+              },
+              "example": {
+                "grant_type": "client_credentials",
+                "client_id": "sbx_…",
+                "client_secret": "sns_…"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Your platform, environment, services and scopes",
+        "security": [
+          {
+            "oauth2": [
+              "settlements:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/products": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Publish a product (create or replace by externalProductId)",
+        "security": [
+          {
+            "oauth2": [
+              "products:write"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "product": {
+                      "$ref": "#/components/schemas/Product"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductInput"
+              },
+              "example": {
+                "checkoutUrl": "https://www.mabala.cloud/shop/p/MBL-SKU-0042",
+                "externalProductId": "MBL-SKU-0042",
+                "externalSellerId": "farm-node-117",
+                "sellerName": "Mwila Family Farm",
+                "title": "Fresh tomatoes, 20 kg crate",
+                "description": "Grade A tomatoes harvested this week in Chongwe.",
+                "category": "Agriculture",
+                "images": [
+                  "https://cdn.example.com/p/42.jpg"
+                ],
+                "priceNgwee": 18000,
+                "currency": "ZMW",
+                "stock": 35,
+                "location": {
+                  "lat": -15.36,
+                  "lng": 28.45,
+                  "address": "Chongwe Farm Block 3",
+                  "district": "Chongwe",
+                  "province": "Lusaka"
+                },
+                "deliveryOptions": {
+                  "selonachipaDelivery": true,
+                  "pickup": false
+                },
+                "sharing": {
+                  "selonachipaMarketplace": true,
+                  "partners": []
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "List your published products",
+        "security": [
+          {
+            "oauth2": [
+              "products:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/products/{externalId}": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Get one of your products",
+        "security": [
+          {
+            "oauth2": [
+              "products:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Update fields (title, price, images, sharing, …)",
+        "security": [
+          {
+            "oauth2": [
+              "products:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Archive (remove from all marketplaces)",
+        "security": [
+          {
+            "oauth2": [
+              "products:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/products/{externalId}/stock": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Set available stock (your system stays authoritative)",
+        "security": [
+          {
+            "oauth2": [
+              "inventory:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "stock"
+                ],
+                "properties": {
+                  "stock": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "example": {
+                "stock": 28
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/products/{externalId}/unpublish": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Hide from marketplaces (keeps the record)",
+        "security": [
+          {
+            "oauth2": [
+              "products:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "externalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "Products other platforms shared with you",
+        "security": [
+          {
+            "oauth2": [
+              "catalog:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/catalog/{listingId}": {
+      "get": {
+        "tags": [
+          "Catalog"
+        ],
+        "summary": "One shared product",
+        "security": [
+          {
+            "oauth2": [
+              "catalog:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "listingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/delivery/quotes": {
+      "post": {
+        "tags": [
+          "Deliveries"
+        ],
+        "summary": "SeloNachipa delivery fee to charge your buyer, with distance and ETA",
+        "security": [
+          {
+            "oauth2": [
+              "delivery:quote"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quote"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteInput"
+              },
+              "example": {
+                "pickup": {
+                  "lat": -15.4167,
+                  "lng": 28.2833,
+                  "address": "Soweto Market"
+                },
+                "dropoff": {
+                  "lat": -15.43,
+                  "lng": 28.3,
+                  "address": "Kabwata"
+                },
+                "priority": "STANDARD"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deliveries": {
+      "post": {
+        "tags": [
+          "Deliveries"
+        ],
+        "summary": "Request a delivery (dispatched to the SeloNachipa rider network)",
+        "security": [
+          {
+            "oauth2": [
+              "delivery:write"
+            ]
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "delivery": {
+                      "$ref": "#/components/schemas/Delivery"
+                    },
+                    "pickupPin": {
+                      "type": "string",
+                      "description": "Shown once: give it to whoever hands over the goods"
+                    },
+                    "trackingUrl": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryInput"
+              },
+              "example": {
+                "externalOrderRef": "MBL-ORD-5531",
+                "pickup": {
+                  "lat": -15.4167,
+                  "lng": 28.2833,
+                  "address": "Soweto Market, stall 14"
+                },
+                "dropoff": {
+                  "lat": -15.43,
+                  "lng": 28.3,
+                  "address": "Plot 9, Kabwata"
+                },
+                "weightBand": "4–5 kg",
+                "description": "Vegetables, 1 crate",
+                "receiver": {
+                  "name": "Chanda Mwila",
+                  "msisdn": "+260971234567"
+                },
+                "instructions": "Call on arrival",
+                "priority": "STANDARD"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Deliveries"
+        ],
+        "summary": "Your deliveries",
+        "security": [
+          {
+            "oauth2": [
+              "delivery:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/deliveries/{id}": {
+      "get": {
+        "tags": [
+          "Deliveries"
+        ],
+        "summary": "One delivery with live rider position while active",
+        "security": [
+          {
+            "oauth2": [
+              "delivery:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/deliveries/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Deliveries"
+        ],
+        "summary": "Cancel before pickup (charge reversed)",
+        "security": [
+          {
+            "oauth2": [
+              "delivery:write"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/coverage": {
+      "get": {
+        "tags": [
+          "Coverage"
+        ],
+        "summary": "Cities, neighbourhoods and online riders per city",
+        "security": [
+          {
+            "oauth2": [
+              "coverage:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/riders/availability": {
+      "get": {
+        "tags": [
+          "Coverage"
+        ],
+        "summary": "Riders online within 5 km (counts only)",
+        "security": [
+          {
+            "oauth2": [
+              "coverage:read"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "lng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/webhooks": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Your webhook URL and subscribed events",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Set URL and events (returns the signing secret once)",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "events": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "product.created",
+                        "product.updated",
+                        "product.stock_updated",
+                        "product.unpublished",
+                        "delivery.created",
+                        "delivery.assigned",
+                        "delivery.picked_up",
+                        "delivery.in_transit",
+                        "delivery.completed",
+                        "delivery.failed",
+                        "delivery.cancelled"
+                      ]
+                    }
+                  },
+                  "rotateSecret": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/webhooks/events": {
+      "get": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Event history with delivery status",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/webhooks/events/{id}/replay": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Re-send an event",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/webhooks/test": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Send a test event",
+        "security": [
+          {
+            "oauth2": [
+              "webhooks:manage"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "description": "Unique per operation. Retrying with the same key and body returns the original response; a different body returns 409."
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    },
+    "/settlements": {
+      "get": {
+        "tags": [
+          "Settlements"
+        ],
+        "summary": "Ledger: delivery charges and reversals, API usage, subscription, settlements and balance",
+        "security": [
+          {
+            "oauth2": [
+              "settlements:read"
+            ]
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validation"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "product.created": {
+      "post": {
+        "summary": "product.created",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "product.updated": {
+      "post": {
+        "summary": "product.updated",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "product.stock_updated": {
+      "post": {
+        "summary": "product.stock_updated",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "product.unpublished": {
+      "post": {
+        "summary": "product.unpublished",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.created": {
+      "post": {
+        "summary": "delivery.created",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.assigned": {
+      "post": {
+        "summary": "delivery.assigned",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.picked_up": {
+      "post": {
+        "summary": "delivery.picked_up",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.in_transit": {
+      "post": {
+        "summary": "delivery.in_transit",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.completed": {
+      "post": {
+        "summary": "delivery.completed",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.failed": {
+      "post": {
+        "summary": "delivery.failed",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    },
+    "delivery.cancelled": {
+      "post": {
+        "summary": "delivery.cancelled",
+        "description": "Headers: webhook-id, webhook-timestamp, webhook-signature (v1,base64 HMAC-SHA256 of `${id}.${timestamp}.${body}` with your signing secret, base64-decoded after the whsec_ prefix). Reject timestamps older than 5 minutes and de-duplicate by webhook-id.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Acknowledge with any 2xx within 10 s; otherwise we retry (1 m, 5 m, 15 m, 1 h, 3 h, 6 h, 12 h, 24 h)."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://mabala-f2d65.web.app/api/v1/oauth/token",
+            "scopes": {
+              "products:write": "Publish, update, unpublish and archive your own products",
+              "products:read": "Read your own published products",
+              "inventory:write": "Update stock for your own products",
+              "catalog:read": "Discover products other platforms explicitly shared with you",
+              "delivery:quote": "Delivery prices and service coverage",
+              "delivery:write": "Request and cancel deliveries",
+              "delivery:read": "Track your deliveries",
+              "coverage:read": "Cities, neighbourhoods and rider availability",
+              "webhooks:manage": "Configure webhook URL and event subscriptions",
+              "settlements:read": "Your settlement statement"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "idempotency_key_required",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "unauthorized",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "insufficient_scope",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "not_found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "idempotency_conflict / conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Validation": {
+        "description": "validation_failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "rate_limited (see Retry-After)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            }
+          }
+        }
+      },
+      "OAuthError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_description": {
+            "type": "string"
+          }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "token_type": {
+            "const": "Bearer"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "environment": {
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          }
+        }
+      },
+      "ProductInput": {
+        "type": "object",
+        "required": [
+          "externalProductId",
+          "externalSellerId",
+          "title",
+          "priceNgwee",
+          "stock",
+          "checkoutUrl"
+        ],
+        "properties": {
+          "checkoutUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "https link to buy this product on your platform; SeloNachipa sends buyers here"
+          },
+          "externalProductId": {
+            "type": "string"
+          },
+          "externalSellerId": {
+            "type": "string"
+          },
+          "sellerName": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "priceNgwee": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "currency": {
+            "const": "ZMW"
+          },
+          "stock": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "location": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              },
+              "address": {
+                "type": "string"
+              },
+              "district": {
+                "type": "string"
+              },
+              "province": {
+                "type": "string"
+              }
+            }
+          },
+          "deliveryOptions": {
+            "type": "object",
+            "properties": {
+              "selonachipaDelivery": {
+                "type": "boolean"
+              },
+              "pickup": {
+                "type": "boolean"
+              }
+            }
+          },
+          "sharing": {
+            "type": "object",
+            "properties": {
+              "selonachipaMarketplace": {
+                "type": "boolean"
+              },
+              "partners": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Partner ids allowed to resell"
+              }
+            }
+          },
+          "status": {
+            "enum": [
+              "published",
+              "draft"
+            ]
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "externalProductId": {
+            "type": "string"
+          },
+          "originPlatform": {
+            "type": "string"
+          },
+          "checkoutUrl": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "priceNgwee": {
+            "type": "integer"
+          },
+          "availableStock": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "description": "pending_review → live (after automatic moderation), paused, archived, sandbox"
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "QuoteInput": {
+        "type": "object",
+        "required": [
+          "pickup",
+          "dropoff"
+        ],
+        "properties": {
+          "pickup": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "dropoff": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "priority": {
+            "enum": [
+              "STANDARD",
+              "EXPRESS"
+            ]
+          }
+        }
+      },
+      "Quote": {
+        "type": "object",
+        "properties": {
+          "priceNgwee": {
+            "type": "integer",
+            "description": "Total SeloNachipa delivery fee: charge your buyer this; owed to SeloNachipa in full"
+          },
+          "breakdown": {
+            "type": "object",
+            "properties": {
+              "deliveryFeeNgwee": {
+                "type": "integer"
+              },
+              "serviceFeeNgwee": {
+                "type": "integer"
+              }
+            }
+          },
+          "currency": {
+            "const": "ZMW"
+          },
+          "distanceKm": {
+            "type": "number"
+          },
+          "etaMin": {
+            "type": "integer"
+          },
+          "city": {
+            "type": "string"
+          },
+          "validForMin": {
+            "type": "integer"
+          }
+        }
+      },
+      "Point": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "address": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "landmark": {
+            "type": "string"
+          }
+        }
+      },
+      "DeliveryInput": {
+        "type": "object",
+        "required": [
+          "externalOrderRef",
+          "pickup",
+          "dropoff",
+          "weightBand",
+          "receiver"
+        ],
+        "properties": {
+          "externalOrderRef": {
+            "type": "string"
+          },
+          "pickup": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "dropoff": {
+            "$ref": "#/components/schemas/Point"
+          },
+          "weightBand": {
+            "enum": [
+              "Under 1 kg",
+              "1–2 kg",
+              "2–3 kg",
+              "3–4 kg",
+              "4–5 kg"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "receiver": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "msisdn": {
+                "type": "string"
+              }
+            }
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "priority": {
+            "enum": [
+              "STANDARD",
+              "EXPRESS"
+            ]
+          }
+        }
+      },
+      "Delivery": {
+        "type": "object",
+        "properties": {
+          "deliveryId": {
+            "type": "string"
+          },
+          "externalOrderRef": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "AWAITING_RIDER",
+              "RIDER_ASSIGNED",
+              "IN_TRANSIT",
+              "AWAITING_DELIVERY_CODE",
+              "COMPLETED",
+              "DELIVERY_FAILED",
+              "CANCELLED"
+            ]
+          },
+          "priceNgwee": {
+            "type": "integer"
+          },
+          "distanceKm": {
+            "type": "number"
+          },
+          "rider": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "firstName": {
+                "type": "string"
+              },
+              "plate": {
+                "type": "string"
+              }
+            }
+          },
+          "timeline": {
+            "type": "object"
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "product.created",
+              "product.updated",
+              "product.stock_updated",
+              "product.unpublished",
+              "delivery.created",
+              "delivery.assigned",
+              "delivery.picked_up",
+              "delivery.in_transit",
+              "delivery.completed",
+              "delivery.failed",
+              "delivery.cancelled"
+            ]
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "environment": {
+            "enum": [
+              "sandbox",
+              "production"
+            ]
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

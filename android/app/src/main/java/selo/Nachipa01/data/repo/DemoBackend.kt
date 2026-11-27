@@ -65,6 +65,9 @@ object DemoData {
         l("l14", "s11", "Glow Beauty Lusaka", "Shea butter body cream", "Natural shea and cocoa butter, 500 ml. Made in Zambia.", 9_500, "Beauty", "Kalingalinga", true, 0xFF6A1B9A, 0xFFFFB74D, 530, 2600),
         l("l15", "s12", "Chongwe Farm Fresh", "Village chickens (live)", "Free-range village chickens, 1.5–2 kg each.", 15_000, "Agriculture", "Chongwe", true, 0xFF33691E, 0xFFFFCA28, 380, 1900),
         l("l16", "s1", "Mama Bupe's Veg", "Fresh onions 10 kg", "Red onions from Mkushi. Long-keeping.", 9_000, "Fresh produce", "Soweto", false, 0xFF880E4F, 0xFFFF8A80, 200, 1200, disc = 5.0),
+        // Open Network: listed by Mabala; bought on Mabala's own checkout, delivered by SeloNachipa riders.
+        l("ext_mabala1", "partner:mabala:mwila-farm", "Mwila Family Farm", "Free-range eggs, tray of 30", "Collected daily at Mwila Family Farm, Chongwe. Sold on Mabala; SeloNachipa riders deliver.", 9_500, "Agriculture", "Chongwe", false, 0xFFF57F17, 0xFFFFE082, 310, 1700, tags = listOf("eggs", "mabala"))
+            .copy(originPlatform = "Mabala", checkoutUrl = "https://mabala.example/products/eggs-tray-30"),
     )
 
     val sellerStats = SellerStats(341_800, 61_500, 3, 24, 2, 988_000, 61)

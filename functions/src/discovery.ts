@@ -59,7 +59,9 @@ export function publicListing(d: DocumentSnapshot, extra: Record<string, unknown
     photoUrls: x.photoUrls ?? [], thumbUrl: x.thumbUrl ?? null, stats: { likes: x.stats?.likes ?? 0, shares: x.stats?.shares ?? 0, views: x.stats?.views ?? 0 },
     publishedAt: ms(x.publishedAt), aiEnhanced: x.aiEnhanced === true, aiGeneratedMotion: x.aiGeneratedMotion === true,
     // Marketing Centre deal badge (hidden the moment it expires, even before the scheduler clears it)
-    promo: x.promo && (x.promo.endsAt == null || x.promo.endsAt > Date.now()) ? { label: x.promo.label, type: x.promo.type, endsAt: x.promo.endsAt ?? null } : null, ...extra,
+    promo: x.promo && (x.promo.endsAt == null || x.promo.endsAt > Date.now()) ? { label: x.promo.label, type: x.promo.type, endsAt: x.promo.endsAt ?? null } : null,
+    // Open Network: sold on another platform's own checkout — the app shows "Buy on <platform>" and opens checkoutUrl
+    origin: x.origin?.checkoutUrl ? { platform: x.origin.partnerName ?? null, checkoutUrl: x.origin.checkoutUrl } : null, ...extra,
   };
 }
 

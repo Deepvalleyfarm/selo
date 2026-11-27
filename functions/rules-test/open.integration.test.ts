@@ -1,8 +1,8 @@
 /**
  * SeloNachipa Open Network end-to-end against the Firestore emulator, through the real HTTP pipeline (handle()):
- * OAuth, scopes, idempotency, rate limiting, revocation, platform isolation, product syndication, stock
- * reservations, partner-to-partner orders, SeloNachipa buyer orders for partner products, deliveries in the
- * existing parcel engine, webhooks outbox and settlement ledger reconciliation.
+ * OAuth, scopes, idempotency, rate limiting, revocation, platform isolation, product syndication for discovery
+ * (checkout stays on the originating platform), deliveries in the existing parcel engine at SeloNachipa's delivery
+ * fee, webhooks outbox and settlement ledger reconciliation.
  */
 process.env.GCLOUD_PROJECT = process.env.GCLOUD_PROJECT || "demo-selo";
 process.env.OPEN_API_JWT_SECRET = "it-jwt-secret-0123456789abcdef";
@@ -30,12 +30,12 @@ const call = async (tok: string, method: string, path: string, body?: any, key: 
 
 async function partner(id: string, name: string, services: any, scopes: string[], rate = 600) {
   await db.doc(`openPartners/${id}`).set({ name, slug: id, status: "ACTIVE", services, scopes, environments: { sandbox: true, production: true }, rateLimitPerMin: rate,
-    pricing: { marketplaceCommissionPct: 5 }, webhook: { url: "https://example.invalid/hook", events: ["order.created", "order.accepted", "delivery.created"], secretEnc: crypto.encrypt("whsec_dGVzdA==", process.env.OPEN_API_ENC_KEY!) } });
+    pricing: { marketplaceCommissionPct: 5 }, webhook: { url: "https://example.invalid/hook", events: ["product.created", "product.updated", "delivery.created"], secretEnc: crypto.encrypt("whsec_dGVzdA==", process.env.OPEN_API_ENC_KEY!) } });
   const cid = `live_${id}`; const sec = `sns_${id}`; const { salt, hash } = crypto.hashSecret(sec);
   await db.doc(`openClients/${cid}`).set({ partnerId: id, env: "production", status: "ACTIVE", salt, hash });
   secrets[cid] = sec; return cid;
 }
-const product = { externalProductId: "SKU-42", externalSellerId: "farm-node-117", sellerName: "Mwila Farm", title: "Tomatoes 20 kg crate", priceNgwee: 18_000, stock: 10,
+const product = { checkoutUrl: "https://mabala.example/shop/SKU-42", externalProductId: "SKU-42", externalSellerId: "farm-node-117", sellerName: "Mwila Farm", title: "Tomatoes 20 kg crate", priceNgwee: 18_000, stock: 10,
   category: "Agriculture", images: ["https://cdn.example.com/42.jpg"], location: { lat: -15.4167, lng: 28.2833, address: "Soweto Market" } };
 let tA = "", tB = "", cidA = "", cidB = "";
 
@@ -44,8 +44,8 @@ beforeAll(async () => {
   crypto = await import("../src/open/crypto");
   await import("../src/open"); // registers routes
   gw = await import("../src/open/gateway");
-  cidA = await partner(A, "Mabala", { commerce: true, logistics: true }, ["products:write", "products:read", "inventory:write", "orders:read", "orders:write", "delivery:quote", "delivery:write", "delivery:read", "coverage:read", "webhooks:manage", "settlements:read"]);
-  cidB = await partner(B, "Other Shop", { commerce: true, logistics: false }, ["catalog:read", "orders:read", "orders:write", "settlements:read", "delivery:write"]);
+  cidA = await partner(A, "Mabala", { commerce: true, logistics: true }, ["products:write", "products:read", "inventory:write", "delivery:quote", "delivery:write", "delivery:read", "coverage:read", "webhooks:manage", "settlements:read"]);
+  cidB = await partner(B, "Other Shop", { commerce: true, logistics: false }, ["catalog:read", "settlements:read", "delivery:write"]);
   tA = await token(cidA); tB = await token(cidB);
 });
 
@@ -81,44 +81,16 @@ describe("product syndication, stock and partner orders", () => {
     await call(tA, "PATCH", "/products/SKU-42", { sharing: { partners: [B] } });
     expect((await call(tB, "GET", `/catalog/${listingId}`, undefined, null)).status).toBe(200);
   });
-  it("partner-to-partner order reserves stock, is de-duplicated, and settles on acceptance", async () => {
-    const o = await call(tB, "POST", "/orders", { externalOrderRef: `SHOP-${run}`, items: [{ listingId, qty: 3 }] });
-    expect(o.status).toBe(201);
-    const orderId = (o.body as any).order.orderId;
-    expect((await db.doc(`listings/${listingId}`).get()).get("stock")).toBe(7);
-    const dup = await call(tB, "POST", "/orders", { externalOrderRef: `SHOP-${run}`, items: [{ listingId, qty: 3 }] });
-    expect((dup.body as any).duplicate).toBe(true);
-    expect((await db.doc(`listings/${listingId}`).get()).get("stock")).toBe(7);
-    // origin pushes its own stock: open reservations are subtracted
-    await call(tA, "POST", "/products/SKU-42/stock", { stock: 10 });
-    expect((await db.doc(`listings/${listingId}`).get()).get("stock")).toBe(7);
-    expect((await call(tB, "POST", `/orders/${orderId}/accept`, {})).status).toBe(404); // only the seller platform answers
-    const acc = await call(tA, "POST", `/orders/${orderId}/accept`, {});
-    expect((acc.body as any).order.status).toBe("CONFIRMED");
-    const led = await call(tA, "GET", "/settlements", undefined, null);
-    expect((led.body as any).byType).toMatchObject({ SALE: 52_500, COMMISSION: -2_625 });
-    const evs = await db.collection("openEvents").where("pid", "==", B).where("type", "==", "order.accepted").get();
-    expect(evs.size).toBe(1);
-  });
-  it("a SeloNachipa buyer order for a partner product waits for the partner, then dispatches; seller money goes to the ledger", async () => {
-    const orderId = `SNC-IT-${run}`;
-    await db.doc(`orders/${orderId}`).set({ buyerUid: "buyer-it", buyerName: "Mwila Banda", sellerUid: `partner:${A}:farm-node-117`, partnerId: A, partnerEnv: "production",
-      items: [{ listingId, title: "Tomatoes", qty: 2, unitNgwee: 17_500, lineNgwee: 35_000 }], goodsNgwee: 35_000, deliveryNgwee: 2_000, totalNgwee: 37_000,
-      state: "ESCROW_LOCKED", dropoff: "Plot 9, Kabwata, Lusaka", feeSnapshot: {} });
-    const commerce = await import("../src/open/commerce");
-    expect(await commerce.onPartnerOrderPaid(orderId)).toBe("awaiting_partner");
-    expect((await db.doc(`orders/${orderId}`).get()).get("partnerAcceptance")).toBe("PENDING");
-    const ev = await db.collection("openEvents").where("pid", "==", A).where("subject", "==", orderId).get();
-    expect(ev.docs[0].get("data.order.buyer")).toEqual({ firstName: "Mwila" }); // no phone number shared
-    const acc = await call(tA, "POST", `/orders/${orderId}/accept`, { partnerOrderRef: "MBL-SALE-1" });
-    expect(acc.status).toBe(200);
-    expect((await db.doc(`orders/${orderId}`).get()).get("state")).toBe("BROADCASTING");
-    const { disburse } = await import("../src/escrow");
-    await disburse(`SELO-SELR-${orderId}`, "seller", `partner:${A}:farm-node-117`, 34_500, "", orderId);
-    await disburse(`SELO-SELR-${orderId}`, "seller", `partner:${A}:farm-node-117`, 34_500, "", orderId); // retried: no double entry
-    const sale = await db.collection(`openLedger/${A}/entries`).where("refId", "==", orderId).get();
-    expect(sale.docs.map((d) => [d.get("type"), d.get("signedNgwee")]).sort()).toEqual([["COMMISSION", -1_750], ["PLATFORM_FEE", -500], ["SALE", 35_000]]);
-    expect((await db.doc(`payouts/SELO-SELR-${orderId}`).get()).get("status")).toBe("PARTNER_LEDGER"); // never sent to Lipila
+  it("needs a checkout link, syncs stock from the origin, and SeloNachipa never sells it itself", async () => {
+    const { checkoutUrl, ...noLink } = product; void checkoutUrl;
+    expect((await call(tA, "POST", "/products", { ...noLink, externalProductId: "SKU-NOLINK" })).status).toBe(422);
+    await call(tA, "POST", "/products/SKU-42/stock", { stock: 3 });
+    expect((await db.doc(`listings/${listingId}`).get()).data()).toMatchObject({ stock: 3, origin: { checkoutUrl: "https://mabala.example/shop/SKU-42" } });
+    const shared = await call(tB, "GET", `/catalog/${listingId}`, undefined, null);
+    expect((shared.body as any).product.checkoutUrl).toBe("https://mabala.example/shop/SKU-42"); // other platforms link to the origin checkout too
+    const evs = await db.collection("openEvents").where("pid", "==", B).where("subject", "==", listingId).get();
+    expect(evs.size).toBeGreaterThan(0); // B was told about the shared product's changes
+    expect((await call(tB, "POST", "/orders", { items: [{ listingId, qty: 1 }] })).status).toBe(404); // no orders API: checkout stays on the origin
   });
 });
 
@@ -126,7 +98,9 @@ describe("logistics through the existing parcel engine", () => {
   it("quotes, creates once per external ref, charges and reverses the ledger on cancel", async () => {
     const pickup = { lat: -15.4167, lng: 28.2833, address: "Soweto Market" }, dropoff = { lat: -15.43, lng: 28.30, address: "Kabwata" };
     const q = await call(tA, "POST", "/delivery/quotes", { pickup, dropoff }, null);
-    expect(q.status).toBe(200); expect((q.body as any).priceNgwee).toBeGreaterThan(0);
+    expect(q.status).toBe(200);
+    const fee = (q.body as any);
+    expect(fee.priceNgwee).toBe(fee.breakdown.deliveryFeeNgwee + fee.breakdown.serviceFeeNgwee);
     const body = { externalOrderRef: `MBL-ORD-${run}`, pickup, dropoff, weightBand: "4–5 kg", description: "Vegetables", receiver: { name: "Chanda", msisdn: "+260971234567" } };
     const d = await call(tA, "POST", "/deliveries", body);
     expect(d.status).toBe(201);
@@ -134,6 +108,11 @@ describe("logistics through the existing parcel engine", () => {
     expect((d.body as any).pickupPin).toMatch(/^\d{4}$/);
     const p = (await db.doc(`parcels/${id}`).get()).data()!;
     expect(p).toMatchObject({ partnerId: A, status: "AWAITING_RIDER", paymentStatus: "PARTNER_ACCOUNT", source: { platform: "Mabala", externalOrderRef: `MBL-ORD-${run}` } });
+    // SeloNachipa's fee, kept in full and split as configured
+    expect(p.fees.totalNgwee).toBe(fee.priceNgwee);
+    expect(p.fees.riderEarningsNgwee + p.fees.platformFeeNgwee + p.fees.socialFundNgwee).toBe(p.fees.deliveryNgwee);
+    const charge = await db.collection(`openLedger/${A}/entries`).where("refId", "==", id).where("type", "==", "DELIVERY_CHARGE").get();
+    expect(charge.docs[0].get("signedNgwee")).toBe(-fee.priceNgwee);
     const dup = await call(tA, "POST", "/deliveries", body); // new key, same order ref → same delivery
     expect((dup.body as any).duplicate).toBe(true); expect((dup.body as any).delivery.deliveryId).toBe(id);
     expect((await call(tB, "GET", `/deliveries/${id}`, undefined, null)).status).toBe(403); // B has no delivery:read

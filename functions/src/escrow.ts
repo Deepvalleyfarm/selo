@@ -56,30 +56,29 @@ export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, 
   const cfg = await loadConfig();
   const listings = await Promise.all(items.map((i) => db.doc(`listings/${i.listingId}`).get()));
   if (listings.some((l) => !l.exists || l.get("status") !== "live")) throw new HttpsError("failed-precondition", "An item is no longer available.");
+  // Open Network: products from other platforms are bought on that platform's own checkout (SeloNachipa only lists them).
+  const ext = listings.find((l) => l.get("origin"));
+  if (ext) throw new HttpsError("failed-precondition", `${ext.get("title")} is sold on ${ext.get("origin.partnerName") ?? "another platform"}. Open it there to buy.`);
   const sellerUid = listings[0].get("sellerUid") as string;
   if (listings.some((l) => l.get("sellerUid") !== sellerUid)) throw new HttpsError("invalid-argument", "One seller per order.");
   const seller = (await db.doc(`users/${sellerUid}`).get()).data() ?? {};
   const buyer = (await db.doc(`users/${uid}`).get()).data() ?? {};
   // Listing discounts and Marketing Centre deals (pricing.ts) — the same numbers the checkout quote showed.
   const priced = priceCart(items.map((i, k) => cartLine(i, listings[k])), await sellerCampaigns(sellerUid));
-  const lines = priced.lines.map((l, k) => ({ listingId: l.listingId, title: l.title, qty: l.qty, unitNgwee: l.unitNgwee, listNgwee: l.listNgwee,
-    freeQty: l.freeQty, lineNgwee: l.lineNgwee, promo: l.promo,
-    ...(listings[k].get("origin") ? { externalProductId: listings[k].get("origin.productId") ?? null, externalSellerId: listings[k].get("origin.sellerId") ?? null } : {}) }));
+  const lines = priced.lines.map((l) => ({ listingId: l.listingId, title: l.title, qty: l.qty, unitNgwee: l.unitNgwee, listNgwee: l.listNgwee,
+    freeQty: l.freeQty, lineNgwee: l.lineNgwee, promo: l.promo }));
   const goods = priced.goodsNgwee;
   const buyerPoint = buyer.location && Number.isFinite(buyer.location.latitude) ? { lat: buyer.location.latitude, lng: buyer.location.longitude } : buyer.geo ?? null;
   const dropGeo = isGeo(req.data?.dropoffGeo) ? { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) } : buyerPoint;
-  // Open Commerce: products published by an external platform carry their own pickup point and origin.
-  const origin = listings[0].get("origin") as { partnerId: string; env?: string } | undefined;
-  const pickGeo = sellerPoint(seller) ?? (isGeo(listings[0].get("pickupGeo")) ? listings[0].get("pickupGeo") : null);
+  const pickGeo = sellerPoint(seller);
   const route = pickGeo && dropGeo ? await routeDistance(pickGeo, dropGeo) : null; // Routes API matrix, cached
   const distanceKm = route?.distanceKm ?? 6;
   const q = quote(goods, distanceKm, cfg);
   const id = shortId("SNC");
   await orderRef(id).set({
-    buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? listings[0].get("sellerName") ?? "",
+    buyerUid: uid, buyerName: buyer.fullName ?? "", buyerMsisdn: buyer.msisdn ?? "", sellerUid, sellerName: seller.storeName ?? seller.fullName ?? "",
     agentUid: listings[0].get("agentUid") ?? null, items: lines, goodsNgwee: q.goodsNgwee,
-    pricing: { fullNgwee: priced.fullNgwee, savingsNgwee: priced.savingsNgwee, applied: priced.applied },
-    partnerId: origin?.partnerId ?? null, partnerEnv: origin?.env ?? null, sourcePlatform: listings[0].get("origin.partnerName") ?? null, deliveryNgwee: q.deliveryNgwee,
+    pricing: { fullNgwee: priced.fullNgwee, savingsNgwee: priced.savingsNgwee, applied: priced.applied }, deliveryNgwee: q.deliveryNgwee,
     serviceFeeNgwee: q.serviceFeeNgwee, processingFeeNgwee: q.processingFeeNgwee, totalNgwee: q.totalNgwee, distanceKm, paymentStatus: "PENDING", pickup: seller.landmark ?? seller.area ?? "",
     pickupGeo: pickGeo, dropoff, dropoffGeo: dropGeo,
     pickupLocation: pickGeo ? { address: seller.location?.address ?? seller.landmark ?? seller.area ?? "", latitude: pickGeo.lat, longitude: pickGeo.lng } : null,
@@ -109,7 +108,7 @@ export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
   const drop = { lat: Number(req.data.dropoffGeo.lat), lng: Number(req.data.dropoffGeo.lng) };
   const cfg = await loadConfig();
   const listings = await Promise.all(items.map((i) => db.doc(`listings/${i.listingId}`).get()));
-  const unavailable = listings.filter((l) => !l.exists || l.get("status") !== "live" || (l.get("stock") ?? 1) <= 0).map((l) => l.id);
+  const unavailable = listings.filter((l) => !l.exists || l.get("status") !== "live" || (l.get("stock") ?? 1) <= 0 || !!l.get("origin")).map((l) => l.id);
   const priced = priceCart(items.map((i, k) => cartLine(i, listings[k])), await sellerCampaigns(String(listings[0].get("sellerUid") ?? "")));
   const goods = priced.goodsNgwee;
   const seller = (await db.doc(`users/${listings[0].get("sellerUid")}`).get()).data() ?? {};
@@ -156,7 +155,7 @@ async function eligibleRiders(o: Record<string, any>) {
 /** Smart dispatch (dispatch.ts): the best-scoring riders are offered the order first, more riders each wave. */
 export async function broadcast(orderId: string, round = 0) {
   const o = (await orderRef(orderId).get()).data();
-  if (!o || o.state !== "BROADCASTING" || o.partnerEnv === "sandbox") return; // sandbox orders never reach real riders
+  if (!o || o.state !== "BROADCASTING") return;
   const { zone, cfg, riders } = await eligibleRiders(o);
   if (round === 0) await orderRef(orderId).update({ zoneId: zone?.id ?? null });
   const { fresh } = await offerInWaves(`orders/${orderId}`, riders, { pickup: o.pickupGeo ?? null, dropoff: o.dropoffGeo ?? null }, cfg.maxConcurrentDeliveries, round, o.notifiedRiders ?? []);
@@ -305,12 +304,6 @@ async function onCollection(reference: string, ok: boolean, status: string, mess
   await recordCampaignSales(o.items ?? [], orderId);
   await sendTemplate("ORDER_CONFIRMED", o.buyerMsisdn, [orderId, o.sellerName ?? "your seller"], orderId);
   if (!o.isParcel) await notify(o.sellerUid, "New order", `${o.items.map((i: { title: string; qty: number }) => `${i.title} × ${i.qty}`).join(", ")} · escrow held`, "NEW_ORDER", `selo://seller/orders/${orderId}`);
-  if (o.partnerId) {
-    // Open Commerce: reserve the partner's stock and ask the originating platform to accept before any rider is sent.
-    const { onPartnerOrderPaid } = await import("./open/commerce");
-    if ((await onPartnerOrderPaid(orderId)) === "sold_out") await refund(orderId, "The item sold out at the seller before your payment arrived");
-    return;
-  }
   await db.runTransaction(async (tx) => move(tx, orderId, "ESCROW_LOCKED", "BROADCASTING"));
   await broadcast(orderId);
 }
@@ -349,7 +342,6 @@ async function failPayout(ref: string, attempts: number) {
 
 /** Creates a payout record then calls Lipila; failures go to the retry queue, never dropped. */
 export async function disburse(ref: string, leg: string, uid: string, amountNgwee: number, msisdn: string, orderId?: string, extra: Record<string, unknown> = {}) {
-  if (typeof uid === "string" && uid.startsWith("partner:")) { await settleToPartner(ref, leg, uid, amountNgwee, orderId); return; }
   await db.doc(`payouts/${ref}`).set({ ref, leg, uid, amountNgwee, msisdn, orderId: orderId ?? null, status: "PENDING", attempts: 0,
     createdAt: FieldValue.serverTimestamp(), ...extra }, { merge: true });
   const r = await lipila.disburse(ref, amountNgwee, msisdn, `SeloNaChipa ${leg}`).catch(() => ({ ok: false, status: 0 }));
@@ -562,24 +554,3 @@ async function settleWithdrawal(wid: string, gross: number, ref: string) {
   await notify(w.uid, "Withdrawal sent", `K${(w.netNgwee / 100).toFixed(2)} has been sent to your ${net} wallet ending ${String(w.msisdn).slice(-4)}`, "WITHDRAWAL_COMPLETED");
 }
 const selo = (m: string) => ({ airtel: "Airtel", mtn: "MTN", zamtel: "Zamtel" } as Record<string, string>)[network(m)] ?? "mobile money";
-
-
-/**
- * Open Network: money for an external platform's seller is recorded in that partner's settlement ledger instead of
- * being sent by mobile money. Sale, platform fee and commission are separate entries so they reconcile against the order.
- */
-async function settleToPartner(ref: string, leg: string, uid: string, amountNgwee: number, orderId?: string) {
-  const { post } = await import("./open/settlement");
-  const { commissionOn, partnerOf } = await import("./open/model");
-  const pid = partnerOf(uid);
-  await db.doc(`payouts/${ref}`).set({ ref, leg, uid, amountNgwee, orderId: orderId ?? null, status: "PARTNER_LEDGER", partnerId: pid, createdAt: FieldValue.serverTimestamp() }, { merge: true });
-  if (leg === "seller" && orderId) {
-    const o = (await orderRef(orderId).get()).data() ?? {};
-    const partner = (await db.doc(`openPartners/${pid}`).get()).data() ?? {};
-    const env = (o.partnerEnv ?? "production") as "sandbox" | "production";
-    const goods = o.goodsNgwee ?? amountNgwee;
-    await post(pid, { type: "SALE", amountNgwee: goods, refType: "order", refId: orderId, env });
-    await post(pid, { type: "PLATFORM_FEE", amountNgwee: Math.max(0, goods - amountNgwee), refType: "order", refId: orderId, env });
-    await post(pid, { type: "COMMISSION", amountNgwee: commissionOn(goods, partner.pricing), refType: "order", refId: orderId, env });
-  }
-}

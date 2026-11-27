@@ -24,9 +24,8 @@ const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
 function pricingFrom(p: any = {}): PartnerPricing {
-  return { deliveryBaseNgwee: num(p.deliveryBaseNgwee), deliveryPerKmNgwee: num(p.deliveryPerKmNgwee), expressSurchargePct: num(p.expressSurchargePct),
-    wholesaleDiscountPct: num(p.wholesaleDiscountPct), marketplaceCommissionPct: num(p.marketplaceCommissionPct), subscriptionMonthlyNgwee: num(p.subscriptionMonthlyNgwee),
-    apiCallNgwee: num(p.apiCallNgwee), settlementCycle: p.settlementCycle === "weekly" ? "weekly" : "monthly" };
+  // Delivery is always SeloNachipa's configured tariff; only subscription and API-usage charges vary per platform.
+  return { subscriptionMonthlyNgwee: num(p.subscriptionMonthlyNgwee), apiCallNgwee: num(p.apiCallNgwee), settlementCycle: p.settlementCycle === "weekly" ? "weekly" : "monthly" };
 }
 
 async function createClient(partnerId: string, env: Env, by: string) {
@@ -138,7 +137,7 @@ export const devportal_register = onCall(opts, async (req) => {
   const services = { commerce: d.services?.commerce === true, logistics: d.services?.logistics === true };
   await db.doc(`openPartners/${id}`).create({ name, slug: slugify(name), status: "PENDING", services, environments: { sandbox: true, production: false },
     // requested scopes for the services asked for; an admin confirms them on approval
-    scopes: ALL_SCOPES.filter((s) => s.startsWith("webhooks") || s.startsWith("settlements") || (services.commerce && /^(products|inventory|catalog|orders)/.test(s)) || (services.logistics && /^(delivery|coverage)/.test(s))),
+    scopes: ALL_SCOPES.filter((s) => s.startsWith("webhooks") || s.startsWith("settlements") || (services.commerce && /^(products|inventory|catalog)/.test(s)) || (services.logistics && /^(delivery|coverage)/.test(s))),
     rateLimitPerMin: 120, pricing: {}, webhook: null, ownerUids: [u.uid], contact: { name: clean(d.contactName, 80), email: u.email, phone: clean(d.phone, 20) },
     website: clean(d.website, 200), useCase: clean(d.useCase, 1000), createdAt: FieldValue.serverTimestamp(), createdBy: `portal:${u.email}` });
   await db.collection("opsAlerts").add({ type: "OPEN_PARTNER_APPLICATION", partnerId: id, name, createdAt: FieldValue.serverTimestamp() });
@@ -204,4 +203,37 @@ export const scheduled_openBilling = onSchedule({ schedule: "20 6 1 * *", timeZo
       if (calls) await post(p.id, { type: "API_USAGE", amountNgwee: calls * pr.apiCallNgwee, refType: "month", refId: month, env: "production", note: `${calls} API calls` });
     }
   }
+});
+
+/** Credentials list for the back office (never the secret or its hash). */
+export const admin_openClients = onCall(opts, async (req) => {
+  superAdmin(req); const pid = clean(req.data?.partnerId, 80);
+  const q = await db.collection("openClients").where("partnerId", "==", pid).get();
+  return { clients: q.docs.map((d) => ({ clientId: d.id, env: d.get("env"), status: d.get("status"), createdBy: d.get("createdBy") ?? null,
+    createdAt: (d.get("createdAt") as Timestamp | undefined)?.toMillis() ?? null, lastTokenAt: (d.get("lastTokenAt") as Timestamp | undefined)?.toMillis() ?? null,
+    rotatedAt: (d.get("rotatedAt") as Timestamp | undefined)?.toMillis() ?? null })) };
+});
+
+/**
+ * Developer portal test console: runs a SANDBOX API call for the signed-in developer's own platform on the server,
+ * through the normal gateway (scopes, idempotency, audit), using a portal-only sandbox client. No secret reaches the browser.
+ */
+export const devportal_try = onCall(opts, async (req) => {
+  const u = devUser(req); const pid = clean(req.data?.partnerId, 80); const p = await ownPartner(u.uid, pid);
+  if (p.status !== "ACTIVE" || !p.environments?.sandbox) throw new HttpsError("failed-precondition", "Your platform needs approval for sandbox first.");
+  const method = String(req.data?.method ?? "GET").toUpperCase(); const path = String(req.data?.path ?? "/");
+  if (!["GET", "POST", "PATCH", "PUT", "DELETE"].includes(method) || !path.startsWith("/") || path.includes("..") || path.startsWith("/oauth")) throw new HttpsError("invalid-argument", "Bad request.");
+  const cid = `portal_${pid}`;
+  const cref = db.doc(`openClients/${cid}`);
+  if (!(await cref.get()).exists) { const { salt, hash } = hashSecret(newClientSecret()); await cref.set({ partnerId: pid, env: "sandbox", status: "ACTIVE", salt, hash, portal: true, createdAt: FieldValue.serverTimestamp() }); }
+  const { effectiveScopes, OPEN_API_JWT_SECRET } = await import("./model");
+  const { signToken } = await import("./crypto");
+  const { handle } = await import("./gateway");
+  await import("./index");
+  const token = signToken({ pid, cid, env: "sandbox", scope: effectiveScopes(p as Partner) }, secretValue(OPEN_API_JWT_SECRET, "OPEN_API_JWT_SECRET"), 120);
+  const headers: Record<string, string> = { authorization: `Bearer ${token}`, "idempotency-key": clean(req.data?.idempotencyKey, 120) || `portal-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+  const fake = { method, path: `/api/v1${path.split("?")[0]}`, body: req.data?.body ?? {}, query: Object.fromEntries(new URLSearchParams(path.split("?")[1] ?? "")), ip: "portal",
+    headers, get: (k: string) => headers[k.toLowerCase()] } as any;
+  const r = await handle(fake);
+  return { status: r.status, body: r.body };
 });

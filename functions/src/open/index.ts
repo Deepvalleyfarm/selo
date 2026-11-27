@@ -16,6 +16,5 @@ export const openapi_v1 = onRequest({ secrets: OPEN_SECRETS, cors: false, memory
 });
 
 export { onOpenEvent, scheduled_openWebhookRetry } from "./webhooks";
-export { scheduled_openOrderTimeouts } from "./commerce";
-export { onPartnerOrderChange, onPartnerParcelChange } from "./triggers";
+export { onPartnerParcelChange } from "./triggers";
 export * from "./manage";

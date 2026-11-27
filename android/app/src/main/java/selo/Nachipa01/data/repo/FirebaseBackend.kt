@@ -168,6 +168,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
         stock = (getLong("stock") ?: 0).toInt(), status = getString("status") ?: "live",
         views = (getLong("viewCount") ?: 0).toInt(), saves = (getLong("saveCount") ?: 0).toInt(),
         aiEnhanced = getBoolean("aiEnhanced") == true, aiGeneratedMotion = getBoolean("aiGeneratedMotion") == true,
+        originPlatform = getString("origin.partnerName"), checkoutUrl = getString("origin.checkoutUrl"),
     )
 
     @Suppress("UNCHECKED_CAST")
@@ -359,6 +360,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             aiEnhanced = this["aiEnhanced"] == true, aiGeneratedMotion = this["aiGeneratedMotion"] == true,
             promoLabel = (this["promo"] as? Map<*, *>)?.get("label") as? String, promoType = (this["promo"] as? Map<*, *>)?.get("type") as? String,
             promoEndsAt = ((this["promo"] as? Map<*, *>)?.get("endsAt") as? Number)?.toLong(),
+            originPlatform = (this["origin"] as? Map<*, *>)?.get("platform") as? String, checkoutUrl = (this["origin"] as? Map<*, *>)?.get("checkoutUrl") as? String,
         )
     }
     /** Runs [live]; with no connection it falls back to products already on the phone (OfflineCatalog). */

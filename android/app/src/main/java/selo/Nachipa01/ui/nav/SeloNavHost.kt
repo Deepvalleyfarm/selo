@@ -72,6 +72,9 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
     // product buttons and notifications ask for navigation through AppState
     val req = app.navRequest.value
     LaunchedEffect(req) { if (req != null) { app.navRequest.value = null; runCatching { nav.navigate(req) } } }
+    val ext = app.openExternal.value
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    LaunchedEffect(ext) { if (ext != null) { app.openExternal.value = null; runCatching { uri.openUri(ext) }.onFailure { app.toast.value = "Couldn't open the link." } } }
     // Edge-to-edge: keep every screen's last button above the phone's navigation bar and the keyboard (the bar area is
     // painted white so it blends with the bottom tab bar). Status-bar space is still handled per screen for full-bleed headers.
     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White)

@@ -35,9 +35,10 @@ export function deliveryView(id: string, p: Record<string, any>) {
 /* ---------------------------------------------------------------- quotes & coverage */
 route("POST", "/delivery/quotes", "delivery:quote", async (c) => wrap(async () => {
   const { partnerQuote } = await import("../parcels");
-  const q = await partnerQuote(c.body?.pickup, c.body?.dropoff, c.body?.priority === "EXPRESS", c.partner.pricing);
-  return { priceNgwee: q.deliveryNgwee, currency: "ZMW", distanceKm: q.q.distanceKm, etaMin: q.q.etaMin, city: q.q.cityName, approximate: q.q.approximate,
-    priority: c.body?.priority === "EXPRESS" ? "EXPRESS" : "STANDARD", validForMin: 15 };
+  const q = await partnerQuote(c.body?.pickup, c.body?.dropoff, c.body?.priority === "EXPRESS");
+  // Charge your buyer exactly priceNgwee on your checkout; it is owed to SeloNachipa in full.
+  return { priceNgwee: q.fee.totalNgwee, currency: "ZMW", breakdown: { deliveryFeeNgwee: q.fee.deliveryNgwee, serviceFeeNgwee: q.fee.serviceFeeNgwee },
+    distanceKm: q.q.distanceKm, etaMin: q.q.etaMin, city: q.q.cityName, approximate: q.q.approximate, priority: c.body?.priority === "EXPRESS" ? "EXPRESS" : "STANDARD", validForMin: 15 };
 }), { idempotent: false });
 route("GET", "/coverage", "coverage:read", async () => {
   const { CITIES } = await import("../parcel-rules") as any;
@@ -64,7 +65,7 @@ route("POST", "/deliveries", "delivery:write", async (c) => wrap(async () => {
   const { createPartnerParcel } = await import("../parcels");
   const r = await createPartnerParcel({ partnerId: c.pid, partnerName: c.partner.name, env: c.env, externalOrderRef: String(b.externalOrderRef).slice(0, 100),
     pickup: b.pickup, dropoff: b.dropoff, weightBand: b.weightBand, description: b.description, receiver: b.receiver, instructions: b.instructions,
-    express: b.priority === "EXPRESS", pricing: c.partner.pricing });
+    express: b.priority === "EXPRESS" });
   const p = (await db.doc(`parcels/${r.id}`).get()).data()!;
   if (!r.duplicate) { const { emit } = await import("./webhooks"); await emit(c.pid, c.env, "delivery.created", r.id, { delivery: deliveryView(r.id, p) }); }
   // The pickup PIN is shown once: give it to whoever hands the goods to the rider.
@@ -124,21 +125,5 @@ function routesForAccount() {
     const entries = q.docs.map((d) => ({ id: d.id, type: d.get("type"), amountNgwee: d.get("amountNgwee"), signedNgwee: d.get("signedNgwee"), refType: d.get("refType"),
       refId: d.get("refId"), note: d.get("note") ?? null, at: iso(d.get("at")) }));
     return { currency: "ZMW", ...summarise(entries), entries };
-  });
-  /** Sandbox only: simulate a SeloNachipa buyer paying for one of your sandbox products (drives order.* webhooks). */
-  route("POST", "/sandbox/orders", "orders:read", async (c) => {
-    if (c.env !== "sandbox") throw new ApiError(403, "sandbox_only", "Only available with sandbox credentials.");
-    const { listingIdFor, onPartnerOrderPaid } = await import("./commerce");
-    const id = listingIdFor(c.pid, "sandbox", String(c.body?.externalProductId ?? ""));
-    const l = (await db.doc(`listings/${id}`).get()).data();
-    if (!l || l.origin?.partnerId !== c.pid) throw new ApiError(404, "not_found", "Publish the sandbox product first (POST /products).");
-    const qty = Math.max(1, Math.floor(Number(c.body?.qty) || 1));
-    const orderId = `SBX-${Date.now().toString(36).toUpperCase()}`;
-    await db.doc(`orders/${orderId}`).set({ buyerUid: "sandbox-buyer", buyerName: "Test Buyer", sellerUid: l.sellerUid, sellerName: l.sellerName, partnerId: c.pid, partnerEnv: "sandbox",
-      items: [{ listingId: id, title: l.title, qty, unitNgwee: l.priceNgwee, lineNgwee: qty * l.priceNgwee, externalProductId: l.origin.productId, externalSellerId: l.origin.sellerId }],
-      goodsNgwee: qty * l.priceNgwee, totalNgwee: qty * l.priceNgwee, dropoff: "Test drop-off, Kabwata, Lusaka", state: "ESCROW_LOCKED", paymentStatus: "PAID",
-      timeline: { ESCROW_LOCKED: FieldValue.serverTimestamp() }, createdAt: FieldValue.serverTimestamp() });
-    const r = await onPartnerOrderPaid(orderId);
-    return ok({ orderId, result: r }, 201);
   });
 }

@@ -75,6 +75,7 @@ class AppState(val backend: Backend) : ViewModel() {
     /** Adds [qty] units. Returns a message for the toast (added, replaced the other seller's cart, or out of stock). */
     fun addToCart(l: selo.Nachipa01.data.model.Listing, qty: Int = 1): String? {
         if (!inStock(l)) return "${l.title} is out of stock."
+        if (l.isExternal) return "${l.title} is sold on ${l.originPlatform ?: "another platform"}. Tap Buy on ${l.originPlatform ?: "platform"} to order it there."
         val notice = if (cart.isNotEmpty() && cart.first().listing.sellerUid != l.sellerUid) { cart.clear(); "Your cart now holds items from ${l.sellerName} only. One seller per order keeps delivery in one trip." } else null
         val i = cart.indexOfFirst { it.listing.id == l.id }
         val max = l.stock.coerceAtLeast(1)
@@ -112,9 +113,12 @@ class AppState(val backend: Backend) : ViewModel() {
         block().also { if (okMsg != null) ok(okMsg) }
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) { fail(e.message); null }
     val navRequest = mutableStateOf<String?>(null)
+    /** Checkout link on another platform to open in the browser (Open Network listings). */
+    val openExternal = mutableStateOf<String?>(null)
     /** Buy: put the item in the cart if it isn't there, then open checkout with just that item selected. */
     fun buyNow(l: selo.Nachipa01.data.model.Listing) {
         if (!inStock(l)) { toast.value = "${l.title} is out of stock."; return }
+        if (l.isExternal) { openExternal.value = l.checkoutUrl; return }
         if (cart.none { it.listing.id == l.id }) addToCart(l)?.let { toast.value = it }
         navRequest.value = "checkout/cart?select=${l.id}"
     }

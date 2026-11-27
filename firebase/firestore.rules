@@ -32,15 +32,13 @@ service cloud.firestore {
     match /agentLinks/{id} { allow read: if signedIn() && (resource.data.agentUid == request.auth.uid || resource.data.sellerUid == request.auth.uid) || admin(); }
 
     // Marketing Centre campaigns: written only by campaign_* functions (prices are worked out on the server).
-    // SeloNachipa Open Network: partners, credentials, events, ledgers, reservations — server-written; Super Admin reads
+    // SeloNachipa Open Network: partners, credentials, events, ledgers — server-written; Super Admin reads
     // in the back office. Partners use the /api/v1 API, developers the devportal_* functions; neither reads Firestore.
     match /openPartners/{id} { allow read: if admin(); allow write: if false; }
     match /openClients/{id} { allow read, write: if false; }   // secret hashes: never readable
     match /openEvents/{id} { allow read: if admin(); allow write: if false; }
     match /openAudit/{id} { allow read: if admin(); allow write: if false; }
     match /openUsage/{id} { allow read: if admin(); allow write: if false; }
-    match /openReservations/{id} { allow read: if admin(); allow write: if false; }
-    match /openPartnerOrders/{id} { allow read: if admin(); allow write: if false; }
     match /openIdempotency/{id} { allow read, write: if false; }
     match /openRate/{id} { allow read, write: if false; }
     match /openLedger/{pid}/entries/{id} { allow read: if admin(); allow write: if false; }

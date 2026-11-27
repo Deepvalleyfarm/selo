@@ -3,6 +3,7 @@ package selo.Nachipa01.ui.components
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.AddShoppingCart
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material3.*
@@ -28,6 +29,15 @@ fun ProductActions(l: Listing, modifier: Modifier = Modifier, qty: Int = 1, comp
     val ok = app.inStock(l)
     if (!ok) {
         Text("Out of stock", color = if (onDark) Color.White else Selo.Mute, fontWeight = FontWeight.Bold, fontSize = if (compact) 11.sp else 13.sp, modifier = modifier)
+        return
+    }
+    if (l.isExternal) {
+        // Open Network: bought on the originating platform's own checkout; SeloNachipa only shows it and delivers it.
+        Button({ app.buyNow(l) }, modifier.height(height), shape = RoundedCornerShape(50), contentPadding = PaddingValues(horizontal = 10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Selo.Red)) {
+            if (!compact) Icon(Icons.AutoMirrored.Outlined.OpenInNew, null, Modifier.size(18.dp))
+            Text((if (compact) "" else "  ") + "Buy on ${l.originPlatform ?: "seller's site"}", fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 11.sp else 14.sp, maxLines = 1)
+        }
         return
     }
     val inCart = app.cart.firstOrNull { it.listing.id == l.id }?.qty ?: 0

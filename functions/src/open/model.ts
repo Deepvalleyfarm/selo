@@ -2,8 +2,10 @@
  * SeloNachipa Open Network — partner model, services and scopes.
  *
  * Two independently enabled services:
- *   commerce  — publish products, share them with approved marketplaces, receive and answer marketplace orders
- *   logistics — quote and request deliveries carried by the existing SeloNachipa rider network
+ *   commerce  — list products on the SeloNachipa marketplace (discovery) and share them with approved platforms;
+ *               buyers are sent to the originating platform's own checkout
+ *   logistics — quote and request deliveries carried by the existing SeloNachipa rider network, at the delivery fee
+ *               set on SeloNachipa (which SeloNachipa keeps and splits as configured)
  * A partner gets a scope only if the service that owns it is enabled AND an admin granted it.
  */
 import { defineSecret } from "firebase-functions/params";
@@ -20,8 +22,6 @@ export const SCOPES: Record<string, { service: Service | "common"; description: 
   "products:read": { service: "commerce", description: "Read your own published products" },
   "inventory:write": { service: "commerce", description: "Update stock for your own products" },
   "catalog:read": { service: "commerce", description: "Discover products other platforms explicitly shared with you" },
-  "orders:read": { service: "commerce", description: "Read orders for your products, and orders you placed" },
-  "orders:write": { service: "commerce", description: "Accept, reject, fulfil or cancel orders; place marketplace orders" },
   "delivery:quote": { service: "logistics", description: "Delivery prices and service coverage" },
   "delivery:write": { service: "logistics", description: "Request and cancel deliveries" },
   "delivery:read": { service: "logistics", description: "Track your deliveries" },
@@ -31,18 +31,15 @@ export const SCOPES: Record<string, { service: Service | "common"; description: 
 };
 export const ALL_SCOPES = Object.keys(SCOPES);
 
-export const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "order.created", "order.accepted", "order.rejected",
-  "order.cancelled", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled"] as const;
+export const EVENTS = ["product.created", "product.updated", "product.stock_updated", "product.unpublished", "delivery.created", "delivery.assigned", "delivery.picked_up", "delivery.in_transit", "delivery.completed", "delivery.failed", "delivery.cancelled"] as const;
 export type EventType = typeof EVENTS[number];
 
 export type Env = "sandbox" | "production";
+/**
+ * Commercial terms per platform. Delivery is always priced and split by SeloNachipa's own configuration (no partner
+ * delivery tariffs): the platform charges its buyer the quoted SeloNachipa fee and owes it in full to SeloNachipa.
+ */
 export interface PartnerPricing {
-  /** Delivery pricing override (otherwise the standard parcel tariff). */
-  deliveryBaseNgwee?: number | null; deliveryPerKmNgwee?: number | null; expressSurchargePct?: number | null;
-  /** Discount on the standard delivery price for wholesale partners. */
-  wholesaleDiscountPct?: number | null;
-  /** Commission SeloNachipa keeps on this partner's products sold on the marketplace. */
-  marketplaceCommissionPct?: number | null;
   subscriptionMonthlyNgwee?: number | null; apiCallNgwee?: number | null;
   settlementCycle?: "weekly" | "monthly";
 }
@@ -70,17 +67,18 @@ export function accessProblem(p: Pick<Partner, "status" | "environments"> | null
   return null;
 }
 
-/** Delivery price for a partner: the standard parcel tariff, or the partner's own rates, then express and wholesale adjustments. */
-export function partnerDeliveryPrice(standardNgwee: number, distanceKm: number, pr: PartnerPricing = {}, express = false): number {
-  let p = pr.deliveryBaseNgwee != null || pr.deliveryPerKmNgwee != null
-    ? Math.round((pr.deliveryBaseNgwee ?? 0) + (pr.deliveryPerKmNgwee ?? 0) * Math.max(0, distanceKm)) : standardNgwee;
-  if (pr.wholesaleDiscountPct) p = Math.round(p * (1 - Math.min(90, pr.wholesaleDiscountPct) / 100));
-  if (express) p = Math.round(p * (1 + Math.max(0, pr.expressSurchargePct ?? 25) / 100));
-  return p;
+/**
+ * SeloNachipa delivery fee for an API delivery: the configured parcel tariff (delivery fee + service fee), with the
+ * configured express premium on the delivery part. Returns the split exactly as configured on SeloNachipa.
+ */
+export function seloDeliveryFee(q: { deliveryNgwee: number; sendingNgwee: number; riderEarningsNgwee: number; platformFeeNgwee: number; socialFundNgwee: number },
+  express: boolean, expressPremiumPct = 25) {
+  const k = express ? 1 + Math.max(0, expressPremiumPct) / 100 : 1;
+  const delivery = Math.round(q.deliveryNgwee * k);
+  return { deliveryNgwee: delivery, serviceFeeNgwee: q.sendingNgwee, totalNgwee: delivery + q.sendingNgwee,
+    split: { riderEarningsNgwee: Math.round(q.riderEarningsNgwee * k), platformFeeNgwee: Math.round(q.platformFeeNgwee * k), socialFundNgwee: Math.round(q.socialFundNgwee * k),
+      serviceFeeNgwee: q.sendingNgwee } };
 }
-
-/** Marketplace commission on a partner sale (default 8 %). */
-export const commissionOn = (saleNgwee: number, pr: PartnerPricing = {}) => Math.round((saleNgwee * Math.max(0, pr.marketplaceCommissionPct ?? 8)) / 100);
 
 /** Pseudo seller uid for a partner's seller: keeps listings, orders and payouts attributable without creating app users. */
 export const partnerSellerUid = (partnerId: string, sellerRef: string) => `partner:${partnerId}:${sellerRef.replace(/[^\w-]/g, "").slice(0, 60)}`;
