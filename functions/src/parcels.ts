@@ -3,7 +3,7 @@
  * Money: sender pays delivery fee + sending (service) fee (+ insurance) into escrow; the rider's share is released only by
  * a verified 5-digit delivery code (deliveryConfirmation.ts). Only Cloud Functions change `status`.
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { FieldValue, Timestamp, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -177,7 +177,7 @@ export async function onParcelCollection(reference: string, ok: boolean, status:
 
 export async function broadcastParcel(id: string) {
   const p = (await ref(id).get()).data();
-  if (!p || p.status !== "AWAITING_RIDER") return;
+  if (!p || p.status !== "AWAITING_RIDER" || p.env === "sandbox") return; // sandbox deliveries are simulated, never offered to real riders
   const cfg = await loadConfig();
   const online = await db.collection("riderPresence").where("isOnline", "==", true).limit(300).get();
   const ids = online.docs.filter((r) => (r.get("activeCount") ?? 0) < cfg.maxConcurrentDeliveries).map((r) => r.id);
@@ -207,6 +207,7 @@ export const scheduled_parcelDispatch = onSchedule({ schedule: "every 1 minutes"
   const waiting = await db.collection("parcels").where("status", "==", "AWAITING_RIDER").limit(300).get();
   for (const d of waiting.docs) {
     const p = d.data();
+    if (p.env === "sandbox") continue;
     const sched = (p.scheduledFor as Timestamp | null)?.toMillis();
     if (sched && !p.broadcastAt) { if (sched - nowMs <= 30 * 60_000) await broadcastParcel(d.id); continue; }
     const since = (p.broadcastAt as Timestamp | undefined)?.toMillis() ?? nowMs;
@@ -356,7 +357,10 @@ export async function refundParcel(id: string, reason: string, by: string, amoun
     if (p.riderUid && ["RIDER_ASSIGNED"].includes(p.status))
       tx.set(db.doc(`riderWallets/${p.riderUid}`), { pendingNgwee: FieldValue.increment(-p.fees.riderEarningsNgwee), activeCount: FieldValue.increment(-1) }, { merge: true });
   });
-  if (amount > 0) {
+  if (amount > 0 && p.partnerId) {
+    const { post } = await import("./open/settlement");
+    await post(p.partnerId, { type: "DELIVERY_REVERSAL", amountNgwee: amount, refType: "delivery", refId: id, env: p.env ?? "production", note: reason });
+  } else if (amount > 0) {
     await disburse(`SELO-REF-${id}${amountNgwee ? "-P" : ""}`, "refund", p.senderUid, amount, p.walletMsisdn);
     await notify(p.senderUid, "Parcel refunded", `${reason}. K${(amount / 100).toFixed(2)} is on its way back to your wallet.`, "REFUND", `selo://parcels/${id}`);
   }
@@ -487,4 +491,80 @@ main{padding:16px;max-width:520px;margin:auto}.card{background:#fff;border-radiu
 ${p.riderName ? `<div class="card"><div class="m">Rider</div><b>${esc(p.riderName)}</b> · ${esc(p.riderPlate)}</div>` : ""}
 ${geo ? `<div class="card"><a href="https://www.google.com/maps/search/?api=1&query=${geo.lat},${geo.lng}">See the rider's last location</a><div class="m">Updated every 30 seconds</div></div>` : ""}
 <p class="m">This page refreshes automatically. The delivery code is only sent to the receiver's phone.</p></main></body></html>`);
+});
+
+
+/* ------------------------------------------------------------------ Open Logistics Network (partner deliveries) */
+
+const trackBase = () => { try { return TRACKING_BASE_URL.value(); } catch { return "https://mabala-f2d65.web.app/t/"; } };
+
+export interface PartnerDeliveryInput {
+  partnerId: string; partnerName: string; env: "sandbox" | "production"; externalOrderRef: string; pickup: any; dropoff: any; weightBand: string;
+  description: string; receiver: { name: string; msisdn: string }; instructions?: string; express?: boolean; declaredValueNgwee?: number;
+  pricing?: import("./open/model").PartnerPricing;
+}
+/** Partner delivery price (no Lipila: charged to the partner's ledger). Same distance engine as app parcels. */
+export async function partnerQuote(pickupIn: any, dropoffIn: any, express: boolean, pricing: import("./open/model").PartnerPricing | undefined) {
+  const cfg = await loadConfig();
+  const pickup = stop(pickupIn, "pickup"), dropoff = stop(dropoffIn, "dropoff");
+  const q = await quote(pickup, dropoff, 0, cfg);
+  const { partnerDeliveryPrice } = await import("./open/model");
+  const deliveryNgwee = partnerDeliveryPrice(q.deliveryNgwee, q.distanceKm, pricing, express);
+  // the rider's share follows the delivery price; the sending fee is waived for API deliveries (priced in the partner tariff)
+  const ratio = q.deliveryNgwee > 0 ? deliveryNgwee / q.deliveryNgwee : 1;
+  return { pickup, dropoff, cfg, q, deliveryNgwee, riderEarningsNgwee: Math.round(q.riderEarningsNgwee * ratio), platformFeeNgwee: Math.round(q.platformFeeNgwee * ratio),
+    socialFundNgwee: Math.round(q.socialFundNgwee * ratio) };
+}
+
+/**
+ * Creates a delivery job for a partner inside the existing parcels engine: same rider network, smart dispatch, pickup
+ * PIN, receiver delivery code, live tracking and proof of delivery. Idempotent per (partner, env, externalOrderRef).
+ */
+export async function createPartnerParcel(d: PartnerDeliveryInput): Promise<{ id: string; duplicate: boolean; pin: string | null; trackingUrl: string }> {
+  const id = `PCL-X${createHash("sha256").update(`${d.partnerId}|${d.env}|${d.externalOrderRef}`).digest("hex").slice(0, 8).toUpperCase()}`;
+  const existing = (await ref(id).get()).data();
+  if (existing) return { id, duplicate: true, pin: null, trackingUrl: `${trackBase()}${existing.trackingToken}` };
+  if (!weightOk(d.weightBand)) throw new HttpsError("invalid-argument", "weightBand must be one of: Under 1 kg, 1–2 kg, 2–3 kg, 3–4 kg, 4–5 kg.");
+  const receiverMsisdn = normaliseMsisdn(d.receiver?.msisdn);
+  if (!receiverMsisdn) throw new HttpsError("invalid-argument", "receiver.msisdn must be an Airtel, MTN or Zamtel number — the delivery code is sent to it.");
+  const pq = await partnerQuote(d.pickup, d.dropoff, !!d.express, d.pricing);
+  const { q, cfg } = pq;
+  const pin = generatePickupPin();
+  const trackingToken = randomBytes(12).toString("base64url");
+  const senderUid = `partner:${d.partnerId}`;
+  await db.runTransaction(async (tx) => {
+    tx.create(ref(id), {
+      senderUid, senderRole: "PARTNER", senderName: d.partnerName, senderMsisdn: null, cityId: q.cityId, cityName: q.cityName,
+      partnerId: d.partnerId, env: d.env, source: { platform: d.partnerName, partnerId: d.partnerId, externalOrderRef: d.externalOrderRef }, priority: d.express ? "EXPRESS" : "STANDARD",
+      pickup: pq.pickup, dropoff: pq.dropoff, weightBand: d.weightBand, description: String(d.description ?? "").slice(0, 200), category: suggestCategory(String(d.description ?? "")),
+      handlingNotes: "", receiver: { name: String(d.receiver?.name ?? "").slice(0, 60), msisdn: receiverMsisdn, uid: null },
+      deliveryInstructions: String(d.instructions ?? "").slice(0, 300), distanceKm: q.distanceKm, distanceApproximate: q.approximate, etaMin: q.etaMin,
+      declaredValueNgwee: 0, creditAppliedNgwee: 0,
+      fees: { deliveryNgwee: pq.deliveryNgwee, sendingNgwee: 0, insuranceNgwee: 0, totalNgwee: pq.deliveryNgwee, riderEarningsNgwee: pq.riderEarningsNgwee,
+        platformFeeNgwee: pq.platformFeeNgwee, socialFundNgwee: pq.socialFundNgwee,
+        rates: { base: cfg.parcelBaseFee, perKm: cfg.parcelPerKmRate, sendingPct: 0, platformPct: cfg.parcelPlatformFeePct, fundPct: cfg.parcelSocialFundPct, partnerTariff: !!d.pricing } },
+      status: "AWAITING_RIDER", paymentStatus: "PARTNER_ACCOUNT", escrowStatus: "HELD", paidAt: FieldValue.serverTimestamp(), walletMsisdn: null, riderUid: null,
+      notifiedRiders: [], broadcastRound: d.express ? 2 : 0, scheduledFor: null, trackingToken, codeSummary: null,
+      timeline: { AWAITING_RIDER: FieldValue.serverTimestamp() }, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(db.doc(`parcels/${id}/private/pickup`), { senderUid, pin, attempts: 0 });
+    tx.set(db.collection(`parcels/${id}/timeline`).doc(), { event: "CREATED", by: `partner:${d.partnerId}`, at: FieldValue.serverTimestamp() });
+    writeLedger(tx, { kind: "parcel", orderId: id, type: "HELD", leg: "delivery_fee", party: "escrow", amountNgwee: pq.deliveryNgwee, ref: `partner:${d.partnerId}` });
+  });
+  const { post } = await import("./open/settlement");
+  await post(d.partnerId, { type: "DELIVERY_CHARGE", amountNgwee: pq.deliveryNgwee, refType: "delivery", refId: id, env: d.env });
+  await broadcastParcel(id); // no-op in sandbox
+  return { id, duplicate: false, pin, trackingUrl: `${trackBase()}${trackingToken}` };
+}
+
+/** Sandbox: deliveries move through the real states every minute with a test rider, so partners can test webhooks end to end. */
+export const scheduled_sandboxDeliveries = onSchedule({ schedule: "every 1 minutes" }, async () => {
+  const next: Record<string, ParcelStatus> = { AWAITING_RIDER: "RIDER_ASSIGNED", RIDER_ASSIGNED: "IN_TRANSIT", IN_TRANSIT: "AWAITING_DELIVERY_CODE", AWAITING_DELIVERY_CODE: "COMPLETED" };
+  const q = await db.collection("parcels").where("env", "==", "sandbox").where("status", "in", Object.keys(next)).limit(100).get();
+  for (const d of q.docs) {
+    const from = d.get("status") as ParcelStatus, to = next[from];
+    await d.ref.update({ status: to, [`timeline.${to}`]: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      ...(to === "RIDER_ASSIGNED" ? { riderUid: "sandbox-rider", riderName: "Test Rider", riderPlate: "SBX 0001" } : {}),
+      ...(to === "COMPLETED" ? { escrowStatus: "RELEASED", deliveredAt: FieldValue.serverTimestamp() } : {}) });
+  }
 });

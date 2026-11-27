@@ -172,7 +172,7 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
 
     @Suppress("UNCHECKED_CAST")
     private fun DocumentSnapshot.toOrder() = Order(
-        id = id, buyerUid = getString("buyerUid") ?: "", sellerUid = getString("sellerUid") ?: "",
+        id = id, buyerUid = getString("buyerUid") ?: "", sellerUid = getString("sellerUid") ?: "", sourcePlatform = getString("sourcePlatform"),
         sellerName = getString("sellerName") ?: "", riderUid = getString("riderUid"), riderName = getString("riderName"),
         items = (get("items") as? List<Map<String, Any?>>)?.map {
             OrderItem(it["listingId"] as? String ?: "", it["title"] as? String ?: "",
@@ -310,7 +310,9 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
             p.dropoff.address.ifBlank { p.dropoff.label }, p.pickup.address.ifBlank { p.pickup.label }, distanceKm = p.distanceKm, isParcel = true,
             buyerName = p.receiverName, buyerMsisdn = p.receiverMsisdn, itemsSummary = "${p.description} · ${p.weightBand}",
             pickupLat = p.pickup.lat, pickupLng = p.pickup.lng, dropLat = p.dropoff.lat, dropLng = p.dropoff.lng, kind = "parcel", codeState = p.codeState,
-            arrivedAt = getTimestamp("arrivedAt")?.toDate()?.time, riderEarningsNgwee = earn, weightBand = p.weightBand, distanceApproximate = p.approximate)
+            arrivedAt = getTimestamp("arrivedAt")?.toDate()?.time, riderEarningsNgwee = earn, weightBand = p.weightBand, distanceApproximate = p.approximate,
+            sourcePlatform = (get("source") as? Map<String, Any?>)?.get("platform") as? String, deliveryInstructions = p.deliveryInstructions,
+            priority = getString("priority") ?: "STANDARD")
     }
 
     override suspend fun setOnline(online: Boolean) {

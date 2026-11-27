@@ -360,6 +360,7 @@ async function afterRelease(kind: OrderKind, id: string, p: ReleasePost) {
     if (p.seller) jobs.push((async () => {
       const { disburse } = await import("./escrow");
       const u = (await db.doc(`users/${p.seller!.uid}`).get()).data();
+      if (p.seller!.uid.startsWith("partner:")) { await disburse(`SELO-SELR-${id}`, "seller", p.seller!.uid, p.seller!.amountNgwee, "", id); return; } // partner ledger
       if (!u?.payoutWallet) { // never call the gateway without a wallet: park it for finance
         await db.doc(`payouts/SELO-SELR-${id}`).set({ ref: `SELO-SELR-${id}`, leg: "seller", uid: p.seller!.uid, amountNgwee: p.seller!.amountNgwee, orderId: id,
           status: "ESCALATED", reason: "Seller has no payout wallet", attempts: 0, createdAt: FieldValue.serverTimestamp() });

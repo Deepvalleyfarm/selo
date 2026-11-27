@@ -154,6 +154,7 @@ fun DispatchOverlay(o: Order, active: List<Order>, profile: RiderProfile?, rc: R
                 Box(Modifier.fillMaxHeight().fillMaxWidth((left / total).coerceIn(0f, 1f)).background(Selo.Red))
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                JobSourceBadge(o)
                 Text("${left.toInt().coerceAtLeast(0) + if (left % 1 > 0) 1 else 0} seconds to decide", color = Selo.Red, fontSize = 28.sp, fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 if (active.isNotEmpty()) Text("Combine with your ${active.size} active ${if (active.size == 1) "delivery" else "deliveries"}" +
@@ -252,6 +253,7 @@ fun ActiveDeliveryScreen(active: List<Order>, profile: RiderProfile?, rc: RouteC
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val atPickup = next?.type == StopType.PICKUP
                 Text(if (atPickup) "NEXT: COLLECT" else "NEXT: DELIVER", color = if (atPickup) Selo.Red else Selo.Green, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                JobSourceBadge(order)
                 if (atPickup) {
                     Text(order.pickup, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Text(order.sellerName, fontSize = 14.sp)
@@ -627,4 +629,17 @@ fun TrafficLine(d: Directions) {
     }
     Text(txt + (if (d.trafficDelayS >= 60) " · +${d.trafficDelayS / 60} min delay" else "") + " · arrive ${clock(System.currentTimeMillis() + d.durationS * 1000L)}",
         color = col, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+}
+
+
+/** Shows where a job came from (SeloNachipa or a connected platform such as Mabala), its priority and instructions. */
+@Composable
+fun JobSourceBadge(o: Order) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(if (o.sourcePlatform != null) "via ${o.sourcePlatform}" else "SeloNaChipa", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.background(if (o.sourcePlatform != null) Selo.Teal else Selo.Red, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 3.dp))
+        if (o.priority == "EXPRESS") Text("EXPRESS", color = Selo.Ink, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.background(Color(0xFFFFD54F), RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 3.dp))
+    }
+    if (o.deliveryInstructions.isNotBlank()) Text("Instructions: ${o.deliveryInstructions}", fontSize = 13.sp, color = Selo.Ink, fontWeight = FontWeight.SemiBold)
 }

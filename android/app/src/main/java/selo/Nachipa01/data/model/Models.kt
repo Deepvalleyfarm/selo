@@ -170,6 +170,8 @@ data class Order(
     /** v6.4: "order" or "parcel" (rider jobs mix both); parcel jobs need the sender's 4-digit Pickup PIN at collection. */
     val kind: String = "order", val codeState: String? = null, val arrivedAt: Long? = null, val unavailableDeadline: Long? = null,
     val riderEarningsNgwee: Long? = null, val weightBand: String = "", val distanceApproximate: Boolean = false,
+    /** Open Network: the platform the job came from (e.g. "Mabala"); null = SeloNachipa itself. Plus its instructions and priority. */
+    val sourcePlatform: String? = null, val deliveryInstructions: String = "", val priority: String = "STANDARD",
     /** Live tracking (v6.5): rider position, the road path into the drop-off (from the rider's route) and its ETA. */
     val riderLat: Double? = null, val riderLng: Double? = null, val trackingPolyline: String? = null, val etaMinutes: Int? = null,
 )

@@ -86,12 +86,15 @@ class DemoRider(private val scope: CoroutineScope, private val cfg: PlatformConf
                 pickupLat = -15.42, pickupLng = 28.29, dropLat = -15.40, dropLng = 28.33)
         }
         val fee = 3_500L + jobNo * 250
-        return Order("SNC-${48_240 + jobNo}", "b3", "s1", if (jobNo % 2 == 1) "Mama Bupe's Veg" else "Bashi Tembo Electronics",
+        // Odd jobs come from Mabala through the Open Network (same rider screens, labelled with the source platform).
+        val mabala = jobNo % 2 == 1
+        return Order("SNC-${48_240 + jobNo}", "b3", "s1", if (mabala) "Mwila Family Farm" else "Bashi Tembo Electronics",
             items = listOf(OrderItem("l1", if (jobNo % 2 == 1) "Fresh tomatoes 5 kg" else "Bluetooth speaker, 20 W", 2, 8_000)), goodsNgwee = 16_000,
             deliveryNgwee = fee, totalNgwee = 16_000 + fee, state = OrderState.BROADCASTING, zone = "Kabulonga",
             dropoff = "$d, Plot ${200 + jobNo * 13}, near Shoprite", pickup = "$p, stall 14", distanceKm = 4.6,
             buyerName = "Mwila Chanda", buyerMsisdn = "+260971234512", itemsSummary = "2 × ${if (jobNo % 2 == 1) "Fresh tomatoes 5 kg" else "Bluetooth speaker"}",
-            pickupLat = -15.42, pickupLng = 28.29, dropLat = -15.40, dropLng = 28.33)
+            pickupLat = -15.42, pickupLng = 28.29, dropLat = -15.40, dropLng = 28.33,
+            sourcePlatform = if (mabala) "Mabala" else null, deliveryInstructions = if (mabala) "Crates are at the farm gate. Ask for Joseph." else "")
     }
 
     fun setOnline(on: Boolean, firstJobAfterMs: Long = 3_000) {
