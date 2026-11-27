@@ -438,7 +438,9 @@ private fun CorporateFields(s: RegState) {
     F(s, "storeName", "Registered organisation name *", ph = "As on the PACRA certificate")
     SeloField("Company registration number *", s["regNumber"], { s.set("regNumber", it.uppercase().filter { c -> c.isLetterOrDigit() || c == '/' || c == '-' }.take(20)) },
         keyboard = KeyboardType.Ascii, placeholder = "e.g. 120190012345")
-    SeloField("TPIN *", s["tpin"], { s.set("tpin", it.filter(Char::isDigit).take(10)) }, keyboard = KeyboardType.Number, placeholder = "10 digits")
+    // TPIN: digits only, exactly 10 (letters, spaces and symbols are dropped as you type).
+    SeloField("TPIN * (${s["tpin"].length}/10 digits)", s["tpin"], { s.set("tpin", Validation.formatTpin(it)) }, keyboard = KeyboardType.Number,
+        placeholder = "e.g. 1002345678", error = if (s["tpin"].isNotEmpty() && s["tpin"].length < 10) "TPIN must be exactly 10 digits." else null)
     F(s, "regAddress", "Registered address *", ph = "Plot, street, area, town")
 }
 

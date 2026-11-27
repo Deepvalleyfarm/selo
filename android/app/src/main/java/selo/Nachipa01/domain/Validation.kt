@@ -72,11 +72,16 @@ object Validation {
         else -> null
     }
     /** Photos each ID type needs: NRC and licence front + back, passport photo page. */
+    /** TPIN (ZRA Taxpayer Identification Number): exactly 10 digits, nothing else. Same rule as the server. */
+    fun tpinProblem(tpin: String): String? = if (Regex("^\\d{10}$").matches(tpin)) null else "TPIN must be exactly 10 digits (numbers only)."
+    /** Keeps only digits, at most 10 — used as the TPIN field's input filter. */
+    fun formatTpin(raw: String) = raw.filter(Char::isDigit).take(10)
+
     /** Corporate seller / agency details. Same rules as the server (auth.ts corporateOf). */
     fun corporateProblem(name: String, regNumber: String, tpin: String, address: String): String? = when {
         name.trim().length < 2 -> "Enter the registered name of the organisation."
         !Regex("^[A-Z0-9/-]{5,20}$").matches(regNumber.trim().uppercase()) -> "Enter the company registration number as on the PACRA certificate (5–20 letters and digits)."
-        !Regex("^\\d{10}$").matches(tpin.filter(Char::isDigit)) -> "Enter the organisation's 10-digit TPIN."
+        tpinProblem(tpin) != null -> "Enter the organisation's 10-digit TPIN (numbers only, no letters or spaces)."
         address.trim().length < 5 -> "Enter the organisation's registered address."
         else -> null
     }

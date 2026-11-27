@@ -77,7 +77,7 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
     if (idSnap.exists) throw new HttpsError("already-exists", `This ${id.idType} number is already registered to another account. Contact support if this is you.`);
     tx.create(idx, { uid, role, createdAt: FieldValue.serverTimestamp() });
     tx.create(idRef, { uid, idType: id.idType, createdAt: FieldValue.serverTimestamp() });
-    tx.create(db.doc(`users/${uid}/private/kyc`), { idType: id.idType, idNumber: id.idNumber, tpin: profile.tpin ? String(profile.tpin).replace(/\D/g, "").slice(0, 10) : null,
+    tx.create(db.doc(`users/${uid}/private/kyc`), { idType: id.idType, idNumber: id.idNumber, tpin: profile.tpin && !tpinProblem(profile.tpin) ? String(profile.tpin).trim() : null,
       corporate: corporate ? { regNumber: id.idNumber, regAddress: String(profile.regAddress ?? "").trim().slice(0, 200) } : null, createdAt: FieldValue.serverTimestamp() });
     tx.create(db.doc(`users/${uid}`), {
       role, msisdn, msisdnVerified, fullName, firstName: corporate ? fullName : String(profile.firstName ?? fullName.split(" ")[0] ?? ""),
@@ -91,7 +91,7 @@ export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck
       vehicleDetails: role === "RIDER" ? { make: profile.make ?? null, model: profile.model ?? null, plate: profile.plate ?? null } : null,
       hub: profile.hub ?? null, workingDays: profile.workingDays ?? null, businessType: profile.businessType ?? null,
       accountType: corporate ? "CORPORATE" : "INDIVIDUAL", registeredAddress: corporate ? String(profile.regAddress ?? "").trim().slice(0, 200) : null,
-      corporate: corporate ? { regNumber: id.idNumber, tpin: String(profile.tpin ?? "").replace(/\D/g, "").slice(0, 10) } : null,
+      corporate: corporate ? { regNumber: id.idNumber, tpin: String(profile.tpin ?? "").trim() } : null,
       payoutWallet, payoutWalletNetwork: profile.walletNetwork ?? null, referralCode, referredBy,
       acceptedTermsVersion: d.acceptedTermsVersion ?? null, consentAt: FieldValue.serverTimestamp(),
       memberSince: new Date().toLocaleString("en-GB", { month: "short", year: "numeric" }), createdAt: FieldValue.serverTimestamp(),
@@ -257,6 +257,10 @@ export const user_registerFcmToken = onCall(async (req) => {
 
 
 /** Sign-up identity: NRC (XXXXXX/XX/X), passport or driver's licence. Returns an error message or the cleaned ID. */
+/** TPIN (ZRA Taxpayer Identification Number): exactly 10 digits — no letters, spaces or symbols. */
+export const TPIN_RE = /^\d{10}$/;
+export const tpinProblem = (v: unknown) => (TPIN_RE.test(String(v ?? "").trim()) ? null : "Enter the 10-digit TPIN (numbers only, no letters or spaces).");
+
 export const isCorporate = (p: Record<string, unknown>) => /corporate/i.test(String(p.businessType ?? ""));
 
 /**
@@ -264,10 +268,10 @@ export const isCorporate = (p: Record<string, unknown>) => /corporate/i.test(Str
  * number, 10-digit TPIN and registered address. The registration number is the unique identity.
  */
 export function corporateOf(p: Record<string, unknown>): string | { idType: string; idNumber: string; key: string } {
-  const name = String(p.storeName ?? "").trim(), reg = String(p.regNumber ?? "").trim().toUpperCase(), tpin = String(p.tpin ?? "").replace(/\D/g, "");
+  const name = String(p.storeName ?? "").trim(), reg = String(p.regNumber ?? "").trim().toUpperCase(), tpin = String(p.tpin ?? "").trim();
   if (name.length < 2) return "Enter the registered name of the organisation.";
   if (!/^[A-Z0-9/-]{5,20}$/.test(reg)) return "Enter the company registration number as on the PACRA certificate (5–20 letters and digits).";
-  if (!/^\d{10}$/.test(tpin)) return "Enter the organisation's 10-digit TPIN.";
+  if (tpinProblem(tpin)) return "Enter the organisation's 10-digit TPIN (numbers only, no letters or spaces).";
   if (String(p.regAddress ?? "").trim().length < 5) return "Enter the organisation's registered address.";
   return { idType: "Company registration", idNumber: reg, key: `CompanyReg_${reg.replace(/\W/g, "")}` };
 }

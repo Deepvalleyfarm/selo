@@ -172,6 +172,7 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Agents get net commission at each seller's rate, sales made for sellers, active sellers, sellers onboarded, listings created, commission by seller, and agent tips.
   - Sellers keep their sales report.
   - Highlights and tips titles are role-specific, and agents can open the report from their home screen.
+- **TPIN:** exactly 10 digits, numbers only. The app drops letters, spaces and symbols as you type and shows an x/10 counter; the server rejects anything else (`tpinProblem`).
 - **Rider tab bar:** fixed on every screen, including during turn-by-turn navigation and while a job offer is showing.
 
 ## v6.9 — growth tools, rider safety, smart dispatch

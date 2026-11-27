@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.navigation.compose.rememberNavController
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.runBlocking
@@ -290,4 +291,7 @@ class ScreensScreenshotTest {
         org.junit.Assert.assertEquals(3, pages.size)
     }
     @Test fun h5_demoSellerFee() = shot("H5-demo-seller-no-fee") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 6) }
+    @Test fun h6_tpin() = shot("H6-corporate-tpin", act = { tap("Corporate"); rule.onNode(androidx.compose.ui.test.hasText("TPIN", substring = true) and androidx.compose.ui.test.hasSetTextAction())
+        .performTextInput("TPIN 100-234-56"); rule.onNode(androidx.compose.ui.test.hasText("TPIN", substring = true) and androidx.compose.ui.test.hasSetTextAction()).performScrollTo() }) {
+        RegistrationWizard(Role.SELLER, {}, {}) }
 }

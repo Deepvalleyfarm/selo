@@ -133,3 +133,11 @@ describe("individual agents", () => {
     expect(identityOf({ idType: "Passport", idNumber: "ZN123456" }, "SELLER")).toMatchObject({ idType: "Passport" });
   });
 });
+
+import { tpinProblem } from "../src/auth";
+describe("TPIN", () => {
+  it("is exactly 10 digits, no text", () => {
+    expect(tpinProblem("1002345678")).toBeNull();
+    for (const bad of ["100234567", "10023456789", "TPIN1002345678", "10023-45678", "1002 345678", "", "abcdefghij"]) expect(tpinProblem(bad)).not.toBeNull();
+  });
+});
