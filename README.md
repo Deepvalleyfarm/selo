@@ -162,6 +162,16 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.9.6 — route-style pickup and delivery
+
+- **Send a parcel and checkout** use one rounded route card (`RouteAddressCard`), in the style of ride-hailing apps:
+  - **From** has a red ring: the sender's GPS for parcels, or the seller's shop (fixed) at checkout. **To** has a search icon.
+  - Tapping a row turns it into a search box with a clear (×) button and a **Map** button.
+  - Suggestions appear under the card with a category icon (mall, gym, police, school, estate, market…), the area and the distance from you.
+  - With nothing typed, it offers "Use my current location", saved places (Home, Work, Shop) and recently used places.
+  - It keeps all the existing behaviour: Places search near the user, on-device cache, GPS accuracy check with map nudge, a landmark within 10 m, and remembered places.
+- Parcels now choose From and To together on step 1.
+
 ## v6.9.4 — rider profile and role reports
 
 - **Demo:** no registration fee. Sellers and agents tap "Create my account", and all roles are active straight away.

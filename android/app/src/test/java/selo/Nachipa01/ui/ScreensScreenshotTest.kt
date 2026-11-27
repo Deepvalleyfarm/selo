@@ -294,4 +294,12 @@ class ScreensScreenshotTest {
     @Test fun h6_tpin() = shot("H6-corporate-tpin", act = { tap("Corporate"); rule.onNode(androidx.compose.ui.test.hasText("TPIN", substring = true) and androidx.compose.ui.test.hasSetTextAction())
         .performTextInput("TPIN 100-234-56"); rule.onNode(androidx.compose.ui.test.hasText("TPIN", substring = true) and androidx.compose.ui.test.hasSetTextAction()).performScrollTo() }) {
         RegistrationWizard(Role.SELLER, {}, {}) }
+
+    // v6.9.6: ride-hailing style route card
+    @Test fun j1_parcelRoute() = shot("J1-parcel-route-card", Role.BUYER, advance = 1_500) { selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}) }
+    @Test fun j2_parcelRouteTyping() = shot("J2-parcel-route-typing", Role.BUYER, advance = 1_500, act = {
+        rule.onAllNodes(androidx.compose.ui.test.hasSetTextAction())[0].performTextInput("Long"); rule.mainClock.advanceTimeBy(2_000) }) {
+        selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}) }
+    @Test fun j3_checkoutRoute() = shot("J3-checkout-route-card", Role.BUYER, advance = 1_500, prep = { s -> s.addToCart(DemoData.listings.first(), 1) }) {
+        selo.Nachipa01.ui.screens.buyer.CheckoutScreen(DemoData.listings.first().id, {}, {}) }
 }

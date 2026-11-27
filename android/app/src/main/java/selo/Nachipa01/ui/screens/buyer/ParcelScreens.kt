@@ -150,8 +150,9 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                 1 -> {
                     if (locating && pickup == null) Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Selo.Red); Text("  Finding your current location…", color = Selo.Mute, fontSize = 13.sp) }
-                    AddressField("From (pickup)", pickup, { pickupAuto = false; pickup = it })
-                    Text("Sending from somewhere else? Tap Change and search or pick any pickup point.", color = Selo.Mute, fontSize = 12.sp)
+                    // Route card: From (your GPS by default — tap to change) → To, ride-hailing style.
+                    RouteAddressCard(pickup, dropoff, onFrom = { pickupAuto = false; pickup = it }, onTo = { dropoff = it },
+                        fromHint = "Pickup point", toHint = "Where should it go?", toCityId = pickup?.cityId, problem = sameCity)
                     Text("Weight", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         WEIGHT_BANDS.forEach { w -> SeloChip(w, weight == w) { weight = w } }
@@ -169,7 +170,7 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                     val m = Validation.normaliseMsisdn(rPhone)
                     SeloField("Receiver's phone", rPhone, { rPhone = it.take(16) }, keyboard = KeyboardType.Phone, placeholder = "097 123 4567",
                         error = if (rPhone.length >= 10 && m == null) "Enter an Airtel, MTN or Zamtel number (+260)." else null)
-                    AddressField("To (delivery)", dropoff, { dropoff = it }, cityId = pickup?.cityId, icon = Icons.Outlined.Flag, problem = sameCity)
+                    RouteAddressCard(pickup, dropoff, onFrom = { pickupAuto = false; pickup = it }, onTo = { dropoff = it }, toCityId = pickup?.cityId, problem = sameCity)
                     val d = dropoff; val me = myPos
                     if (d != null && me != null) Text("≈ %.1f km from where you are now · the fee uses the road distance From → To".format(
                         selo.Nachipa01.domain.route.Geo.km(selo.Nachipa01.domain.route.LatLng(me.first, me.second), selo.Nachipa01.domain.route.LatLng(d.lat, d.lng))),
@@ -213,6 +214,7 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
             ErrorText(error)
             val stepProblem = when (step) {
                 1 -> when { pickup == null -> "Choose the pickup address."; pickup?.inServiceArea != true -> "The pickup address is outside the cities we serve."
+                    dropoff == null -> "Choose where the parcel should go."; dropoff?.inServiceArea != true -> "The delivery address is outside the cities we serve."; sameCity != null -> sameCity
                     weight.isEmpty() -> "Choose the parcel weight."; desc.trim().length < 3 -> "Say what's inside (at least 3 characters)."; else -> null }
                 2 -> when { rName.trim().length < 2 -> "Enter the receiver's name."; Validation.normaliseMsisdn(rPhone) == null -> "Enter the receiver's Airtel, MTN or Zamtel number."
                     dropoff == null -> "Choose the delivery address."; dropoff?.inServiceArea != true -> "The delivery address is outside the cities we serve."; sameCity != null -> sameCity; else -> null }
@@ -220,7 +222,7 @@ fun SendParcelScreen(onBack: () -> Unit, onBooked: (String) -> Unit, initialStep
                     insured && (declared.toDoubleOrNull() ?: 0.0) <= 0 -> "Enter the parcel's value for insurance."; else -> null }
             }
             val canNext = when (step) {
-                1 -> pickup?.inServiceArea == true && weight.isNotEmpty() && desc.trim().length >= 3
+                1 -> pickup?.inServiceArea == true && dropoff?.inServiceArea == true && sameCity == null && weight.isNotEmpty() && desc.trim().length >= 3
                 2 -> rName.trim().length >= 2 && Validation.normaliseMsisdn(rPhone) != null && dropoff?.inServiceArea == true && sameCity == null
                 else -> quote != null && choice.msisdn != null && (!insured || (declared.toDoubleOrNull() ?: 0.0) > 0)
             }

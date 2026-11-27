@@ -106,7 +106,10 @@ fun CheckoutScreen(listingId: String, onBack: () -> Unit, onPaid: (String) -> Un
                     }
                 }
             }
-            AddressField("Deliver to", dropoff, { dropoff = it }, icon = Icons.Outlined.Flag)
+            // Pickup is the seller's shop (fixed); the buyer chooses where it's delivered.
+            RouteAddressCard(null, dropoff, onFrom = {}, onTo = { dropoff = it }, fromEditable = false,
+                fixedFromTitle = seller.sellerName.ifBlank { "Seller's shop" }, fixedFromSub = "Pickup · the rider collects from the seller",
+                toHint = "Deliver to…")
             PaymentMethodPicker(choice)
             when {
                 dropoff == null -> NoteBox("Choose a delivery address to see the delivery fee and total.")
