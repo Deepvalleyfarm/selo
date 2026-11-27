@@ -82,6 +82,7 @@ fun AccountSettingsCard(open: (String) -> Unit, extra: List<Triple<ImageVector, 
             Triple(Icons.Outlined.Shield, "Security questions") { open("questions") },
             Triple(Icons.Outlined.Notifications, "Notification settings") { open("notifications") },
             Triple(Icons.Outlined.SupportAgent, "Help & support" + (tickets.sumOf { it.unread }.takeIf { it > 0 }?.let { " ($it new)" } ?: "")) { open("support") },
+            Triple(Icons.Outlined.Gavel, "Terms of Use & policies") { app.navRequest.value = "legal/terms" },
         )
         rows.forEachIndexed { i, (icon, label, go) ->
             if (i > 0) HorizontalDivider(color = Selo.Line)
@@ -152,9 +153,9 @@ private fun AddressesScreen(onBack: () -> Unit) {
             var main by remember { mutableStateOf<Place?>(null) }
             var mainMsg by remember { mutableStateOf<String?>(null) }
             val role = app.session.value?.role
-            selo.Nachipa01.ui.components.AddressField(if (role == selo.Nachipa01.data.model.Role.AGENT) "My agent location" else "My main delivery location", main, { p -> main = p
-                if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }.onSuccess { mainMsg = "Saved. Delivery fees use this point." }.onFailure { mainMsg = it.message } } },
-                showSaved = false, icon = Icons.Outlined.Home)
+            selo.Nachipa01.ui.components.AddressCard(if (role == selo.Nachipa01.data.model.Role.AGENT) "My agent location" else "My main delivery location", main, { p -> main = p
+                if (p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }.onSuccess { mainMsg = "Saved. Delivery fees use this point." }.onFailure { mainMsg = it.message } } },
+                icon = Icons.Outlined.Home)
             mainMsg?.let { Text(it, color = Selo.Mute, fontSize = 12.sp) }
             HorizontalDivider(color = Selo.Line)
             saved.forEach { a ->
@@ -169,7 +170,7 @@ private fun AddressesScreen(onBack: () -> Unit) {
             }
             if (!adding) OutlineButton("Add an address") { adding = true }
             else {
-                AddressField("New address", place, { place = it }, showSaved = false)
+                selo.Nachipa01.ui.components.AddressCard("New address", place, { place = it })
                 SeloField("Name it (e.g. Home, Work)", nick, { nick = it.take(40) })
                 CheckRow(def, { def = it }, "Make this my default delivery address")
                 ErrorText(err)

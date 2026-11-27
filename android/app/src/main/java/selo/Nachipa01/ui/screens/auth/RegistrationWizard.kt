@@ -292,12 +292,12 @@ private fun AddressPage(s: RegState, catTitle: String, cats: List<String>, landm
             selo.Nachipa01.domain.Cities.cityOf(lat, s["lng"].toDoubleOrNull() ?: 0.0)?.id, s["district"], s["area"], true, false, null, s["placeId"].ifBlank { null })
     }
     // Search (Places API New, Zambia only), "Use my location" or "Pick on map"; geocoded once and saved with the account.
-    selo.Nachipa01.ui.components.AddressField(if (s.role == Role.SELLER) "Store location *" else if (s.role == Role.AGENT) "Your location *" else "Delivery address *",
-        place, { p -> if (p == null) { listOf("lat", "lng", "address", "addressLabel", "placeId").forEach { s.set(it, "") } } else {
+    selo.Nachipa01.ui.components.AddressCard(if (s.role == Role.SELLER) "Store location *" else if (s.role == Role.AGENT) "Your location *" else "Delivery address *",
+        place, { p -> run {
             s.set("lat", p.lat.toString()); s.set("lng", p.lng.toString()); s.set("address", p.address); s.set("addressLabel", p.label)
             s.set("placeId", p.placeId ?: ""); s.set("placeRef", p.id); s.set("area", p.neighbourhood ?: p.label); s.set("district", p.cityName ?: s["district"])
             selo.Nachipa01.domain.Cities.byId(p.cityId)?.let { s.set("province", it.province) }
-        } }, showSaved = false)
+        } }, icon = if (s.role == Role.SELLER) Icons.Outlined.Storefront else Icons.Outlined.Home)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         F(s, "province", "Province", m = Modifier.weight(1f)); F(s, "district", "District", m = Modifier.weight(1f))
     }
@@ -352,8 +352,9 @@ private fun Tick(s: RegState, key: String, text: String) = CheckRow(s.ticks[key]
 private fun BuyerReview(s: RegState) {
     ReviewCard(listOf("Name" to s["fullName"], "Mobile (login)" to (s.msisdn()?.let(Validation::maskMsisdn) ?: ""),
         "Address" to s["area"], "Interests" to (s.chips["categories"]?.joinToString() ?: "—"), "Security" to "3 questions · PIN set"))
-    Tick(s, "terms", "I have read the Terms & Conditions and Marketplace Rules")
-    Tick(s, "privacy", "I accept the Privacy Policy and Data Policy")
+    selo.Nachipa01.ui.screens.account.LegalLinks(listOf(selo.Nachipa01.ui.screens.account.LegalDoc.TERMS, selo.Nachipa01.ui.screens.account.LegalDoc.PRIVACY))
+    Tick(s, "terms", "I have read and accept the Terms of Use")
+    Tick(s, "privacy", "I accept the Privacy Policy")
     Tick(s, "updates", "I agree to receive order updates in the app")
     NoteBox("Payments are protected by Selo Escrow: sellers are paid only after a rider collects your order.")
 }
@@ -498,7 +499,8 @@ private fun SellerReview(s: RegState) {
     ReviewCard(listOf("Store" to s["storeName"], "Type" to (if (corporate(s)) "Corporate · reg. ${s["regNumber"]} · TPIN ${s["tpin"]}" else "Individual"), "Location" to s["area"],
         "Documents" to (if (corporate(s)) "Certificate of incorporation" else "${s["idType"].ifBlank { "NRC" }}, portrait"),
         "Payout" to "${s.walletNetwork} · ${s.walletHolder ?: ""}", "Security" to "3 questions · PIN set"))
-    Tick(s, "terms", "I accept the Seller Terms, Marketplace Rules and Privacy Policy")
+    selo.Nachipa01.ui.screens.account.LegalLinks(listOf(selo.Nachipa01.ui.screens.account.LegalDoc.TERMS, selo.Nachipa01.ui.screens.account.LegalDoc.SELLER, selo.Nachipa01.ui.screens.account.LegalDoc.PRIVACY))
+    Tick(s, "terms", "I accept the Terms of Use, Seller Terms and Privacy Policy")
     Tick(s, "fee", "I understand a K ${cfg.flatPlatformFeeKwacha.toInt()} platform fee is deducted from each order when the rider collects")
     if (LocalAppState.current.backend is selo.Nachipa01.data.repo.DemoBackend) NoteBox("Demo: no registration fee — your shop is active as soon as you finish.", Tone.OK)
     else SeloCard {
@@ -543,7 +545,8 @@ private fun AgentAgreement(s: RegState) {
         KvRow("You receive, daily at 00:00", Fees.formatK(net), strong = true, valueColor = Selo.Green)
     }
     Tick(s, "conduct", "I agree to the Agent Code of Conduct: sellers always enter their own PIN and security answers")
-    Tick(s, "terms", "I accept the Terms, Marketplace Rules and Privacy Policy")
+    selo.Nachipa01.ui.screens.account.LegalLinks(listOf(selo.Nachipa01.ui.screens.account.LegalDoc.TERMS, selo.Nachipa01.ui.screens.account.LegalDoc.RIDER_AGENT, selo.Nachipa01.ui.screens.account.LegalDoc.PRIVACY))
+    Tick(s, "terms", "I accept the Terms of Use, Rider and Agent Terms and Privacy Policy")
     if (LocalAppState.current.backend is selo.Nachipa01.data.repo.DemoBackend) NoteBox("Demo: no registration fee — your agent tools are active as soon as you finish.", Tone.OK)
     else SeloCard { KvRow("One-time registration fee · ${s.walletNetwork}", Fees.formatK(Fees.kwachaToNgwee(cfg.sellerRegistrationFee))) }
 }
@@ -609,7 +612,8 @@ private fun RiderArea(s: RegState) {
 @Composable
 private fun RiderTerms(s: RegState) {
     val cfg by LocalAppState.current.config.collectAsState()
-    Tick(s, "terms", "I accept the Rider Terms and Privacy Policy, including live location sharing only during deliveries")
+    selo.Nachipa01.ui.screens.account.LegalLinks(listOf(selo.Nachipa01.ui.screens.account.LegalDoc.TERMS, selo.Nachipa01.ui.screens.account.LegalDoc.RIDER_AGENT, selo.Nachipa01.ui.screens.account.LegalDoc.PRIVACY))
+    Tick(s, "terms", "I accept the Terms of Use, Rider and Agent Terms and Privacy Policy, including live location sharing only during deliveries")
     Tick(s, "fund", "I understand ${cfg.socialFundPct}% of each delivery fee goes to my locked Social Fund, released to me every ${cfg.socialFundMilestoneDeliveries} deliveries")
     Tick(s, "withdrawFee", "Withdrawals cost K ${cfg.riderWithdrawalFee.toInt()}; minimum payout K ${cfg.minWithdrawal.toInt()}")
     F(s, "referral", "Referral code (optional)")

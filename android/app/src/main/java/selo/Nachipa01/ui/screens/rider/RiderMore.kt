@@ -409,7 +409,8 @@ fun SettingsScreen(profile: RiderProfile?, back: () -> Unit, onLogout: () -> Uni
                     subColor = if (support?.first == true) Selo.Green else Selo.Mute) { open("support/new") }
                 SettingRow(Icons.Outlined.HelpOutline, "Help centre & my requests", "FAQs and replies from support") { open("support") }
                 SettingRow(Icons.Outlined.Chat, "WhatsApp support", "+260 978 070 734") { uri.openUri("https://wa.me/260978070734") }
-                SettingRow(Icons.Outlined.ReportProblem, "Report an incident", "Reviewed by operations within 24 hours", last = true) { open("incident") }
+                SettingRow(Icons.Outlined.ReportProblem, "Report an incident", "Reviewed by operations within 24 hours") { open("incident") }
+                SettingRow(Icons.Outlined.Gavel, "Terms of Use & policies", "Terms, Rider and Agent Terms, Privacy Policy", last = true) { app.navRequest.value = "legal/terms" }
             }
             Spacer(Modifier.height(8.dp))
             OutlineButton("Log out") { sheet = "logout" }

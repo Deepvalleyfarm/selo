@@ -361,9 +361,9 @@ private fun SellerSettings(onLogout: () -> Unit) {
     H("Shop location", 16)
     SeloCard {
         Sub("Riders collect here, and buyers' delivery fees are worked out from this point.")
-        selo.Nachipa01.ui.components.AddressField("Pickup point", shop, { p -> shop = p
-            if (p != null && p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }
-                .onSuccess { saved = "Shop location saved." }.onFailure { saved = it.message } } }, showSaved = false, icon = Icons.Outlined.Storefront)
+        selo.Nachipa01.ui.components.AddressCard("Pickup point", shop, { p -> shop = p
+            if (p.inServiceArea) scope.launch { runCatching { app.backend.saveMyLocation(p) }
+                .onSuccess { saved = "Shop location saved." }.onFailure { saved = it.message } } }, hint = "Search your shop's street or landmark", icon = Icons.Outlined.Storefront)
     }
     H("Notifications", 16)
     SeloCard {

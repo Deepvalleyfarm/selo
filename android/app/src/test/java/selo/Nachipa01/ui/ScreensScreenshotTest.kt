@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollToNode
 import androidx.navigation.compose.rememberNavController
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.runBlocking
@@ -302,4 +303,13 @@ class ScreensScreenshotTest {
         selo.Nachipa01.ui.screens.buyer.SendParcelScreen({}, {}) }
     @Test fun j3_checkoutRoute() = shot("J3-checkout-route-card", Role.BUYER, advance = 1_500, prep = { s -> s.addToCart(DemoData.listings.first(), 1) }) {
         selo.Nachipa01.ui.screens.buyer.CheckoutScreen(DemoData.listings.first().id, {}, {}) }
+
+    // v6.9.7: agreements and single-address cards
+    @Test fun k1_terms() = shot("K1-terms-of-use") { selo.Nachipa01.ui.screens.account.LegalScreen("terms") {} }
+    @Test fun k2_termsLinks() = shot("K2-terms-linked-docs", act = { rule.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(androidx.compose.ui.test.hasText("1.6.", substring = true)) }) {
+        selo.Nachipa01.ui.screens.account.LegalScreen("terms") {} }
+    @Test fun k3_privacy() = shot("K3-privacy-policy") { selo.Nachipa01.ui.screens.account.LegalScreen("privacy") {} }
+    @Test fun k4_sellerTicks() = shot("K4-seller-terms-links") { RegistrationWizard(Role.SELLER, {}, {}, initialPage = 6) }
+    @Test fun k5_sellerShop() = shot("K5-seller-shop-location", Role.SELLER, act = { rule.onNode(androidx.compose.ui.test.hasText("Pickup point")).performScrollTo() }) {
+        SellerShell(rememberNavController(), "more") {} }
 }

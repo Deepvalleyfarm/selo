@@ -37,6 +37,7 @@ import java.util.Locale
 @Composable
 fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit, onForgotPin: () -> Unit, initialMode: String = "login",
                   onResumeSignup: (selo.Nachipa01.data.model.Role) -> Unit = {}, previewPin: String = "") {
+    var legal by remember { mutableStateOf<selo.Nachipa01.ui.screens.account.LegalDoc?>(null) }
     val app = LocalAppState.current
     val ads by app.adverts.collectAsState()
     val remembered = app.rememberedMsisdn.value
@@ -165,7 +166,9 @@ fun WelcomeScreen(onLoggedIn: (SessionUser) -> Unit, onCreateProfile: () -> Unit
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
                 FooterIcon(Icons.Outlined.Call, "Contact us") { uri.openUri("https://wa.me/260978070734") }
                 FooterIcon(Icons.Outlined.ReportProblem, "Report fraud") { uri.openUri("https://wa.me/260978070734?text=Fraud%20report") }
+                FooterIcon(Icons.Outlined.Gavel, "Terms & privacy") { legal = selo.Nachipa01.ui.screens.account.LegalDoc.TERMS }
             }
+            legal?.let { selo.Nachipa01.ui.screens.account.LegalDialog(it) { legal = null } }
         }
     }
 }

@@ -162,6 +162,17 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v6.9.7 — agreements and address cards
+
+- **Agreements in the app** (`assets/legal`): the Terms of Use, Privacy Policy, Seller Terms, and Rider and Agent Terms, converted from the company's Word documents.
+  - The Terms of Use links to the other three (clause 1.6), and each document links back. A tab row switches between them.
+  - Copying and screenshots are blocked: text isn't selectable, and `FLAG_SECURE` is set while an agreement is open, including the sign-up dialog window. That also blocks screen recording and the Recents preview.
+  - Where to find them:
+    - each role's sign-up terms step ("Read before you accept", with role-specific links);
+    - Account → Terms of Use & policies, and Rider → Settings;
+    - the welcome screen footer.
+- **Address cards everywhere:** the seller shop location, registration addresses, the main location and saved addresses use the same card as parcels and checkout (`AddressCard`).
+
 ## v6.9.6 — route-style pickup and delivery
 
 - **Send a parcel and checkout** use one rounded route card (`RouteAddressCard`), in the style of ride-hailing apps:

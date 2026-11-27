@@ -85,13 +85,15 @@ fun RouteAddressCard(
     from: Place?, to: Place?, onFrom: (Place) -> Unit, onTo: (Place) -> Unit, modifier: Modifier = Modifier,
     fromEditable: Boolean = true, fixedFromTitle: String? = null, fixedFromSub: String? = null,
     fromHint: String = "Pickup point", toHint: String = "Where to deliver?", toCityId: String? = null, problem: String? = null,
+    /** Single-address mode (shop location, saved address…): only one row, with this icon and label above the card. */
+    single: Boolean = false, singleIcon: ImageVector = Icons.Outlined.Place, label: String? = null,
 ) {
     val app = LocalAppState.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     // which row is being edited: "from", "to" or null. Start on the first empty one.
-    var active by remember { mutableStateOf(if (fromEditable && from == null) "from" else if (to == null) "to" else null) }
+    var active by remember { mutableStateOf(if (!single && fromEditable && from == null) "from" else if (to == null) "to" else null) }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<AddressSuggestion>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
@@ -154,17 +156,18 @@ fun RouteAddressCard(
         runCatching { app.backend.placeDetails(s.id) }.onSuccess { confirm(which, it) }.onFailure { error = it.message ?: "Couldn't load that address." }; resolving = false } }
 
     Column(modifier) {
+        label?.let { Text(it, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Ink, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)) }
         // ---------------------------------------------------------------- the card
         Column(Modifier.fillMaxWidth().shadow(8.dp, RoundedCornerShape(18.dp), ambientColor = Color.Black.copy(.08f), spotColor = Color.Black.copy(.12f))
             .background(Color.White, RoundedCornerShape(18.dp))) {
-            RouteRow(
+            if (!single) RouteRow(
                 lead = { Ring() }, place = from, hint = fromHint, editing = active == "from", query = query, onQuery = { query = it.take(120) },
                 fixedTitle = fixedFromTitle, fixedSub = fixedFromSub, enabled = fromEditable,
                 onTap = { if (fromEditable) active = "from" }, onClear = { query = "" }, onMap = { mapFor = "from" }, searching = searching && active == "from",
             )
-            Box(Modifier.padding(start = 64.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(Divider))
+            if (!single) Box(Modifier.padding(start = 64.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(Divider))
             RouteRow(
-                lead = { Icon(if (active == "to") Icons.Outlined.Search else Icons.Outlined.Flag, null, tint = Ink, modifier = Modifier.size(24.dp)) },
+                lead = { Icon(if (active == "to") Icons.Outlined.Search else if (single) singleIcon else Icons.Outlined.Flag, null, tint = if (single && active != "to") Selo.Red else Ink, modifier = Modifier.size(24.dp)) },
                 place = to, hint = toHint, editing = active == "to", query = query, onQuery = { query = it.take(120) },
                 onTap = { active = "to" }, onClear = { query = "" }, onMap = { mapFor = "to" }, searching = searching && active == "to",
             )
@@ -260,3 +263,14 @@ private fun SuggestionRow(icon: ImageVector, title: String, sub: String, distanc
         distanceM?.let { Text(distText(it), fontSize = 13.sp, color = Grey, modifier = Modifier.padding(start = 8.dp)) }
     }
 }
+
+
+/**
+ * One address in the same route-card style (shop location, registration address, saved addresses): tap to search,
+ * clear (×), Map, and the same suggestions list with current location, saved and recent places.
+ */
+@Composable
+fun AddressCard(label: String?, value: Place?, onChange: (Place) -> Unit, modifier: Modifier = Modifier, hint: String = "Search street, landmark or area",
+                cityId: String? = null, problem: String? = null, icon: ImageVector = Icons.Outlined.Place) =
+    RouteAddressCard(null, value, onFrom = {}, onTo = onChange, modifier = modifier, fromEditable = false, toHint = hint, toCityId = cityId,
+        problem = problem ?: if (value != null && !value.inServiceArea) "That location is outside the cities we serve." else null, single = true, singleIcon = icon, label = label)

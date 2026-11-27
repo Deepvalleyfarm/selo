@@ -116,6 +116,7 @@ fun SeloNavHost(onSignedIn: (SessionUser) -> Unit) {
         composable("adgen") { selo.Nachipa01.ui.screens.seller.AdGeneratorScreen { nav.popBackStack() } }
         composable("report") { selo.Nachipa01.ui.screens.account.PerformanceReportScreen(null) { nav.popBackStack() } }
         composable("report/{month}") { e -> selo.Nachipa01.ui.screens.account.PerformanceReportScreen(e.arguments?.getString("month")) { nav.popBackStack() } }
+        composable("legal/{doc}") { e -> selo.Nachipa01.ui.screens.account.LegalScreen(e.arguments?.getString("doc")) { nav.popBackStack() } }
         composable("receipts") { selo.Nachipa01.ui.screens.account.ReceiptsScreen(null) { nav.popBackStack() } }
         composable("receipt/{refId}") { e -> selo.Nachipa01.ui.screens.account.ReceiptsScreen(e.arguments?.getString("refId")) { nav.popBackStack() } }
         composable(R.CODE) { e -> DeliveryCodeScreen(e.arguments?.getString("kind") ?: "order", e.arguments?.getString("id") ?: "", onBack = { nav.popBackStack() }) }
