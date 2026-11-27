@@ -75,3 +75,16 @@ describe("rider cover stays off until an insurer is configured", () => {
     expect(withCover(optedIn, insurer)).toMatchObject({ coverPremiumNgwee: 200, coverInsurer: "Example Insurance Zambia Ltd" });
   });
 });
+
+import { remittanceProblem } from "../src/safety";
+describe("mark rider cover premiums as paid", () => {
+  const rows = [{ id: "a", amountNgwee: 200, insurer: "Ins" }, { id: "b", amountNgwee: 200, insurer: "Ins" }];
+  it("accepts a matching amount with a reference", () => expect(remittanceProblem(rows, ["a", "b"], 400, "BANK-1234")).toBeNull());
+  it("rejects a wrong amount, missing reference, already paid or mixed insurers", () => {
+    expect(remittanceProblem(rows, ["a", "b"], 300, "BANK-1234")).toMatch(/doesn't match/);
+    expect(remittanceProblem(rows, ["a", "b"], 400, "")).toMatch(/reference/);
+    expect(remittanceProblem([{ ...rows[0], remitted: true }, rows[1]], ["a", "b"], 400, "BANK-1234")).toMatch(/already/);
+    expect(remittanceProblem([rows[0], { ...rows[1], insurer: "Other" }], ["a", "b"], 400, "BANK-1234")).toMatch(/one insurer/);
+    expect(remittanceProblem([rows[0]], ["a", "b"], 400, "BANK-1234")).toMatch(/no longer exist/);
+  });
+});

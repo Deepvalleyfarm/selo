@@ -222,3 +222,47 @@ export const admin_closeSos = onCall(async (req) => {
   await ref.update({ status: "CLOSED", closedAt: FieldValue.serverTimestamp(), closedBy: a.email ?? a.uid });
   return { ok: true };
 });
+
+/* ----------------------------------------------------------- premium remittance */
+
+export interface PremiumRow { id: string; amountNgwee: number; insurer: string | null; remitted?: boolean }
+/**
+ * Checks a "Mark as paid" request: every premium still unpaid, all for the same insurer, and the amount finance says it
+ * transferred equals their total (so a typo or a stale selection can't mark the wrong premiums as paid).
+ */
+export function remittanceProblem(rows: PremiumRow[], ids: string[], amountNgwee: number, reference: string): string | null {
+  if (!ids.length) return "Select the premiums you paid.";
+  if (ids.length > 400) return "Mark at most 400 premiums at a time.";
+  if (new Set(ids).size !== ids.length) return "The selection has duplicates.";
+  if (reference.trim().length < 4) return "Enter the payment reference from the bank or mobile money transfer.";
+  if (rows.length !== ids.length) return "Some selected premiums no longer exist. Refresh and try again.";
+  if (rows.some((r) => r.remitted)) return "Some selected premiums are already marked as paid. Refresh and try again.";
+  if (new Set(rows.map((r) => r.insurer ?? "")).size > 1) return "Select premiums for one insurer at a time.";
+  const total = rows.reduce((s, r) => s + (r.amountNgwee ?? 0), 0);
+  if (Math.round(amountNgwee) !== total) return `The amount paid (K ${(amountNgwee / 100).toFixed(2)}) doesn't match the selected premiums (K ${(total / 100).toFixed(2)}).`;
+  return null;
+}
+
+/** Finance marks premiums as paid over to the insurer, with the transfer reference (audited, one remittance record). */
+export const admin_markPremiumsRemitted = onCall(async (req) => {
+  const a = requireAdmin(req, "finance");
+  const ids = (Array.isArray(req.data?.ids) ? req.data.ids : []).map(String).slice(0, 401);
+  const amountNgwee = Math.round(Number(req.data?.amountNgwee) || 0);
+  const reference = String(req.data?.reference ?? "").trim().slice(0, 80);
+  const note = String(req.data?.note ?? "").trim().slice(0, 300);
+  if (!ids.length || ids.length > 400) throw new HttpsError("invalid-argument", remittanceProblem([], ids, amountNgwee, reference) ?? "Invalid selection.");
+  const remRef = db.collection("coverRemittances").doc();
+  const out = await db.runTransaction(async (tx) => {
+    const snaps = await tx.getAll(...ids.map((id: string) => db.doc(`riderCoverPremiums/${id}`)));
+    const rows = snaps.filter((s) => s.exists).map((s) => ({ id: s.id, amountNgwee: Number(s.get("amountNgwee") ?? 0), insurer: s.get("insurer") ?? null, remitted: s.get("remitted") === true }));
+    const p = remittanceProblem(rows, ids, amountNgwee, reference);
+    if (p) throw new HttpsError("failed-precondition", p);
+    const insurer = rows[0].insurer, policyNumber = snaps[0].get("policyNumber") ?? null;
+    tx.create(remRef, { insurer, policyNumber, reference, note: note || null, amountNgwee, count: rows.length, premiumIds: ids,
+      by: a.email, byUid: a.uid, at: FieldValue.serverTimestamp() });
+    for (const s of snaps) tx.update(s.ref, { remitted: true, remittanceId: remRef.id, remittedAt: FieldValue.serverTimestamp(), remittedBy: a.email, remittanceRef: reference });
+    return { insurer, count: rows.length };
+  });
+  await audit(a, "riderCover.remit", `coverRemittances/${remRef.id}`, null, { ...out, amountNgwee, reference });
+  return { ok: true, remittanceId: remRef.id, ...out, amountNgwee };
+});

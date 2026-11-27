@@ -72,6 +72,14 @@ export const demo: Record<string, Row[]> = {
     { id: "ad3", email: "mutale@selonachipa.zm", role: "compliance" },
   ],
   securityEvents: [{ id: "s1", type: "SECURITY_QUESTION_LOCKOUT", msisdn: "+260971110000", at: ago(45) }],
+  // Rider cover: demo insurer (sample data only) with premiums waiting to be paid over.
+  riderCover: [{ id: "active", enabled: true, insurerName: "Demo Insurer Ltd", policyNumber: "DEMO-GRP-001", claimsPhone: "+260971000000", claimsEmail: "claims@demo-insurer.test",
+    termsUrl: "https://demo-insurer.test/rider-cover", premiumNgwee: 200, coverNgwee: 1_000_000, benefits: "Accident medical costs up to K 10,000.",
+    activatedAt: ago(60 * 24 * 20), activatedBy: "chileshe@selonachipa.zm" }],
+  riderCoverPremiums: Array.from({ length: 8 }, (_, i) => ({ id: `rcp${i}`, riderUid: ["r_chanda", "r_bwalya", "r_mutale"][i % 3], kind: i % 2 ? "parcel" : "order",
+    orderId: `SNC-48${200 + i}`, amountNgwee: 200, insurer: "Demo Insurer Ltd", policyNumber: "DEMO-GRP-001", remitted: false, at: ago(60 * (30 - i)) })),
+  coverRemittances: [{ id: "rem1", insurer: "Demo Insurer Ltd", policyNumber: "DEMO-GRP-001", reference: "FT2610310017", amountNgwee: 46_200, count: 231,
+    by: "chileshe@selonachipa.zm", note: "October premiums", at: ago(60 * 24 * 26) }],
 };
 
 const W = { watchTimeRatio: 0.30, like: 0.20, share: 0.18, enquiry: 0.15, save: 0.08, notInterested: -0.25, categoryMatch: 0.05, sellerEngagement: 0.04 };

@@ -182,6 +182,9 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
     - Riders can opt in only while cover is on, and only after accepting the policy terms.
     - Premiums are deducted only while cover is on and the rider has opted in. They're held for the insurer in `riderCoverPremiums` for finance to remit, and aren't counted as platform revenue.
     - Switching off stops all deductions immediately.
+    - Paying premiums over: Finance ticks unpaid premiums on the Rider cover page, enters the bank or mobile money transfer reference and the amount sent, then clicks "Mark as paid" (`admin_markPremiumsRemitted`).
+      - The server accepts it only if every selected premium is still unpaid, all are for one insurer, and the amount equals their total.
+      - Each payment is saved as a `coverRemittances` record and audited.
   - Seven short safety lessons.
 - **Smart dispatch** (`dispatch.ts`):
   - Each rider gets a 0–100 score: distance to the seller (30), distance to the buyer (10), fit with their current route (15), availability and GPS freshness (15), acceptance and completion history (20), and estimated pickup time (10).

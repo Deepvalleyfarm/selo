@@ -1247,6 +1247,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "riderCoverPremiums",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "remitted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "at",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

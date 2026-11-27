@@ -51,6 +51,14 @@ const demoFns: Record<string, (d: any) => unknown> = {
   admin_decideClaim: (d) => { demoPatch("socialFundClaims", d.claimId, { status: d.approve ? "APPROVED" : "REJECTED" }); demoAudit("claim", `socialFundClaims/${d.claimId}`, null, { approve: d.approve }); },
   admin_moderateListing: (d) => { demoPatch("listings", d.listingId, { status: d.status }); demoAudit("listing.moderate", `listings/${d.listingId}`, null, { status: d.status }); },
   admin_issueResetToken: (d) => ({ resetToken: `${d.uid}.demo-token` }),
+  admin_markPremiumsRemitted: (d) => { const rows = demo.riderCoverPremiums.filter((r) => d.ids.includes(r.id));
+    const total = rows.reduce((s, r) => s + (r.amountNgwee as number), 0);
+    if (rows.some((r) => r.remitted)) throw new Error("Some selected premiums are already marked as paid. Refresh and try again.");
+    if (Math.round(d.amountNgwee) !== total) throw new Error(`The amount paid doesn't match the selected premiums (K ${(total / 100).toFixed(2)}).`);
+    const id = `rem${Date.now()}`; rows.forEach((r) => demoPatch("riderCoverPremiums", r.id, { remitted: true, remittanceId: id }));
+    demo.coverRemittances = [{ id, insurer: rows[0].insurer, reference: d.reference, amountNgwee: total, count: rows.length, by: "you (demo)", note: d.note || null, at: new Date() }, ...demo.coverRemittances];
+    demoAudit("riderCover.remit", `coverRemittances/${id}`, null, { amountNgwee: total, reference: d.reference }); demoChanged(); return { ok: true }; },
+  admin_setRiderCover: (d) => { demoPatch("riderCover", "active", { ...d, updatedAt: new Date() }); demoAudit(d.enabled ? "riderCover.enable" : "riderCover.disable", "riderCover/active", null, d); },
   admin_sendNotification: () => { demoAudit("notification.send", "users", null, null); },
   admin_updateGuardrails: (d) => { const cur = demo.platformConfig.find((r) => r.id === "guardrails")!;
     if (d.changes.enabled === false) throw new Error("Turning guardrails off needs a CEO-level override.");
