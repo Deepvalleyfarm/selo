@@ -12,7 +12,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { SMS_API_KEY, TRACKING_BASE_URL, db } from "./config";
 import { sendSms } from "./sms";
-import { audit, requireAdmin, requireUser } from "./util";
+import { audit, notify, requireAdmin, requireUser } from "./util";
 
 const base = () => { try { return TRACKING_BASE_URL.value().replace(/\/t\/?$/, ""); } catch { return "https://mabala-f2d65.web.app"; } };
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -205,6 +205,12 @@ export const admin_setRiderCover = onCall(async (req) => {
     ...(next.enabled && !before?.enabled ? { activatedAt: FieldValue.serverTimestamp(), activatedBy: a.email } : {}),
     ...(!next.enabled && before?.enabled ? { deactivatedAt: FieldValue.serverTimestamp(), deactivatedBy: a.email } : {}) }, { merge: true });
   await audit(a, next.enabled ? "riderCover.enable" : before?.enabled ? "riderCover.disable" : "riderCover.configure", COVER_REF, before, next);
+  // Riders were promised a notification when cover becomes available.
+  if (next.enabled && !before?.enabled) {
+    const riders = await db.collection("users").where("role", "==", "RIDER").where("accountStatus", "==", "ACTIVE").limit(5000).get();
+    await Promise.all(riders.docs.map((r) => notify(r.id, "Rider accident cover is here", `Insured by ${next.insurerName}: K ${(next.premiumNgwee / 100).toFixed(2)} per delivery for up to K ${(next.coverNgwee / 100).toLocaleString("en-ZM")}. Open the Safety Centre to join.`,
+      "RIDER_COVER", "selo://rider/safety").catch(() => undefined)));
+  }
   return { ok: true, enabled: next.enabled };
 });
 
