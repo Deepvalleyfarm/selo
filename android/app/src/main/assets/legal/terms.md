@@ -178,7 +178,7 @@ The Company may amend these documents at any time. New versions take effect when
 
 9.3. Prices, delivery fees and any service fees are shown before you confirm an order. Sellers set their own product prices and are responsible for their accuracy.
 
-9.4. Buyers should pay only through the Platform's approved payment methods, or in cash on delivery where the Platform offers it. The Company is not responsible for payments made outside the Platform.
+9.4. All payments on the Platform are made by mobile money through the Platform's approved payment methods. Cash on delivery is not offered, and Users must not pay or accept cash for any order or delivery. The Company is not responsible for payments made outside the Platform.
 
 9.5. Disputes about goods, quality, missing items or deliveries are first between the Buyer and the relevant Service Provider. The Company may, at its discretion, help resolve them through its support channel.
 

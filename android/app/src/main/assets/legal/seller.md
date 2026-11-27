@@ -60,7 +60,7 @@ _Last updated: 27 November 2026_
 
 4.3. Payments made through the Platform are collected by licensed payment service providers. The Company pays out the Seller's share, less fees, refunds and any amounts owed, to the Seller's registered bank or mobile money account \[insert payout frequency, e.g. weekly\].
 
-4.4. Sellers must not ask Buyers to pay outside the Platform, except cash on delivery where the Platform offers it.
+4.4. All payments are made by mobile money through the Platform. Cash on delivery is not offered. Sellers must not ask Buyers to pay outside the Platform or in cash.
 
 4.5. Sellers are responsible for refunds, replacements and complaints about wrong, missing, damaged or poor-quality goods. The Company may deduct confirmed refunds from the Seller's payouts.
 

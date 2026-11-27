@@ -50,7 +50,7 @@ _Last updated: 27 November 2026_
 
 - carry document deliveries confidentially and never read, copy or photograph their contents beyond proof of delivery.
 
-3.3. **Cash on delivery.** Riders who collect cash hold it on trust for the Seller or the Company. They must remit it in full through the approved channel within \[24 hours\]. Failing to remit cash is treated as theft and will be reported to the Zambia Police Service.
+3.3. **No cash payments.** All payments for orders and deliveries are made by mobile money through the Platform. Cash on delivery is not offered. Riders must never ask for, accept or carry cash for an order or delivery. A Rider who takes payment outside the Platform commits a breach of these terms, and any money taken will be treated as obtained by fraud and reported to the Zambia Police Service.
 
 3.4. Riders are liable for goods lost, damaged or stolen while in their care, unless caused by the Seller's packaging or events outside the Rider's control.
 
@@ -66,11 +66,11 @@ _Last updated: 27 November 2026_
 
 - record every transaction in the app at the time it happens and issue the receipt or confirmation the app provides;
 
-- hold any cash, float or goods received on trust and remit or deliver them in full through the approved channel within \[24 hours\]; and
+- never collect cash: every payment must be made by mobile money through the Platform, and any goods received must be held on trust and handed over in full through the approved channel within \[24 hours\]; and
 
 - never charge Users unofficial fees or ask for their PIN, password or one-time password.
 
-4.3. Agents are responsible for any shortage in cash, float or goods in their care. Unremitted funds are treated as theft and will be reported to the Zambia Police Service.
+4.3. Agents are responsible for any shortage in goods in their care. Any payment an Agent takes outside the Platform is treated as obtained by fraud and will be reported to the Zambia Police Service.
 
 4.4. Where an Agent provides payment or mobile money services, the Agent must also comply with any rules of the licensed payment service provider involved and with the national payment systems laws and Bank of Zambia directives in force.
 
@@ -78,11 +78,11 @@ _Last updated: 27 November 2026_
 
 5.1. Riders earn the delivery fee shown in the app for each completed job, less the Company's service fee: \[insert service fee % or fee schedule link\]. Agents earn the commission shown in the app or a separate commission schedule: \[insert\].
 
-5.2. Earnings are paid to the registered bank or mobile money account \[insert frequency, e.g. weekly\], after deducting service fees, unremitted cash, confirmed losses or refunds, and any other amounts owed.
+5.2. Earnings are paid to the registered bank or mobile money account \[insert frequency, e.g. weekly\], after deducting service fees, confirmed losses or refunds, and any other amounts owed.
 
 5.3. The Company may change fees and commission rates with at least 14 days' notice in the app.
 
-5.4. The Company may hold earnings for up to \[30\] days while fraud, a cash shortage or a serious complaint is under investigation.
+5.4. The Company may hold earnings for up to \[30\] days while fraud, a missing-goods claim or a serious complaint is under investigation.
 
 5.5. Riders and Agents are responsible for declaring their income and paying their own taxes, including income or turnover tax to the Zambia Revenue Authority, and any NAPSA or other statutory contributions that apply to them as self-employed persons.
 
@@ -90,7 +90,7 @@ _Last updated: 27 November 2026_
 
 6.1. Riders and Agents must be honest, polite and professional with Buyers, Sellers and each other. Harassment, threats, violence, discrimination and asking Users for personal favours or money are prohibited.
 
-6.2. **Fraud.** Fake deliveries, false proof of delivery, swapping or stealing goods, keeping cash, account sharing, using another person's identity, fake sign-ups, collusion with Sellers or Buyers, and any other dishonest conduct are prohibited. A Rider or Agent who commits fraud or any other offence is **personally and directly liable**. The Company will report it to the Zambia Police Service and support prosecution, including by handing over GPS logs, transaction records, chats and identity documents and giving evidence, as set out in section 6 of the Terms of Use.
+6.2. **Fraud.** Fake deliveries, false proof of delivery, swapping or stealing goods, taking payment outside the Platform, account sharing, using another person's identity, fake sign-ups, collusion with Sellers or Buyers, and any other dishonest conduct are prohibited. A Rider or Agent who commits fraud or any other offence is **personally and directly liable**. The Company will report it to the Zambia Police Service and support prosecution, including by handing over GPS logs, transaction records, chats and identity documents and giving evidence, as set out in section 6 of the Terms of Use.
 
 6.3. **User data.** Riders and Agents may use Users' names, phone numbers and addresses only to complete the job. They must not save, share or use them afterwards, or contact Users for any other purpose. Misuse breaches the Data Protection Act No. 3 of 2021, and the Rider or Agent is personally liable.
 
@@ -102,7 +102,7 @@ _Last updated: 27 November 2026_
 
 7.1. The Company may suspend or deactivate a Rider or Agent account, and hold earnings, without prior notice, if they breach these terms, are suspected of fraud, theft or an offence, receive repeated serious complaints, let their documents or insurance lapse, or if the law or an authority requires it.
 
-7.2. A Rider or Agent may stop using the Platform at any time after completing open jobs and remitting all cash, float and goods held.
+7.2. A Rider or Agent may stop using the Platform at any time after completing open jobs and handing over all goods held.
 
 7.3. Sections 3.3, 3.4, 4.3, 5 and 6 continue to apply after termination.
 
