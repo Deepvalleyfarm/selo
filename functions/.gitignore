@@ -3,3 +3,5 @@ lib/
 .env*
 .runtimeconfig.json
 !.env.example
+# Non-secret production parameters (no API keys; those are in Secret Manager)
+!.env.mabala-f2d65
