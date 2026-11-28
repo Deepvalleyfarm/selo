@@ -206,6 +206,17 @@ export const scheduled_openBilling = onSchedule({ schedule: "20 6 1 * *", timeZo
 });
 
 /** Credentials list for the back office (never the secret or its hash). */
+/** Super Admin: send a signed test event to the platform's production webhook (checks URL and secret end to end). */
+export const admin_openTestWebhook = onCall(opts, async (req) => {
+  const a = superAdmin(req); const pid = clean(req.data?.partnerId, 80);
+  const p = (await db.doc(`openPartners/${pid}`).get()).data();
+  if (!p?.webhook?.url) throw new HttpsError("failed-precondition", "Save a webhook URL first.");
+  const { emit } = await import("./webhooks");
+  const id = await emit(pid, "production", "delivery.created", `admin-test-${Date.now()}`, { test: true, message: "Test webhook from the SeloNachipa back office" });
+  await db.collection("auditLogs").add({ actor: a.email, action: "open.webhook_test", target: `openPartners/${pid}`, at: FieldValue.serverTimestamp() });
+  return { id };
+});
+
 export const admin_openClients = onCall(opts, async (req) => {
   superAdmin(req); const pid = clean(req.data?.partnerId, 80);
   const q = await db.collection("openClients").where("partnerId", "==", pid).get();

@@ -141,7 +141,8 @@ function Webhooks({ pid, p }: { pid: string; p: any }) {
     <div className="field"><label htmlFor="wu">Webhook URL (https)</label><input id="wu" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://partner.example/webhooks/selonachipa" /></div>
     <div style={{ columns: 2 }}>{EVENTS.map((e) => <label key={e} style={{ display: "block" }}><input type="checkbox" checked={ev.includes(e)} onChange={() => setEv(ev.includes(e) ? ev.filter((x) => x !== e) : [...ev, e])} /> {e}</label>)}</div>
     <div style={{ display: "flex", gap: 8, margin: "8px 0" }}><button className="btn" disabled={busy} onClick={() => save()}>Save</button>
-      <button className="btn out" disabled={busy} onClick={() => confirm("Rotate the signing secret?") && save(true)}>Rotate signing secret</button></div>
+      <button className="btn out" disabled={busy} onClick={() => confirm("Rotate the signing secret?") && save(true)}>Rotate signing secret</button>
+      <button className="btn out" disabled={busy || !p?.webhook?.url} onClick={() => run("admin_openTestWebhook", { partnerId: pid }, "Test event sent. Its result appears in the event history below within a few seconds: delivered = URL and secret are right; HTTP 401 = the platform's secret doesn't match.")}>Send test event</button></div>
     <h4>Event history</h4><EventsTable rows={events} />
   </>;
 }
