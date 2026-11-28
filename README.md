@@ -162,6 +162,38 @@ Mabala is tagged as a production project. Develop against the Emulator Suite or 
   - Arrival actions (Mark collected / Confirm delivery) at each stop.
 - **Fallbacks:** without a key the app shows straight-line guidance, and one tap opens the same ordered stops in Google Maps.
 
+## v7.0 — SeloNachipa Open Network (partner API)
+
+Other platforms (Mabala is the first) can list their products on SeloNachipa, use SeloNachipa riders for their deliveries, and make AI videos and ads, through one REST API at `/api/v1` (`functions/src/open/`). Reference: `docs/api/index.html` and the machine-readable `docs/api/openapi.json` (also served at `/api/v1/openapi.json`).
+
+- **Discovery, not resale.** Partner products are listings with an `origin` (platform, seller, product id, `checkoutUrl`) and go through the same moderation and feed as any listing. Buyers tap **Buy on {platform}** and pay on the partner's own checkout; SeloNachipa never sells them (they can't enter the cart, and `order_create` refuses them). Partners keep their own orders, payments and stock.
+- **Delivery at SeloNachipa's fee.** `POST /delivery/quotes` returns SeloNachipa's parcel tariff (delivery + service fee, plus `openExpressPremiumPct` for Express, default 25%). The partner charges its buyer exactly that and owes it to SeloNachipa in full; SeloNachipa splits it to rider, platform and Social Fund as configured. Deliveries are ordinary parcels in the existing engine (dispatch, pickup PIN, delivery code, tracking), one per `externalOrderRef`. Riders see "via {platform}" on the job.
+- **AI videos and ads.** `POST /products/:id/video` runs the existing Listing Studio for a partner product (Runway product motion, voiceover, captions, branded 9:16 edit; webhooks `media.video.ready` / `media.video.failed`). `POST /ads` runs the AI Ad Generator (story and square images around the real photo, plus WhatsApp, Facebook and TikTok copy). Daily caps: `openStudioDailyCap` (50) and `openAdDailyCap` (200) per partner.
+- **Security.** OAuth 2.0 client credentials (1-hour HS256 tokens). Client secrets are stored as scrypt hashes and webhook secrets AES-256-GCM encrypted. Partner and client are re-checked on every call, so revocation and suspension apply at once. Scopes are checked against the services enabled for the partner. Per-minute rate limits; `Idempotency-Key` on every write; an audit record and usage counters per call. Partners see only their own data, and of a rider only the first name and plate while the job is active.
+- **Webhooks.** Standard Webhooks signatures (`webhook-id`, `webhook-timestamp`, `webhook-signature`), retries at 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, 12 h and 24 h, history and replay.
+- **Settlement.** `openLedger/{partner}/entries`: `DELIVERY_CHARGE`, `DELIVERY_REVERSAL`, `API_USAGE`, `MEDIA_USAGE`, `SUBSCRIPTION`, `SETTLEMENT`. Monthly billing job `scheduled_openBilling`.
+- **Sandbox.** `sbx_` clients. Sandbox products are never shown to buyers, sandbox deliveries never reach riders (they advance one status a minute and fire webhooks), and sandbox AI media returns marked samples without calling the paid providers.
+- **Back office → Developer & Platform Integrations** (`/integrations`, Super Admin): approve, suspend or reject platforms; enable Commerce/Logistics, scopes, sandbox/production and rate limits; set pricing (subscription, per call, per AI video, per AI ad); create, rotate and revoke credentials; webhooks and replay; usage, products, deliveries, settlement and audit per platform; manual rider assignment.
+- **Developer portal** at `/developers`: sign up, register a platform, sandbox credentials, a console that runs sample calls, the API reference and guides, and the production request.
+- **Mabala connector** (Mabala repo, branch `selonachipa-open-network`): channel toggles on the product form, product and stock sync with a checkout link back to Mabala, the SeloNachipa delivery fee at Mabala's checkout, rider requests, signed webhook receiver, and the sale journal posted once to the vendor's farm node.
+
+### Turning it on
+
+1. Create the secrets (any long random values):
+   ```bash
+   firebase functions:secrets:set OPEN_API_JWT_SECRET --project mabala-f2d65
+   ```
+   ```bash
+   firebase functions:secrets:set OPEN_API_ENC_KEY --project mabala-f2d65
+   ```
+   Rotating `OPEN_API_ENC_KEY` makes stored webhook secrets unreadable: partners must set their webhook again.
+2. Enable **Email/Password** sign-in in Firebase Authentication (developer portal accounts).
+3. Deploy functions, Firestore rules and indexes, and hosting (`/api/v1/**` and `/developers` are routed in `firebase.json`).
+4. Approve the platform in the back office and give it production access.
+5. On Mabala's server, set `SELONACHIPA_API_BASE` (`https://mabala-f2d65.web.app/api/v1`), `SELONACHIPA_CLIENT_ID`, `SELONACHIPA_CLIENT_SECRET` and `SELONACHIPA_WEBHOOK_SECRET`, and point the platform's webhook at `https://<mabala host>/api/selonachipa/webhook`.
+
+Not included: delegated (user-authorised) OAuth flows; only client credentials are supported.
+
 ## v6.9.7 — agreements and address cards
 
 - **Agreements in the app** (`assets/legal`): the Terms of Use, Privacy Policy, Seller Terms, and Rider and Agent Terms, converted from the company's Word documents.
@@ -377,4 +409,5 @@ The PNGs are written to `app/build/outputs/roborazzi`.
 - **Gemini:** confirm the model name in `GEMINI_MODEL` and the per-request media size limits.
 - **Google Maps:** set `MAPS_API_KEY` for Places autocomplete, road distances and turn-by-turn. Without it the app uses the neighbourhood gazetteer and approximate distances.
 - **SMS gateway:** delivery codes and OTPs need a live SMS provider (`SMS_PROVIDER` + `SMS_API_KEY`) and an approved sender ID.
+- **Open Network:** create `OPEN_API_JWT_SECRET` and `OPEN_API_ENC_KEY`, enable Email/Password sign-in for the developer portal, and set the Mabala connector's `SELONACHIPA_*` server variables (see v7.0 above).
 - **Store and legal:** add the Terms, Privacy and Data Policy texts, the Play Store listing and the release signing keys (CI reads them from `SELO_KEYSTORE*` environment variables).
