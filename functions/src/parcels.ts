@@ -7,7 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { FieldValue, Timestamp, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { LIPILA_API_KEY, MAPS_API_KEY, SMS_API_KEY, TRACKING_BASE_URL, db, loadConfig, type PlatformConfig } from "./config";
+import { LIPILA_API_KEY, MAPS_API_KEY, SMS_API_KEY, TRACKING_BASE_URL, db, loadConfig, type PlatformConfig, SMS_SECRETS } from "./config";
 import { collectionFailureReason, normaliseMsisdn, operatorLabel, withinWorkingHours } from "./domain";
 import { disburse } from "./escrow";
 import { nearestNeighbourhood, routeDistance } from "./geo";
@@ -55,7 +55,7 @@ async function quote(pickup: Stop, dropoff: Stop, declaredNgwee: number, cfg: Pl
 }
 
 /** What the sender sees: delivery fee, service fee, insurance, total, ETA. Never a per-km rate or percentages (§3.4). */
-export const parcel_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
+export const parcel_quote = onCall({ secrets: [...SMS_SECRETS, MAPS_API_KEY] }, async (req) => {
   requireUser(req, "BUYER", "SELLER", "AGENT");
   const cfg = await loadConfig();
   const declared = Math.max(0, Math.round(Number(req.data?.declaredValueNgwee) || 0));
@@ -66,7 +66,7 @@ export const parcel_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
 
 /* ------------------------------------------------------------------ create + pay */
 
-export const parcel_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, async (req) => {
+export const parcel_create = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY, MAPS_API_KEY] }, async (req) => {
   const { uid, role } = requireUser(req, "BUYER", "SELLER", "AGENT");
   const d = req.data ?? {};
   const cfg = await loadConfig();
@@ -120,7 +120,7 @@ async function collect(id: string, amountNgwee: number, msisdn: string, attempt:
     paymentStatus: r.ok ? "PENDING" : "FAILED", paymentFailure: r.ok ? null : `${operatorLabel(msisdn)} couldn't start the payment. Try again or use another number.` });
 }
 
-export const parcel_retryPayment = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const parcel_retryPayment = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req);
   const id = str(req.data?.parcelId, "parcel");
   const wallet = normaliseMsisdn(req.data?.walletMsisdn);
@@ -201,7 +201,7 @@ export async function broadcastParcel(id: string) {
 }
 
 /** Every minute: scheduled parcels go out 30 min ahead; unaccepted jobs are re-broadcast every 5 min, refunded after the max wait. */
-export const scheduled_parcelDispatch = onSchedule({ schedule: "every 1 minutes", secrets: [LIPILA_API_KEY] }, async () => {
+export const scheduled_parcelDispatch = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async () => {
   const cfg = await loadConfig();
   const nowMs = Date.now();
   const waiting = await db.collection("parcels").where("status", "==", "AWAITING_RIDER").limit(300).get();
@@ -282,7 +282,7 @@ export const rider_declineParcel = onCall(async (req) => {
 });
 
 /** §7: rider enters the sender's 4-digit pickup PIN → IN_TRANSIT; receiver gets the "on its way" SMS + push. */
-export const rider_confirmPickup = onCall({ secrets: [SMS_API_KEY] }, async (req) => {
+export const rider_confirmPickup = onCall({ secrets: [...SMS_SECRETS, SMS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const id = str(req.data?.parcelId, "parcel");
   const pin = String(req.data?.pin ?? "").replace(/\D/g, "");
@@ -330,7 +330,7 @@ export const rider_ping = onCall(async (req) => {
 
 /* ------------------------------------------------------------------ sender actions */
 
-export const parcel_cancel = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const parcel_cancel = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req);
   const id = str(req.data?.parcelId, "parcel");
   const p = (await ref(id).get()).data();
@@ -399,7 +399,7 @@ export const admin_editReceiver = onCall(async (req) => {
   return { ok: true };
 });
 
-export const admin_refundParcel = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_refundParcel = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "finance", "support");
   const id = str(req.data?.parcelId, "parcel");
   const reason = str(req.data?.reason, "reason", 300);

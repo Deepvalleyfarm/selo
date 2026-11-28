@@ -2,13 +2,20 @@ import { initializeApp, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { defineSecret, defineString } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { BEEM_SECRETS } from "./beem/beem.config";
 
 /** Named Firestore database shared by the Android app and the web back office. */
 export const DB_ID = "ai-studio-611c950c-febe-47c1-afff-35dcb0788339";
 export const REGION = "us-central1";
 
 if (!getApps().length) initializeApp();
-setGlobalOptions({ region: REGION, maxInstances: 20 });
+/**
+ * Beem (SMS + OTP) keys for every function. Transactional SMS (sign-up, orders, parcels, delivery codes, SOS) is sent
+ * from many functions, often indirectly (payment webhook → order confirmed → SMS), and a function can only read a
+ * secret it declares. Functions with their own `secrets` must include SMS_SECRETS too: their list replaces this one.
+ */
+export const SMS_SECRETS = BEEM_SECRETS;
+setGlobalOptions({ region: REGION, maxInstances: 20, secrets: SMS_SECRETS });
 
 export const db = getFirestore(DB_ID);
 

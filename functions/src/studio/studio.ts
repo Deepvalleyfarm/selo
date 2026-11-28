@@ -17,7 +17,7 @@ import { logger } from "firebase-functions/v2";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { DB_ID, GEMINI_API_KEY, GEMINI_MODEL, db, loadConfig } from "../config";
+import { DB_ID, GEMINI_API_KEY, GEMINI_MODEL, db, loadConfig, SMS_SECRETS } from "../config";
 import { requireUser } from "../util";
 import { cleanScript, deliveryUrl, photoTransformation, planSteps, posterTransformation, videoTransformation, wordsToVtt, type StudioScript, type StudioStep } from "./edit";
 import { OPEN_SECRETS } from "../open/model";
@@ -217,13 +217,13 @@ async function partnerStudioDone(id: string, j: any, outcome: "ready" | "failed"
   }
 }
 
-export const onStudioJob = onDocumentWritten({ document: "studioJobs/{id}", database: DB_ID, secrets: [...STUDIO_SECRETS, GEMINI_API_KEY, ...OPEN_SECRETS], timeoutSeconds: 540, memory: "1GiB" }, async (e) => {
+export const onStudioJob = onDocumentWritten({ document: "studioJobs/{id}", database: DB_ID, secrets: [...SMS_SECRETS, ...STUDIO_SECRETS, GEMINI_API_KEY, ...OPEN_SECRETS], timeoutSeconds: 540, memory: "1GiB" }, async (e) => {
   const after = e.data?.after.data();
   if (after?.status === "queued") await advance(e.params.id);
 });
 
 /** Every minute: wake jobs waiting on Runway, and requeue jobs whose worker died mid-step. */
-export const studio_poll = onSchedule({ schedule: "every 1 minutes", secrets: [...STUDIO_SECRETS, GEMINI_API_KEY], timeoutSeconds: 120 }, async () => {
+export const studio_poll = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, ...STUDIO_SECRETS, GEMINI_API_KEY], timeoutSeconds: 120 }, async () => {
   const waiting = await db.collection("studioJobs").where("status", "==", "waiting").limit(50).get();
   for (const d of waiting.docs) {
     const since = (d.get("waitingSince") as Timestamp | undefined)?.toMillis() ?? Date.now();

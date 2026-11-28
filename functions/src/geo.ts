@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
-import { MAPS_API_KEY, db, loadConfig } from "./config";
+import { MAPS_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { peekOtpToken } from "./account";
 import { normaliseMsisdn } from "./domain";
 import { geocodeAddress, geocodePlaceId, placesAutocomplete, reverseGeocode, routeMatrix } from "./maps/client";
@@ -203,7 +203,7 @@ export async function saveUserLocation(uid: string, role: string, p: { address: 
 
 /* ------------------------------------------------------------------ callables */
 
-const opt = { secrets: [MAPS_API_KEY] };
+const opt = { secrets: [...SMS_SECRETS, MAPS_API_KEY] };
 export const geo_autocomplete = onCall(opt, async (req) => {
   const who = await caller(req);
   return autocomplete(String(req.data?.input ?? ""), who, typeof req.data?.cityId === "string" ? req.data.cityId : null,

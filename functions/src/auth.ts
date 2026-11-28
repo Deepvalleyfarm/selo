@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { LIPILA_API_KEY, db, loadConfig } from "./config";
+import { LIPILA_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { SECURITY_QUESTION_BANK } from "./domain-defaults";
 import { normaliseAnswer, normaliseMsisdn, pinProblem, kwachaToNgwee } from "./domain";
 import { lipila } from "./lipila";
@@ -32,7 +32,7 @@ async function token(uid: string, role: AppRole) {
   return getAuth().createCustomToken(uid, { role });
 }
 
-export const auth_register = onCall({ secrets: [LIPILA_API_KEY], enforceAppCheck: false }, async (req) => {
+export const auth_register = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY], enforceAppCheck: false }, async (req) => {
   const d = req.data ?? {};
   const role = d.role as AppRole;
   if (!ROLES.includes(role)) throw new HttpsError("invalid-argument", "Choose a role.");

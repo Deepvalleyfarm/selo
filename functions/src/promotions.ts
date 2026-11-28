@@ -5,7 +5,7 @@
  */
 import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { LIPILA_API_KEY, db, loadConfig } from "./config";
+import { LIPILA_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { collectionFailureReason, normaliseMsisdn, operatorLabel } from "./domain";
 import { lipila } from "./lipila";
 import {
@@ -62,7 +62,7 @@ async function collect(id: string, type: PromoType, attempt: number, priceNgwee:
   await promoRef(id).update({ collectionRef: ref, status: "PENDING_PAYMENT", failureReason: null, updatedAt: FieldValue.serverTimestamp() });
 }
 
-export const promo_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const promo_create = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "SELLER", "AGENT");
   const d = req.data ?? {};
   const listingId = typeof d.listingId === "string" ? d.listingId : "";
@@ -88,7 +88,7 @@ export const promo_create = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =>
   return { promoId: ref.id, priceNgwee };
 });
 
-export const promo_retryPayment = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const promo_retryPayment = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "SELLER", "AGENT");
   const wallet = normaliseMsisdn(req.data?.walletMsisdn);
   if (!wallet) throw new HttpsError("invalid-argument", "Enter an Airtel Money, MTN Money or Zamtel Money number.");

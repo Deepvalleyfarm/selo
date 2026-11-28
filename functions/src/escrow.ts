@@ -3,7 +3,7 @@ import { FieldValue, Timestamp, Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions/v2";
 import { getDatabase } from "firebase-admin/database";
-import { DB_ID, LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, MAPS_API_KEY, PlatformConfig, db, loadConfig } from "./config";
+import { DB_ID, LIPILA_API_KEY, LIPILA_WEBHOOK_SECRET, MAPS_API_KEY, PlatformConfig, db, loadConfig, SMS_SECRETS } from "./config";
 import { acceptanceRate, withinWorkingHours, canTransition, collectionFailureReason, haversineKm, network, nextRetryMinutes, normaliseMsisdn, operatorLabel, OrderState, quote, split } from "./domain";
 import { onPromoCollection } from "./promotions";
 import { writeLedger, type Leg } from "./ledger";
@@ -46,7 +46,7 @@ async function createCollection(orderId: string, totalNgwee: number, msisdn: str
 
 /* ------------------------------------------------------------------ create */
 
-export const order_create = onCall({ secrets: [LIPILA_API_KEY, MAPS_API_KEY] }, async (req) => {
+export const order_create = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY, MAPS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "BUYER");
   const items = (req.data?.items ?? []) as { listingId: string; qty: number }[];
   if (!items.length || items.length > 20) throw new HttpsError("invalid-argument", "Your cart is empty.");
@@ -100,7 +100,7 @@ const isGeo = (v: any) => v && Number.isFinite(Number(v.lat)) && Number.isFinite
 const sellerPoint = (s: any) => s?.location && Number.isFinite(s.location.latitude) ? { lat: s.location.latitude, lng: s.location.longitude } : isGeo(s?.geo) ? { lat: Number(s.geo.lat), lng: Number(s.geo.lng) } : null;
 
 /** Checkout preview: delivery fee from the road distance between the seller and the chosen drop-off (§ address system). */
-export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
+export const order_quote = onCall({ secrets: [...SMS_SECRETS, MAPS_API_KEY] }, async (req) => {
   requireUser(req);
   const items = (req.data?.items ?? []) as { listingId: string; qty: number }[];
   if (!items.length) throw new HttpsError("invalid-argument", "Your cart is empty.");
@@ -121,7 +121,7 @@ export const order_quote = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
 });
 
 /** Default number had no funds (or was declined): pay the same order, same amount, from another number. */
-export const order_retryPayment = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const order_retryPayment = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "BUYER", "SELLER");
   const id = String(req.data?.orderId ?? "");
   const wallet = normaliseMsisdn(req.data?.walletMsisdn);
@@ -175,7 +175,7 @@ export async function broadcast(orderId: string, round = 0) {
  *    (onLipilaWebhookEvent) so Lipila always gets a fast 200. Only a failure to *store* the event returns 503, so
  *    Lipila retries instead of the payment being lost.
  */
-export const lipila_webhook = onRequest({ secrets: [LIPILA_WEBHOOK_SECRET] }, async (req, res) => {
+export const lipila_webhook = onRequest({ secrets: [...SMS_SECRETS, LIPILA_WEBHOOK_SECRET] }, async (req, res) => {
   if (req.method !== "POST") { res.status(405).send("method"); return; }
   let webhookId: string;
   try {
@@ -214,7 +214,7 @@ async function recordTxStats(p: ReturnType<typeof toPayload>) {
 }
 
 /** Processes each stored webhook event once. Errors are logged; Lipila already has its 200. */
-export const onLipilaWebhookEvent = onDocumentCreated({ document: "lipila_webhook_events/{id}", database: DB_ID, secrets: [LIPILA_API_KEY] }, async (e) => {
+export const onLipilaWebhookEvent = onDocumentCreated({ document: "lipila_webhook_events/{id}", database: DB_ID, secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (e) => {
   const ev = e.data?.data(); if (!ev) return;
   const ours = [ev.identifier, ev.referenceId].map(String).find((s) => s.startsWith("SELO-")) ?? String(ev.referenceId);
   try {
@@ -380,7 +380,7 @@ export const order_confirmPack = onCall(async (req) => {
   return { ok: true };
 });
 
-export const order_sellerReject = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const order_sellerReject = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "SELLER", "AGENT");
   const id = str(req.data?.orderId, "order");
   const o = (await orderRef(id).get()).data();
@@ -430,7 +430,7 @@ export const rider_acceptOrder = onCall(async (req) => {
  * PICKED_UP. The seller leg is released here only when the admin policy is "pickup"; by default (Parcels v2 §9.4)
  * seller proceeds are released when the buyer's delivery code is verified.
  */
-export const rider_markCollected = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const rider_markCollected = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const id = str(req.data?.orderId, "order");
   const cfg = await loadConfig();
@@ -483,7 +483,7 @@ export const rider_setPresence = onCall(async (req) => {
 
 /* ------------------------------------------------------------------ wallets */
 
-export const wallet_lookup = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const wallet_lookup = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const m = normaliseMsisdn(req.data?.msisdn);
   if (!m) throw new HttpsError("invalid-argument", "Enter a valid wallet number.");
   const name = await lipila.lookup(m);
@@ -500,7 +500,7 @@ export const wallet_lookup = onCall({ secrets: [LIPILA_API_KEY] }, async (req) =
  * Full-balance withdrawal to the user's payout wallet (riders, sellers, agents). Body: { pin }.
  * See payments/withdrawals.ts for the state machine. Any amount sent by the app is ignored.
  */
-export const wallet_withdraw = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const wallet_withdraw = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid, role } = requireUser(req, "RIDER", "SELLER", "AGENT");
   const { requestWithdrawal } = await import("./payments/withdrawals");
   const retryOf = typeof req.data?.retryOf === "string" ? req.data.retryOf.slice(0, 60) : null;

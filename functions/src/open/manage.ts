@@ -10,14 +10,14 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { db } from "../config";
+import { db, SMS_SECRETS } from "../config";
 import { audit, notify, requireAdmin } from "../util";
 import { encrypt, hashSecret, newClientId, newClientSecret, newWebhookSecret } from "./crypto";
 import { ALL_SCOPES, type Env, EVENTS, OPEN_API_ENC_KEY, OPEN_SECRETS, type Partner, type PartnerPricing, secretValue } from "./model";
 import { post } from "./settlement";
 import { replay } from "./webhooks";
 
-const opts = { secrets: OPEN_SECRETS };
+const opts = { secrets: [...SMS_SECRETS, ...OPEN_SECRETS] };
 const superAdmin = (req: any) => requireAdmin(req, "super_admin");
 const clean = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Math.max(0, Number(v)));

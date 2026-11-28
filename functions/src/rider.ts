@@ -4,7 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
-import { DB_ID, LIPILA_API_KEY, db, loadConfig } from "./config";
+import { DB_ID, LIPILA_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { SECURITY_QUESTION_BANK } from "./domain-defaults";
 import { acceptanceRate, CLAIM_CATEGORIES, claimProblem, isHero, normaliseAnswer, normaliseMsisdn } from "./domain";
 import { disburse } from "./escrow";
@@ -62,7 +62,7 @@ export const rider_updateProfile = onCall(async (req) => {
 });
 
 /** Payout wallet: Airtel Money, MTN MoMo or Zamtel Kwacha, confirmed with a Lipila name lookup. */
-export const wallet_setPayout = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const wallet_setPayout = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER", "SELLER", "AGENT");
   const m = normaliseMsisdn(req.data?.msisdn);
   if (!m) throw new HttpsError("invalid-argument", "Enter an Airtel Money, MTN Money or Zamtel Money number.");
@@ -136,7 +136,7 @@ export const onChatMessage = onDocumentCreated({ document: "chats/{chatId}/messa
 });
 
 /** Daily rider jobs at 00:00 Lusaka: auto-settle earnings, Social Fund summary, acceptance-rate nudges. */
-export const scheduled_riderDaily = onSchedule({ schedule: "0 0 * * *", timeZone: "Africa/Lusaka", secrets: [LIPILA_API_KEY] }, async () => {
+export const scheduled_riderDaily = onSchedule({ schedule: "0 0 * * *", timeZone: "Africa/Lusaka", secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async () => {
   const cfg = await loadConfig();
   const wallets = await db.collection("riderWallets").get();
   const date = new Date().toISOString().slice(0, 10);

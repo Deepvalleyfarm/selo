@@ -10,7 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { SMS_API_KEY, TRACKING_BASE_URL, db } from "./config";
+import { SMS_API_KEY, TRACKING_BASE_URL, db, SMS_SECRETS } from "./config";
 import { sendSms } from "./sms";
 import { audit, notify, requireAdmin, requireUser } from "./util";
 
@@ -49,7 +49,7 @@ export function sosSms(name: string, msisdn: string, lat: number, lng: number, l
     : `SeloNaChipa SAFETY ALERT: ${name} (${msisdn}) pressed SOS. Location: ${mapsLink(lat, lng)} Live: ${link} Call them or 999 / 991 now.`;
 }
 
-export const rider_sos = onCall({ secrets: [SMS_API_KEY] }, async (req) => {
+export const rider_sos = onCall({ secrets: [...SMS_SECRETS, SMS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   if (!isLL(req.data)) throw new HttpsError("invalid-argument", "We need your location to send help. Turn location on and try again.");
   const kind = req.data?.kind === "SHARE" ? "SHARE" : "SOS";
@@ -80,7 +80,7 @@ export const rider_sos = onCall({ secrets: [SMS_API_KEY] }, async (req) => {
     hasContact: !!u.emergencyContact?.phone, contactName: u.emergencyContact?.name ?? null };
 });
 
-export const rider_sosUpdate = onCall({ secrets: [SMS_API_KEY] }, async (req) => {
+export const rider_sosUpdate = onCall({ secrets: [...SMS_SECRETS, SMS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const ref = db.doc(`sosAlerts/${String(req.data?.alertId ?? "")}`);
   const a = (await ref.get()).data();

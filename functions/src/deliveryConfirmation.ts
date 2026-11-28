@@ -14,7 +14,7 @@ import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import { coverProblem } from "./safety";
-import { DELIVERY_CODE_SECRET, LIPILA_API_KEY, SMS_API_KEY, db, loadConfig, type PlatformConfig } from "./config";
+import { DELIVERY_CODE_SECRET, LIPILA_API_KEY, SMS_API_KEY, db, loadConfig, type PlatformConfig, SMS_SECRETS } from "./config";
 import { heroBonus, normaliseMsisdn, riderTier, split } from "./domain";
 import { coll, releaseGuard, statusField, writeLedger, type OrderKind } from "./ledger";
 import {
@@ -537,7 +537,7 @@ export async function overrideDeliveryCore(kind: OrderKind, id: string, admin: {
 const riderReq = (req: CallableRequest) => requireUser(req, "RIDER");
 const pos = (v: any): LL | null => (isLL(v) ? { lat: Number(v.lat), lng: Number(v.lng) } : null);
 const device = (req: CallableRequest) => (typeof req.data?.deviceId === "string" ? req.data.deviceId.slice(0, 80) : null);
-const opts = { enforceAppCheck: process.env.SELO_APP_CHECK === "1", secrets: [DELIVERY_CODE_SECRET, SMS_API_KEY] };
+const opts = { enforceAppCheck: process.env.SELO_APP_CHECK === "1", secrets: [...SMS_SECRETS, DELIVERY_CODE_SECRET, SMS_API_KEY] };
 
 export const requestDeliveryCode = onCall({ ...opts, timeoutSeconds: 75 }, async (req) => {
   const { uid } = riderReq(req);
@@ -598,14 +598,14 @@ async function complete(kind: OrderKind, id: string, by: string) {
   });
 }
 
-export const admin_overrideDelivery = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_overrideDelivery = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "operations", "support");
   const evidence = (Array.isArray(req.data?.evidence) ? req.data.evidence : []).filter((x: unknown) => typeof x === "string" && x.length <= 500).slice(0, 10);
   return overrideDeliveryCore(kindOf(req.data?.kind), str(req.data?.orderId, "order"), a, String(req.data?.reason ?? ""), evidence);
 });
 
 /** Every minute: unanswered "receiver unavailable" → DELIVERY_FAILED. Every run: DELIVERED past the dispute window → COMPLETED. */
-export const scheduled_deliveryConfirmation = onSchedule({ schedule: "every 1 minutes", secrets: [LIPILA_API_KEY, SMS_API_KEY] }, async () => {
+export const scheduled_deliveryConfirmation = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, LIPILA_API_KEY, SMS_API_KEY] }, async () => {
   const nowTs = Timestamp.now();
   for (const kind of ["parcel", "order"] as OrderKind[]) {
     const f = statusField(kind);

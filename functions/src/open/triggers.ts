@@ -3,11 +3,11 @@
  * same documents the apps use. Event ids are versioned by the new status, so a re-run trigger never duplicates.
  */
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
-import { DB_ID } from "../config";
+import { DB_ID, SMS_SECRETS } from "../config";
 import { deliveryEventsFor, OPEN_SECRETS } from "./model";
 import { emit } from "./webhooks";
 
-export const onPartnerParcelChange = onDocumentUpdated({ document: "parcels/{id}", database: DB_ID, secrets: OPEN_SECRETS }, async (e) => {
+export const onPartnerParcelChange = onDocumentUpdated({ document: "parcels/{id}", database: DB_ID, secrets: [...SMS_SECRETS, ...OPEN_SECRETS] }, async (e) => {
   const b = e.data?.before.data(), a = e.data?.after.data();
   if (!a?.partnerId || !b || a.status === b.status) return;
   const { deliveryView } = await import("./logistics");

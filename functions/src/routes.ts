@@ -13,7 +13,7 @@
  */
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { MAPS_API_KEY, db, loadConfig } from "./config";
+import { MAPS_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { computeRoute, geocodeAddress, type ComputedRoute, type TravelMode } from "./maps/client";
 import { decodePolyline, distanceToPathM, encodePolyline, haversineM, isLL, toLL, type LL } from "./maps/geo-math";
 import { requireUser } from "./util";
@@ -22,7 +22,7 @@ const ACTIVE_ORDER = ["RIDER_ASSIGNED", "PICKED_UP", "IN_TRANSIT", "AWAITING_DEL
 const ACTIVE_PARCEL = ["RIDER_ASSIGNED", "IN_TRANSIT", "AWAITING_DELIVERY_CODE"];
 
 /** Pickup and drop-off coordinates for the rider's own active orders; geocodes (once, cached) any that are missing. */
-export const route_locate = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
+export const route_locate = onCall({ secrets: [...SMS_SECRETS, MAPS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const ids = (Array.isArray(req.data?.orderIds) ? req.data.orderIds : []).filter((x: unknown) => typeof x === "string").slice(0, 8) as string[];
   const cfg = await loadConfig();
@@ -97,7 +97,7 @@ export function routeDecision(c: { cachedKey?: string; requestedKey: string; ori
 }
 
 /** Route for the rider's accepted jobs. Body: { origin, stops: [{orderId, type, lat, lng}], vehicle }. */
-export const route_directions = onCall({ secrets: [MAPS_API_KEY] }, async (req) => {
+export const route_directions = onCall({ secrets: [...SMS_SECRETS, MAPS_API_KEY] }, async (req) => {
   const { uid } = requireUser(req, "RIDER");
   const origin = req.data?.origin;
   const stops = (Array.isArray(req.data?.stops) ? req.data.stops : []).slice(0, 10) as any[];

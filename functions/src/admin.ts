@@ -2,7 +2,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getMessaging } from "firebase-admin/messaging";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { DEFAULT_CONFIG, LIPILA_API_KEY, db } from "./config";
+import { DEFAULT_CONFIG, LIPILA_API_KEY, db, SMS_SECRETS } from "./config";
 import { disburse, refund, retryPayout } from "./escrow";
 import { overrideDeliveryCore } from "./deliveryConfirmation";
 import { AdminRole, audit, notify, requireAdmin, securityEvent, str } from "./util";
@@ -80,7 +80,7 @@ export const admin_issueResetToken = onCall(async (req) => {
   return { resetToken: `${uid}.${raw}` };
 });
 
-export const admin_retryPayout = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_retryPayout = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "finance");
   const ref = str(req.data?.ref, "payout");
   if (req.data?.markPaid === true) {
@@ -94,7 +94,7 @@ export const admin_retryPayout = onCall({ secrets: [LIPILA_API_KEY] }, async (re
   return { ok: true };
 });
 
-export const admin_resolveDispute = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_resolveDispute = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "support", "finance");
   const id = str(req.data?.disputeId, "dispute");
   const outcome = req.data?.outcome as "refund" | "release" | "split";
@@ -115,7 +115,7 @@ export const admin_resolveDispute = onCall({ secrets: [LIPILA_API_KEY] }, async 
   return { ok: true };
 });
 
-export const admin_decideClaim = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_decideClaim = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "finance");
   const id = str(req.data?.claimId, "claim");
   const approve = req.data?.approve === true;
@@ -146,7 +146,7 @@ export const admin_moderateListing = onCall(async (req) => {
 });
 
 /** v6.2: stop a Boost or Feed Story (policy breach or seller request), optionally refunding the unused days. */
-export const admin_endPromotion = onCall({ secrets: [LIPILA_API_KEY] }, async (req) => {
+export const admin_endPromotion = onCall({ secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async (req) => {
   const a = requireAdmin(req, "moderator", "finance", "operations");
   const id = str(req.data?.promoId, "promotion");
   const reason = str(req.data?.reason, "reason", 200);

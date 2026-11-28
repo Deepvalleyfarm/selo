@@ -3,7 +3,7 @@ import { logger } from "firebase-functions/v2";
 import { getStorage } from "firebase-admin/storage";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { GEMINI_API_KEY, GEMINI_MODEL, db } from "./config";
+import { GEMINI_API_KEY, GEMINI_MODEL, db, SMS_SECRETS } from "./config";
 import { compositeKey, suggestPrice, uuidv7 } from "./algorithm";
 import { requireUser, str } from "./util";
 
@@ -31,7 +31,7 @@ async function marketPrice(category: string, province?: string) {
  * title, 3–5 sentence description, ZMW price range and category. The app falls back to manual entry if this
  * takes longer than the configured target (8 s by default).
  */
-export const listing_runAiPipeline = onCall({ secrets: [GEMINI_API_KEY], timeoutSeconds: 60, memory: "1GiB" }, async (req) => {
+export const listing_runAiPipeline = onCall({ secrets: [...SMS_SECRETS, GEMINI_API_KEY], timeoutSeconds: 60, memory: "1GiB" }, async (req) => {
   const { uid } = requireUser(req, "SELLER", "AGENT");
   const frames = ((req.data?.framePaths ?? req.data?.mediaPaths ?? []) as string[]).filter((p) => !p.endsWith(".mp4")).slice(0, 16);
   const labels = ((req.data?.onDeviceLabels ?? []) as { text: string; confidence: number }[]).slice(0, 10);

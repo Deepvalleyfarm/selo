@@ -13,7 +13,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getStorage } from "firebase-admin/storage";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { GEMINI_API_KEY, GEMINI_MODEL, db } from "./config";
+import { GEMINI_API_KEY, GEMINI_MODEL, db, SMS_SECRETS } from "./config";
 import { CLOUDINARY_URL, cloudinaryCreds, cloudinaryUpload } from "./studio/providers";
 import { requireUser } from "./util";
 
@@ -92,7 +92,7 @@ export async function adQuota(key: string, cap: number) {
   return used < cap;
 }
 
-export const ad_generate = onCall({ secrets: [GEMINI_API_KEY, CLOUDINARY_URL], timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
+export const ad_generate = onCall({ secrets: [...SMS_SECRETS, GEMINI_API_KEY, CLOUDINARY_URL], timeoutSeconds: 120, memory: "512MiB" }, async (req) => {
   const { uid } = requireUser(req, "SELLER", "AGENT");
   const path = String(req.data?.photoPath ?? "");
   if (!path.startsWith(`adgen/${uid}/`)) throw new HttpsError("invalid-argument", "Upload a product photo first.");

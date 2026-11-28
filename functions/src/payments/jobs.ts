@@ -7,7 +7,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { LIPILA_API_KEY, db } from "../config";
+import { LIPILA_API_KEY, db, SMS_SECRETS } from "../config";
 import { isFailed, isSuccessful, lipila } from "../lipila";
 import { audit as adminAudit, requireAdmin, str } from "../util";
 import { complete, fail, reconcileWithdrawals } from "./withdrawals";
@@ -25,7 +25,7 @@ export async function reconcileCollections(nowMs = Date.now()) {
   }
 }
 
-export const payments_reconcile = onSchedule({ schedule: "every 1 minutes", secrets: [LIPILA_API_KEY], timeoutSeconds: 120 }, async () => {
+export const payments_reconcile = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, LIPILA_API_KEY], timeoutSeconds: 120 }, async () => {
   await reconcileWithdrawals();
   await reconcileCollections();
 });

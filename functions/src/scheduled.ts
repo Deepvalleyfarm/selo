@@ -1,7 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
-import { DB_ID, LIPILA_API_KEY, db, loadConfig } from "./config";
+import { DB_ID, LIPILA_API_KEY, db, loadConfig, SMS_SECRETS } from "./config";
 import { broadcastConfigChange } from "./admin";
 import { agentCommission } from "./domain";
 import { broadcast, disburse, refund, retryPayout } from "./escrow";
@@ -15,7 +15,7 @@ export const scheduled_dispatchWaves = onSchedule({ schedule: "every 1 minutes" 
 });
 
 /** No rider within broadcastTimeoutMin → full refund, no fees retained. */
-export const scheduled_broadcastTimeout = onSchedule({ schedule: "every 1 minutes", secrets: [LIPILA_API_KEY] }, async () => {
+export const scheduled_broadcastTimeout = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async () => {
   const cfg = await loadConfig();
   const cutoff = Timestamp.fromMillis(Date.now() - cfg.broadcastTimeoutMin * 60_000);
   const stale = await db.collection("orders").where("state", "==", "BROADCASTING").where("broadcastAt", "<", cutoff).limit(50).get();
@@ -43,13 +43,13 @@ export const scheduled_autoConfirm = onSchedule({ schedule: "every 15 minutes" }
   }
 });
 
-export const scheduled_payoutRetry = onSchedule({ schedule: "every 5 minutes", secrets: [LIPILA_API_KEY] }, async () => {
+export const scheduled_payoutRetry = onSchedule({ schedule: "every 5 minutes", secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async () => {
   const due = await db.collection("payouts").where("status", "==", "FAILED_RETRY").where("nextAttemptAt", "<=", Timestamp.now()).limit(50).get();
   for (const p of due.docs) await retryPayout(p.id);
 });
 
 /** Agent commissions settle daily at midnight Lusaka time, net of the platform cut. */
-export const scheduled_agentSettlement = onSchedule({ schedule: "0 0 * * *", timeZone: "Africa/Lusaka", secrets: [LIPILA_API_KEY] }, async () => {
+export const scheduled_agentSettlement = onSchedule({ schedule: "0 0 * * *", timeZone: "Africa/Lusaka", secrets: [...SMS_SECRETS, LIPILA_API_KEY] }, async () => {
   const cfg = await loadConfig();
   const since = Timestamp.fromMillis(Date.now() - 86_400_000);
   const orders = await db.collection("orders").where("state", "==", "DELIVERED").where("deliveredAt", ">=", since).get();

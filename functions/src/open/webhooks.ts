@@ -11,7 +11,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { DB_ID, db } from "../config";
+import { DB_ID, db, SMS_SECRETS } from "../config";
 import { decrypt, sha256, signWebhook } from "./crypto";
 import { type Env, type EventType, OPEN_API_ENC_KEY, OPEN_SECRETS, secretValue } from "./model";
 
@@ -57,10 +57,10 @@ export async function deliver(id: string): Promise<string> {
   return failed ? "FAILED" : "RETRYING";
 }
 
-export const onOpenEvent = onDocumentCreated({ document: "openEvents/{id}", database: DB_ID, secrets: OPEN_SECRETS }, async (e) => { await deliver(e.params.id); });
+export const onOpenEvent = onDocumentCreated({ document: "openEvents/{id}", database: DB_ID, secrets: [...SMS_SECRETS, ...OPEN_SECRETS] }, async (e) => { await deliver(e.params.id); });
 
 /** Every minute: retry due events (partner back online → backlog drains in order). */
-export const scheduled_openWebhookRetry = onSchedule({ schedule: "every 1 minutes", secrets: OPEN_SECRETS }, async () => {
+export const scheduled_openWebhookRetry = onSchedule({ schedule: "every 1 minutes", secrets: [...SMS_SECRETS, ...OPEN_SECRETS] }, async () => {
   const due = await db.collection("openEvents").where("status", "==", "RETRYING").where("nextAttemptAt", "<=", Timestamp.now()).orderBy("nextAttemptAt").limit(200).get();
   for (const d of due.docs) await deliver(d.id);
 });
