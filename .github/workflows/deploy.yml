@@ -7,7 +7,9 @@ on:
     inputs:
       only:
         description: "What to deploy (firebase deploy --only)"
-        default: "firestore,storage,database,functions,hosting"
+        # Storage rules are NOT deployed from here: the default bucket is shared with Mabala, and its
+        # rules (including SeloNachipa's paths) are deployed from the Mabala repo's storage.rules.
+        default: "firestore,database,functions,hosting"
         required: true
 
 concurrency: deploy-production
@@ -30,5 +32,10 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Refuse to overwrite the shared Storage rules
+        if: contains(inputs.only, 'storage')
+        run: |
+          echo "::error::Storage rules for mabala-f2d65 are owned by the Mabala repo (storage.rules). Update SeloNachipa's section there instead."
+          exit 1
       - name: Deploy
         run: npx --yes firebase-tools@15.37.0 deploy --project mabala-f2d65 --only "${{ inputs.only }}" --non-interactive --force

@@ -255,6 +255,14 @@ export const user_registerFcmToken = onCall(async (req) => {
   return { ok: true };
 });
 
+/** Called on logout so a shared or handed-over phone stops getting the previous user's pushes. */
+export const user_unregisterFcmToken = onCall(async (req) => {
+  const { uid } = requireUser(req);
+  const t = str(req.data?.token, "token", 400);
+  await db.doc(`users/${uid}/private/devices`).set({ fcmTokens: FieldValue.arrayRemove(t) }, { merge: true });
+  return { ok: true };
+});
+
 
 /** Sign-up identity: NRC (XXXXXX/XX/X), passport or driver's licence. Returns an error message or the cleaned ID. */
 /** TPIN (ZRA Taxpayer Identification Number): exactly 10 digits — no letters, spaces or symbols. */

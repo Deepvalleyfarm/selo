@@ -151,3 +151,11 @@ describe("AI media for partners", () => {
     expect(effectiveScopes({ scopes: ["media:write"], services: { commerce: true, logistics: false } })).toEqual(["media:write"]);
   });
 });
+
+describe("push tokens", () => {
+  it("prunes only tokens FCM reports as permanently gone", async () => {
+    const { deadTokens } = await import("../src/util");
+    expect(deadTokens(["a", "b", "c", "d"], [{ success: true }, { success: false, error: { code: "messaging/registration-token-not-registered" } },
+      { success: false, error: { code: "messaging/internal-error" } }, { success: false, error: { code: "messaging/invalid-registration-token" } }])).toEqual(["b", "d"]);
+  });
+});

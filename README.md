@@ -177,6 +177,15 @@ Other platforms (Mabala is the first) can list their products on SeloNachipa, us
 - **Developer portal** at `/developers`: sign up, register a platform, sandbox credentials, a console that runs sample calls, the API reference and guides, and the production request.
 - **Mabala connector** (Mabala repo, branch `selonachipa-open-network`): channel toggles on the product form, product and stock sync with a checkout link back to Mabala, the SeloNachipa delivery fee at Mabala's checkout, rider requests, signed webhook receiver, and the sale journal posted once to the vendor's farm node.
 
+### Shared Firebase project with Mabala
+
+SeloNaChipa and Mabala both run in `mabala-f2d65`, kept apart like this:
+- **Firestore:** separate named databases (SeloNaChipa `ai-studio-611c950c-…`, Mabala `ai-studio-020042e7-…`); each repo deploys only its own rules and indexes.
+- **Cloud Functions:** separate codebases (`selonachipa` here, `default` in Mabala), so neither deploy deletes the other's functions. Function names don't overlap.
+- **Storage:** one shared default bucket. Its rules are deployed only from the Mabala repo (`storage.rules`, section "SeloNachipa"); `firebase/storage.rules` here is the copy used by tests. The deploy workflow refuses `--only storage`.
+- **Hosting:** the SeloNaChipa back office, tracking pages, `/api/v1` and `/developers` use the default Hosting site. Mabala runs on App Hosting.
+- **Push:** the app sends its FCM token after every sign-in and removes it on sign-out; the server prunes tokens FCM reports as gone.
+
 ### Turning it on
 
 1. Create the secrets (any long random values):

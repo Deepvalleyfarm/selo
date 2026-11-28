@@ -40,6 +40,17 @@ const GROUPS: Record<string, Def[]> = {
     ["rerouteMinIntervalSec", "Min time between re-routes", "s", ""], ["rerouteMaxPerHour", "Max re-routes per rider per hour", "#", ""],
     ["offRouteMeters", "Off-route distance", "m", ""], ["offRouteFixes", "Off-route GPS fixes before re-route", "#", ""], ["mapsCacheDays", "Google result cache", "days", "max 30 (Maps terms)"],
   ],
+  "Listing Studio (AI video)": [
+    ["studioEnabled", "Listing Studio", "on/off", "off = no AI video or photo edits"], ["studioAutoStart", "Start automatically", "on/off", "when a listing is published"],
+    ["studioAutoApply", "Apply results automatically", "on/off", "sellers can revert in one tap"], ["studioRunwayEnabled", "AI product motion (Runway)", "on/off", "photo-only listings"],
+    ["studioVoiceoverEnabled", "Voiceover (ElevenLabs)", "on/off", ""], ["studioCaptionsEnabled", "Captions (Deepgram)", "on/off", "from the seller's own voice"],
+    ["studioBackgroundRemoval", "Background removal", "on/off", "Cloudinary add-on"], ["studioMaxJobsPerSellerPerDay", "Jobs per seller per day", "#", ""],
+    ["studioDailyCapRunway", "Daily cap · Runway clips", "#", "whole platform · 0 = no cap"], ["studioDailyCapVoiceover", "Daily cap · voiceovers", "#", ""],
+  ],
+  "Open Network (partner API)": [
+    ["openExpressPremiumPct", "Express delivery premium", "%", "added to SeloNachipa's delivery fee for EXPRESS"],
+    ["openStudioDailyCap", "AI videos per platform per day", "#", ""], ["openAdDailyCap", "AI ads per platform per day", "#", ""],
+  ],
   "Payments (Lipila)": [
     ["withdrawalWebhookTimeoutSec", "Wait for Lipila callback before reconciling", "s", "then status lookup; inconclusive → manual review"],
   ],

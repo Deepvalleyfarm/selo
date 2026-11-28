@@ -38,8 +38,15 @@ export async function notify(uid: string, title: string, body: string, type: str
     createdAt: FieldValue.serverTimestamp() });
   const tokens = ((await db.doc(`users/${uid}/private/devices`).get()).data()?.fcmTokens as string[] | undefined) ?? [];
   if (!tokens.length) return;
-  await getMessaging().sendEachForMulticast({ tokens, notification: { title, body },
+  const r = await getMessaging().sendEachForMulticast({ tokens, notification: { title, body },
     data: { type, deepLink: deepLink ?? "" }, android: { priority: "high", notification: { channelId: "orders" } } }).catch(() => undefined);
+  const dead = r ? deadTokens(tokens, r.responses) : [];
+  if (dead.length) await db.doc(`users/${uid}/private/devices`).set({ fcmTokens: FieldValue.arrayRemove(...dead) }, { merge: true }).catch(() => undefined);
+}
+
+/** Tokens FCM says are gone for good (app uninstalled, data cleared): removed so pushes don't keep failing. */
+export function deadTokens(tokens: string[], responses: { success: boolean; error?: { code?: string } }[]) {
+  return tokens.filter((_, i) => !responses[i]?.success && ["messaging/registration-token-not-registered", "messaging/invalid-registration-token"].includes(responses[i]?.error?.code ?? ""));
 }
 
 export const str = (v: unknown, field: string, max = 200): string => {

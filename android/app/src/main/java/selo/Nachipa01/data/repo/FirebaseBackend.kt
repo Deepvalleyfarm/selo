@@ -69,7 +69,19 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     )
 
     private suspend fun loadSession(uid: String): SessionUser =
-        db.collection("users").document(uid).get().await().toSession().also { session = it }
+        db.collection("users").document(uid).get().await().toSession().also { session = it; registerPushToken() }
+
+    /**
+     * Sends this phone's FCM token to the server once a user is signed in. FCM usually issues the token on first launch,
+     * before login, when the callable rejects an unauthenticated caller, so it must be sent again here.
+     */
+    private suspend fun registerPushToken() {
+        runCatching {
+            val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+            functions.getHttpsCallable("user_registerFcmToken").call(mapOf("token" to token)).await()
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().subscribeToTopic("config-updates").await()
+        }
+    }
 
     override suspend fun restoreSession(): SessionUser? = auth.currentUser?.uid?.let { runCatching { loadSession(it) }.getOrNull() }
 
@@ -158,7 +170,14 @@ class FirebaseBackend(app: FirebaseApp) : Backend {
     override suspend fun lookupWallet(msisdn: String): String =
         call("wallet_lookup", mapOf("msisdn" to msisdn))["holderName"] as? String ?: throw BackendException("Wallet not found.")
 
-    override suspend fun logout() { auth.signOut(); session = null }
+    override suspend fun logout() {
+        // Stop this phone receiving the previous user's pushes (delivery codes, orders, payouts).
+        runCatching {
+            val token = com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+            functions.getHttpsCallable("user_unregisterFcmToken").call(mapOf("token" to token)).await()
+        }
+        auth.signOut(); session = null
+    }
 
     private fun DocumentSnapshot.toListing() = Listing(
         id = id, sellerUid = getString("sellerUid") ?: "", sellerName = getString("sellerName") ?: "",

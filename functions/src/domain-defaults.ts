@@ -19,6 +19,8 @@ export const DEFAULT_CONFIG = {
   // Listing Studio (Gemini + Deepgram + ElevenLabs + Cloudinary + Runway)
   studioEnabled: true, studioAutoStart: true, studioAutoApply: true, studioVoiceoverEnabled: true, studioRunwayEnabled: true, studioCaptionsEnabled: true,
   studioBackgroundRemoval: false, studioMaxJobsPerSellerPerDay: 5, studioDailyCapRunway: 100, studioDailyCapVoiceover: 500,
+  // Open Network (partner API): Express premium on SeloNachipa's delivery fee; daily AI media caps per partner
+  openExpressPremiumPct: 25, openStudioDailyCap: 50, openAdDailyCap: 200,
   // Google Maps: delivery fee engine (base K45 + K5.50/km), kill switches, caps, rerouting
   ...MAPS_DEFAULTS,
 };

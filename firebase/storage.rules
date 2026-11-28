@@ -1,8 +1,11 @@
+// SeloNachipa's Storage paths. The default bucket of mabala-f2d65 is shared with Mabala, so these rules are deployed
+// from the Mabala repo (storage.rules, section "SeloNachipa"), never from here. Change both copies together; this
+// file is used by the emulator tests. Path prefixes must not overlap Mabala's.
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function admin(roles) { return request.auth != null && request.auth.token.admin != null &&
-      (request.auth.token.admin == 'super_admin' || request.auth.token.admin in roles); }
+    function admin(roles) { return request.auth != null && request.auth.token.get('admin', null) != null &&
+      (request.auth.token.get('admin', null) == 'super_admin' || request.auth.token.get('admin', null) in roles); }
 
     // KYC: owner uploads, only compliance can read. Images under 5 MB.
     match /kyc/{uid}/{file} {
