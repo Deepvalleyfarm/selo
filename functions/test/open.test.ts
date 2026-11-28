@@ -159,3 +159,12 @@ describe("push tokens", () => {
       { success: false, error: { code: "messaging/internal-error" } }, { success: false, error: { code: "messaging/invalid-registration-token" } }])).toEqual(["b", "d"]);
   });
 });
+
+describe("admin role claims (Firebase Auth shared with Mabala)", () => {
+  it("adds or removes only SeloNaChipa's admin claim", async () => {
+    const { withAdminClaim } = await import("../src/admin");
+    expect(withAdminClaim({ role: "super_admin", tenantId: "t1" }, "finance")).toEqual({ role: "super_admin", tenantId: "t1", admin: "finance" });
+    expect(withAdminClaim({ role: "super_admin", admin: "finance" }, null)).toEqual({ role: "super_admin" });
+    expect(withAdminClaim(undefined, "super_admin")).toEqual({ admin: "super_admin" });
+  });
+});

@@ -189,7 +189,8 @@ export const admin_setRole = onCall(async (req) => {
   const email = str(req.data?.email, "email");
   const role = (req.data?.role ?? null) as AdminRole | null;
   const user = await getAuth().getUserByEmail(email).catch(() => getAuth().createUser({ email }));
-  await getAuth().setCustomUserClaims(user.uid, role ? { admin: role } : {});
+  // Firebase Auth is shared with Mabala: keep its claims (e.g. Mabala's own role) and change only `admin`.
+  await getAuth().setCustomUserClaims(user.uid, withAdminClaim(user.customClaims, role));
   await db.doc(`admins/${user.uid}`).set({ email, role, updatedBy: a.email, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   await audit(a, "admin.set_role", `admins/${user.uid}`, null, { email, role }, ip(req));
   return { ok: true };
@@ -264,3 +265,10 @@ export const admin_exportLeads = onCall(async (req) => {
   await audit(a, "leads.view", `sellers/${sellerUid}`, null, { buyers: rows.length, consented: rows.filter((r) => r.consent).length }, ip(req));
   return { rows, shareable: rows.filter((r) => r.consent) };
 });
+
+/** Custom claims with SeloNaChipa's `admin` role set (or removed when null), every other claim kept. */
+export function withAdminClaim(existing: Record<string, unknown> | undefined | null, role: string | null) {
+  const next: Record<string, unknown> = { ...(existing ?? {}) };
+  if (role) next.admin = role; else delete next.admin;
+  return next;
+}

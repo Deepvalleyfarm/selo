@@ -12,6 +12,7 @@ initializeApp();
 const auth = getAuth();
 const user = await auth.getUserByEmail(email).catch(() => auth.createUser({ email }));
 // --ceo grants the CEO-level override needed to switch off the anti-addiction guardrails.
-await auth.setCustomUserClaims(user.uid, ceo ? { admin: role, ceo: true } : { admin: role });
+// Firebase Auth is shared with Mabala: keep the account's existing claims and only add SeloNaChipa's admin role.
+await auth.setCustomUserClaims(user.uid, { ...(user.customClaims ?? {}), admin: role, ...(ceo ? { ceo: true } : {}) });
 await getFirestore("ai-studio-611c950c-febe-47c1-afff-35dcb0788339").doc(`admins/${user.uid}`).set({ email, role, updatedBy: "bootstrap" }, { merge: true });
 console.log(`${email} is now ${role}${ceo ? " with CEO override" : ""}. Send them a password reset link from the Firebase console and enforce MFA.`);
